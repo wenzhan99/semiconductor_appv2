@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import 'unit_preferences.dart';
@@ -51,10 +52,16 @@ class SymbolValue extends Equatable {
   });
 
   factory SymbolValue.fromJson(Map<String, dynamic> json) {
+    final value = _parseDouble(json['value'], context: 'SymbolValue.value');
+    final unit = json['unit']?.toString() ?? '';
+    final sourceRaw = json['source']?.toString() ?? 'user';
+    if (value == null) {
+      throw FormatException('Invalid numeric value for SymbolValue.value (got ${json['value']})');
+    }
     return SymbolValue(
-      value: (json['value'] as num).toDouble(),
-      unit: json['unit'] as String,
-      source: SymbolSource.fromJson(json['source'] as String),
+      value: value,
+      unit: unit,
+      source: SymbolSource.fromJson(sourceRaw),
     );
   }
 
@@ -144,16 +151,8 @@ class WorkspacePanel extends Equatable {
     return WorkspacePanel(
       id: json['id'] as String,
       formulaId: json['formula_id'] as String,
-      overrides: (json['overrides'] as Map<String, dynamic>? ?? const {})
-          .map((k, v) => MapEntry(
-                k,
-                SymbolValue.fromJson(v as Map<String, dynamic>),
-              )),
-      outputs: (json['outputs'] as Map<String, dynamic>? ?? const {})
-          .map((k, v) => MapEntry(
-                k,
-                SymbolValue.fromJson(v as Map<String, dynamic>),
-              )),
+      overrides: _safeSymbolMap(json['overrides']),
+      outputs: _safeSymbolMap(json['outputs']),
       status: PanelStatus.fromJson(json['status'] as String? ?? 'needsInputs'),
       orderIndex: json['order_index'] as int,
     );
@@ -239,11 +238,7 @@ class Workspace extends Equatable {
       schemaVersion: json['schema_version'] as int? ?? 1,
       id: json['id'] as String,
       name: json['name'] as String,
-      globals: (json['globals'] as Map<String, dynamic>? ?? const {})
-          .map((k, v) => MapEntry(
-                k,
-                SymbolValue.fromJson(v as Map<String, dynamic>),
-              )),
+      globals: _safeSymbolMap(json['globals']),
       panels: (json['panels'] as List<dynamic>? ?? const [])
           .map((e) => WorkspacePanel.fromJson(e as Map<String, dynamic>))
           .toList(),
@@ -315,3 +310,30 @@ class Workspace extends Equatable {
       ];
 }
 
+double? _parseDouble(dynamic raw, {required String context}) {
+  if (raw == null) return null;
+  if (raw is num) return raw.toDouble();
+  if (raw is String) {
+    final parsed = double.tryParse(raw);
+    if (parsed != null) return parsed;
+  }
+  debugPrint('Invalid numeric value for $context: $raw (${raw.runtimeType})');
+  return null;
+}
+
+Map<String, SymbolValue> _safeSymbolMap(dynamic raw) {
+  final map = <String, SymbolValue>{};
+  if (raw is Map<String, dynamic>) {
+    raw.forEach((key, value) {
+      if (value is Map<String, dynamic>) {
+        try {
+          final sv = SymbolValue.fromJson(value);
+          map[key] = sv;
+        } catch (e) {
+          debugPrint('Skipping invalid SymbolValue for \"$key\": $e');
+        }
+      }
+    });
+  }
+  return map;
+}
