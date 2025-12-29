@@ -1,0 +1,291 @@
+{
+  "id": "density_of_states_statistics",
+  "name": "Density of States & Statistics",
+  "formula_ids": [
+    "dos_Nc_effective_density_conduction",
+    "dos_Nv_effective_density_valence",
+    "dos_fermi_dirac_probability",
+    "intrinsic_concentration_from_dos",
+    "dos_stats_midgap_energy",
+    "dos_stats_intrinsic_fermi_level"
+  ],
+  "formulas": [
+    {
+      "id": "dos_Nc_effective_density_conduction",
+      "name": "Effective density of states (conduction band)",
+      "equation_latex": "N_c = 2\\left(\\frac{2\\pi m_n^* k T}{h^2}\\right)^{3/2}",
+      "description": "Effective density of states for the conduction band (3D, parabolic, non-degenerate approximation).",
+      "variables": [
+        {
+          "key": "N_c",
+          "name": "Effective density of states (conduction band)",
+          "si_unit": "m^-3",
+          "preferred_units": ["m^-3", "cm^-3"],
+          "constraints": { "type": "nonnegative" }
+        },
+        {
+          "key": "m_n_star",
+          "name": "Electron effective mass",
+          "si_unit": "kg",
+          "preferred_units": ["kg"],
+          "constraints": { "type": "positive" }
+        },
+        {
+          "key": "T",
+          "name": "Temperature",
+          "si_unit": "K",
+          "preferred_units": ["K"],
+          "constraints": { "type": "positive" }
+        }
+      ],
+      "constants_used": [
+        { "key": "k", "source": "physical_constants_table", "note": "Boltzmann constant" },
+        { "key": "h", "source": "physical_constants_table", "note": "Planck constant" }
+      ],
+      "solvable_for": ["N_c", "m_n_star", "T"],
+      "compute": {
+        "N_c": "2*pow((2*pi*m_n_star*k*T)/(h*h),1.5)",
+        "m_n_star": "((h*h)/(2*pi*k*T))*pow((N_c/2), (2/3))",
+        "T": "((h*h)/(2*pi*m_n_star*k))*pow((N_c/2), (2/3))"
+      },
+      "version": 1
+    },
+    {
+      "id": "dos_Nv_effective_density_valence",
+      "name": "Effective density of states (valence band)",
+      "equation_latex": "N_v = 2\\left(\\frac{2\\pi m_p^* k T}{h^2}\\right)^{3/2}",
+      "description": "Effective density of states for the valence band (3D, parabolic, non-degenerate approximation).",
+      "variables": [
+        {
+          "key": "N_v",
+          "name": "Effective density of states (valence band)",
+          "si_unit": "m^-3",
+          "preferred_units": ["m^-3", "cm^-3"],
+          "constraints": { "type": "nonnegative" }
+        },
+        {
+          "key": "m_p_star",
+          "name": "Hole effective mass",
+          "si_unit": "kg",
+          "preferred_units": ["kg"],
+          "constraints": { "type": "positive" }
+        },
+        {
+          "key": "T",
+          "name": "Temperature",
+          "si_unit": "K",
+          "preferred_units": ["K"],
+          "constraints": { "type": "positive" }
+        }
+      ],
+      "constants_used": [
+        { "key": "k", "source": "physical_constants_table", "note": "Boltzmann constant" },
+        { "key": "h", "source": "physical_constants_table", "note": "Planck constant" }
+      ],
+      "solvable_for": ["N_v", "m_p_star", "T"],
+      "compute": {
+        "N_v": "2*pow((2*pi*m_p_star*k*T)/(h*h),1.5)",
+        "m_p_star": "((h*h)/(2*pi*k*T))*pow((N_v/2), (2/3))",
+        "T": "((h*h)/(2*pi*m_p_star*k))*pow((N_v/2), (2/3))"
+      },
+      "version": 1
+    },
+    {
+      "id": "dos_fermi_dirac_probability",
+      "name": "Fermi–Dirac probability",
+      "equation_latex": "f(E)=\\frac{1}{1+\\exp\\left(\\frac{E-E_{F}}{kT}\\right)}",
+      "description": "Fermi–Dirac occupation probability at energy E.",
+      "variables": [
+        {
+          "key": "f_E",
+          "name": "Fermi–Dirac occupation probability",
+          "si_unit": "1",
+          "preferred_units": ["1"],
+          "constraints": { "type": "open_unit_interval" }
+        },
+        {
+          "key": "E",
+          "name": "Energy level",
+          "si_unit": "J",
+          "preferred_units": ["J", "eV"],
+          "constraints": { "type": "finite" }
+        },
+        {
+          "key": "E_F",
+          "name": "Fermi energy",
+          "si_unit": "J",
+          "preferred_units": ["J", "eV"],
+          "constraints": { "type": "finite" }
+        },
+        {
+          "key": "T",
+          "name": "Temperature",
+          "si_unit": "K",
+          "preferred_units": ["K"],
+          "constraints": { "type": "positive" }
+        }
+      ],
+      "constants_used": [
+        { "key": "k", "source": "physical_constants_table", "note": "Boltzmann constant" }
+      ],
+      "solvable_for": ["f_E", "E_F", "E", "T"],
+      "compute": {
+        "f_E": "1/(1+exp((E-E_F)/(k*T)))",
+        "E_F": "E - (k*T)*ln((1/f_E)-1)",
+        "E": "E_F + (k*T)*ln((1/f_E)-1)",
+        "T": "(E-E_F)/(k*ln((1/f_E)-1))"
+      },
+      "version": 1
+    },
+    {
+      "id": "intrinsic_concentration_from_dos",
+      "name": "Intrinsic carrier concentration",
+      "equation_latex": "n_{i}^{2} = N_{c} N_{v}\\exp\\left(-\\frac{E_{g}}{kT}\\right)",
+      "description": "Intrinsic carrier concentration from DOS: ni^2 = Nc Nv exp(-Eg/kT).",
+      "variables": [
+        {
+          "key": "n_i",
+          "name": "Intrinsic carrier concentration",
+          "si_unit": "m^-3",
+          "preferred_units": ["m^-3", "cm^-3"],
+          "constraints": { "type": "positive" }
+        },
+        {
+          "key": "N_c",
+          "name": "Effective density of states (conduction band)",
+          "si_unit": "m^-3",
+          "preferred_units": ["m^-3", "cm^-3"],
+          "constraints": { "type": "positive" }
+        },
+        {
+          "key": "N_v",
+          "name": "Effective density of states (valence band)",
+          "si_unit": "m^-3",
+          "preferred_units": ["m^-3", "cm^-3"],
+          "constraints": { "type": "positive" }
+        },
+        {
+          "key": "E_g",
+          "name": "Bandgap energy",
+          "si_unit": "J",
+          "preferred_units": ["J", "eV"],
+          "constraints": { "type": "positive" }
+        },
+        {
+          "key": "T",
+          "name": "Temperature",
+          "si_unit": "K",
+          "preferred_units": ["K"],
+          "constraints": { "type": "positive" }
+        }
+      ],
+      "constants_used": [
+        { "key": "k", "source": "physical_constants_table", "note": "Boltzmann constant" }
+      ],
+      "solvable_for": ["n_i", "E_g", "T", "N_c", "N_v"],
+      "compute": {
+        "n_i": "sqrt(N_c*N_v*exp((-E_g)/(k*T)))",
+        "E_g": "-(k*T)*ln((n_i*n_i)/(N_c*N_v))",
+        "T": "-E_g/(k*ln((n_i*n_i)/(N_c*N_v)))",
+        "N_c": "(n_i*n_i)/(N_v*exp((-E_g)/(k*T)))",
+        "N_v": "(n_i*n_i)/(N_c*exp((-E_g)/(k*T)))"
+      },
+      "version": 1
+    },
+    {
+      "id": "dos_stats_midgap_energy",
+      "name": "Midgap energy",
+      "equation_latex": "E_{\\mathrm{mid}} = \\frac{E_c + E_v}{2}",
+      "description": "",
+      "variables": [
+        {
+          "key": "E_mid",
+          "name": "Midgap energy",
+          "si_unit": "J",
+          "preferred_units": ["J", "eV"],
+          "constraints": { "type": "finite" }
+        },
+        {
+          "key": "E_c",
+          "name": "Conduction band edge energy",
+          "si_unit": "J",
+          "preferred_units": ["J", "eV"],
+          "constraints": { "type": "finite" }
+        },
+        {
+          "key": "E_v",
+          "name": "Valence band edge energy",
+          "si_unit": "J",
+          "preferred_units": ["J", "eV"],
+          "constraints": { "type": "finite" }
+        }
+      ],
+      "constants_used": [
+        { "key": "q", "source": "physical_constants_table", "note": "needed for J ↔ eV conversion in UI" }
+      ],
+      "solvable_for": ["E_mid", "E_c", "E_v"],
+      "compute": {
+        "E_mid": "(E_c + E_v) / 2",
+        "E_c": "2*E_mid - E_v",
+        "E_v": "2*E_mid - E_c"
+      },
+      "version": 1
+    },
+    {
+      "id": "dos_stats_intrinsic_fermi_level",
+      "name": "Intrinsic Fermi level position",
+      "equation_latex": "E_i = E_{\\mathrm{mid}} + \\frac{3}{4}kT\\ln\\left(\\frac{m_p^*}{m_n^*}\\right)",
+      "description": "",
+      "variables": [
+        {
+          "key": "E_i",
+          "name": "Intrinsic Fermi level",
+          "si_unit": "J",
+          "preferred_units": ["J", "eV"],
+          "constraints": { "type": "finite" }
+        },
+        {
+          "key": "E_mid",
+          "name": "Midgap energy",
+          "si_unit": "J",
+          "preferred_units": ["J", "eV"],
+          "constraints": { "type": "finite" }
+        },
+        {
+          "key": "T",
+          "name": "Temperature",
+          "si_unit": "K",
+          "preferred_units": ["K"],
+          "constraints": { "type": "positive" }
+        },
+        {
+          "key": "m_p_star",
+          "name": "Hole effective mass",
+          "si_unit": "kg",
+          "preferred_units": ["kg"],
+          "constraints": { "type": "positive" }
+        },
+        {
+          "key": "m_n_star",
+          "name": "Electron effective mass",
+          "si_unit": "kg",
+          "preferred_units": ["kg"],
+          "constraints": { "type": "positive" }
+        }
+      ],
+      "constants_used": [
+        { "key": "k", "source": "physical_constants_table", "note": "Boltzmann constant" },
+        { "key": "q", "source": "physical_constants_table", "note": "needed for J ↔ eV conversion in UI" }
+      ],
+      "solvable_for": ["E_i", "E_mid", "T", "m_p_star", "m_n_star"],
+      "compute": {
+        "E_i": "E_mid + (3/4)*k*T*ln(m_p_star/m_n_star)",
+        "E_mid": "E_i - (3/4)*k*T*ln(m_p_star/m_n_star)",
+        "T": "(E_i - E_mid) / ((3/4)*k*ln(m_p_star/m_n_star))",
+        "m_p_star": "m_n_star * exp((4/3)*(E_i - E_mid)/(k*T))",
+        "m_n_star": "m_p_star * exp(-(4/3)*(E_i - E_mid)/(k*T))"
+      },
+      "version": 1
+    }
+  ]
+}

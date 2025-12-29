@@ -1,0 +1,32 @@
+name: semiconductor_appv2
+description: A semiconductor physics formulas and constants app.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  equatable: ^2.0.5
+  uuid: ^4.3.3
+  provider: ^6.1.1
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  flutter_math_fork: ^0.7.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/formulas/energy_band_structure.json
+    - assets/formulas/density_of_states_statistics.json
+    - assets/formulas/carrier_concentration_equilibrium.json
+    - assets/formulas/carrier_transport_fundamentals.json
+    - assets/constants/ee2103_latex_symbols.json
+    - assets/constants/ee2103_physical_constants.json

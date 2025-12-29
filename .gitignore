@@ -1,0 +1,37 @@
+.DS_Store
+.dart_tool/
+.packages
+.pub-cache/
+.flutter-plugins
+.flutter-plugins-dependencies
+.metadata
+
+# Build outputs
+build/
+
+# Android
+**/android/.gradle/
+**/android/app/debug
+**/android/app/profile
+**/android/app/release
+
+# iOS/macOS
+**/ios/Flutter/.symlinks/
+**/ios/Pods/
+**/ios/.generated/
+**/ios/Flutter/ephemeral/
+**/macos/Flutter/ephemeral/
+
+# Windows/Linux
+**/windows/flutter/ephemeral/
+**/linux/flutter/ephemeral/
+
+# Generated files
+**/GeneratedPluginRegistrant.*
+**/Flutter/Generated.xcconfig
+**/Flutter/GeneratedPluginRegistrant.swift
+
+# IDE
+.idea/
+.vscode/
+*.iml

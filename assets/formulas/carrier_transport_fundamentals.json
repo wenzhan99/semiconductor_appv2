@@ -1,0 +1,428 @@
+{
+  "id": "carrier_transport_fundamentals",
+  "name": "Carrier Transport (Fundamentals)",
+  "formula_ids": [
+    "ct_f1_electron_drift_velocity",
+    "ct_f2_hole_drift_velocity",
+    "ct_f3_electron_drift_current_density",
+    "ct_f4_hole_drift_current_density",
+    "ct_f5_electron_diffusion_current_density",
+    "ct_f6_hole_diffusion_current_density",
+    "ct_f7_einstein_relation_electrons",
+    "ct_f8_einstein_relation_holes",
+    "ct_f9_conductivity",
+    "ct_f10_resistivity"
+  ],
+  "formulas": [
+    {
+      "id": "ct_f1_electron_drift_velocity",
+      "name": "Electron drift velocity",
+      "equation_latex": "v_{dn} = -\\mu_n E_{field}",
+      "description": "Electron drift velocity under an electric field.",
+      "variables": [
+        {
+          "key": "v_dn",
+          "name": "Electron drift velocity",
+          "si_unit": "m/s",
+          "preferred_units": ["m/s"],
+          "constraints": { "type": "finite" }
+        },
+        {
+          "key": "mu_n",
+          "name": "Electron mobility",
+          "si_unit": "m^2/(V*s)",
+          "preferred_units": ["m^2/(V*s)", "cm^2/(V*s)"],
+          "constraints": { "type": "positive" }
+        },
+          {
+            "key": "E_field",
+            "name": "Electric field",
+            "si_unit": "V/m",
+            "preferred_units": ["V/m"],
+            "constraints": { "type": "finite" }
+          }
+      ],
+      "constants_used": [],
+      "solvable_for": ["v_dn", "mu_n", "E_field"],
+      "compute": {
+        "v_dn": "-mu_n*E_field",
+        "mu_n": "-v_dn/E_field",
+        "E_field": "-v_dn/mu_n"
+      },
+      "version": 1
+    },
+    {
+      "id": "ct_f2_hole_drift_velocity",
+      "name": "Hole drift velocity",
+      "equation_latex": "v_{dp} = +\\mu_p E_{field}",
+      "description": "Hole drift velocity under an electric field.",
+      "variables": [
+        {
+          "key": "v_dp",
+          "name": "Hole drift velocity",
+          "si_unit": "m/s",
+          "preferred_units": ["m/s"],
+          "constraints": { "type": "finite" }
+        },
+        {
+          "key": "mu_p",
+          "name": "Hole mobility",
+          "si_unit": "m^2/(V*s)",
+          "preferred_units": ["m^2/(V*s)", "cm^2/(V*s)"],
+          "constraints": { "type": "positive" }
+        },
+          {
+            "key": "E_field",
+            "name": "Electric field",
+            "si_unit": "V/m",
+            "preferred_units": ["V/m"],
+            "constraints": { "type": "finite" }
+          }
+      ],
+      "constants_used": [],
+      "solvable_for": ["v_dp", "mu_p", "E_field"],
+      "compute": {
+        "v_dp": "mu_p*E_field",
+        "mu_p": "v_dp/E_field",
+        "E_field": "v_dp/mu_p"
+      },
+      "version": 1
+    },
+    {
+      "id": "ct_f3_electron_drift_current_density",
+      "name": "Electron drift current density",
+      "equation_latex": "J_{n,\\mathrm{drift}} = q n \\mu_n E",
+      "description": "Electron drift current density from carrier density and mobility.",
+      "variables": [
+        {
+          "key": "J_n_drift",
+          "name": "Electron drift current density",
+          "si_unit": "A/m^2",
+          "preferred_units": ["A/m^2"],
+          "constraints": { "type": "finite" }
+        },
+        {
+          "key": "n",
+          "name": "Electron concentration",
+          "si_unit": "m^-3",
+          "preferred_units": ["m^-3", "cm^-3"],
+          "constraints": { "type": "positive" }
+        },
+        {
+          "key": "mu_n",
+          "name": "Electron mobility",
+          "si_unit": "m^2/(V*s)",
+          "preferred_units": ["m^2/(V*s)", "cm^2/(V*s)"],
+          "constraints": { "type": "positive" }
+        },
+        {
+          "key": "E",
+          "name": "Electric field",
+          "si_unit": "V/m",
+          "preferred_units": ["V/m"],
+          "constraints": { "type": "finite" }
+        }
+      ],
+      "constants_used": [
+        { "key": "q", "source": "physical_constants_table", "note": "Elementary charge" }
+      ],
+      "solvable_for": ["J_n_drift", "n", "mu_n", "E"],
+      "compute": {
+        "J_n_drift": "q*n*mu_n*E",
+        "n": "J_n_drift/(q*mu_n*E)",
+        "mu_n": "J_n_drift/(q*n*E)",
+        "E": "J_n_drift/(q*n*mu_n)"
+      },
+      "version": 1
+    },
+    {
+      "id": "ct_f4_hole_drift_current_density",
+      "name": "Hole drift current density",
+      "equation_latex": "J_{p,\\mathrm{drift}} = q p \\mu_p E",
+      "description": "Hole drift current density from carrier density and mobility.",
+      "variables": [
+        {
+          "key": "J_p_drift",
+          "name": "Hole drift current density",
+          "si_unit": "A/m^2",
+          "preferred_units": ["A/m^2"],
+          "constraints": { "type": "finite" }
+        },
+        {
+          "key": "p",
+          "name": "Hole concentration",
+          "si_unit": "m^-3",
+          "preferred_units": ["m^-3", "cm^-3"],
+          "constraints": { "type": "positive" }
+        },
+        {
+          "key": "mu_p",
+          "name": "Hole mobility",
+          "si_unit": "m^2/(V*s)",
+          "preferred_units": ["m^2/(V*s)", "cm^2/(V*s)"],
+          "constraints": { "type": "positive" }
+        },
+        {
+          "key": "E",
+          "name": "Electric field",
+          "si_unit": "V/m",
+          "preferred_units": ["V/m"],
+          "constraints": { "type": "finite" }
+        }
+      ],
+      "constants_used": [
+        { "key": "q", "source": "physical_constants_table", "note": "Elementary charge" }
+      ],
+      "solvable_for": ["J_p_drift", "p", "mu_p", "E"],
+      "compute": {
+        "J_p_drift": "q*p*mu_p*E",
+        "p": "J_p_drift/(q*mu_p*E)",
+        "mu_p": "J_p_drift/(q*p*E)",
+        "E": "J_p_drift/(q*p*mu_p)"
+      },
+      "version": 1
+    },
+    {
+      "id": "ct_f5_electron_diffusion_current_density",
+      "name": "Electron diffusion current density (steady-state)",
+      "equation_latex": "J_{n,\\mathrm{diff}} = q D_n \\frac{dn}{dx}",
+      "description": "Electron diffusion current density using carrier gradient.",
+      "variables": [
+        {
+          "key": "J_n_diff",
+          "name": "Electron diffusion current density",
+          "si_unit": "A/m^2",
+          "preferred_units": ["A/m^2"],
+          "constraints": { "type": "finite" }
+        },
+        {
+          "key": "D_n",
+          "name": "Electron diffusion coefficient",
+          "si_unit": "m^2/s",
+          "preferred_units": ["m^2/s"],
+          "constraints": { "type": "positive" }
+        },
+        {
+          "key": "dn_dx",
+          "name": "Electron concentration gradient",
+          "si_unit": "m^-4",
+          "preferred_units": ["m^-4"],
+          "constraints": { "type": "finite" }
+        }
+      ],
+      "constants_used": [
+        { "key": "q", "source": "physical_constants_table", "note": "Elementary charge" }
+      ],
+      "solvable_for": ["J_n_diff", "D_n", "dn_dx"],
+      "compute": {
+        "J_n_diff": "q*D_n*dn_dx",
+        "D_n": "J_n_diff/(q*dn_dx)",
+        "dn_dx": "J_n_diff/(q*D_n)"
+      },
+      "version": 1
+    },
+    {
+      "id": "ct_f6_hole_diffusion_current_density",
+      "name": "Hole diffusion current density (steady-state)",
+      "equation_latex": "J_{p,\\mathrm{diff}} = -q D_p \\frac{dp}{dx}",
+      "description": "Hole diffusion current density using carrier gradient.",
+      "variables": [
+        {
+          "key": "J_p_diff",
+          "name": "Hole diffusion current density",
+          "si_unit": "A/m^2",
+          "preferred_units": ["A/m^2"],
+          "constraints": { "type": "finite" }
+        },
+        {
+          "key": "D_p",
+          "name": "Hole diffusion coefficient",
+          "si_unit": "m^2/s",
+          "preferred_units": ["m^2/s"],
+          "constraints": { "type": "positive" }
+        },
+        {
+          "key": "dp_dx",
+          "name": "Hole concentration gradient",
+          "si_unit": "m^-4",
+          "preferred_units": ["m^-4"],
+          "constraints": { "type": "finite" }
+        }
+      ],
+      "constants_used": [
+        { "key": "q", "source": "physical_constants_table", "note": "Elementary charge" }
+      ],
+      "solvable_for": ["J_p_diff", "D_p", "dp_dx"],
+      "compute": {
+        "J_p_diff": "-q*D_p*dp_dx",
+        "D_p": "-J_p_diff/(q*dp_dx)",
+        "dp_dx": "-J_p_diff/(q*D_p)"
+      },
+      "version": 1
+    },
+    {
+      "id": "ct_f7_einstein_relation_electrons",
+      "name": "Einstein relation (electrons)",
+      "equation_latex": "D_n = \\mu_n \\frac{k T}{q}",
+      "description": "Relates electron mobility and diffusion coefficient via kT/q.",
+      "variables": [
+        {
+          "key": "D_n",
+          "name": "Electron diffusion coefficient",
+          "si_unit": "m^2/s",
+          "preferred_units": ["m^2/s"],
+          "constraints": { "type": "positive" }
+        },
+        {
+          "key": "mu_n",
+          "name": "Electron mobility",
+          "si_unit": "m^2/(V*s)",
+          "preferred_units": ["m^2/(V*s)", "cm^2/(V*s)"],
+          "constraints": { "type": "positive" }
+        },
+        {
+          "key": "T",
+          "name": "Temperature",
+          "si_unit": "K",
+          "preferred_units": ["K"],
+          "constraints": { "type": "positive" }
+        }
+      ],
+      "constants_used": [
+        { "key": "k", "source": "physical_constants_table", "note": "Boltzmann constant" },
+        { "key": "q", "source": "physical_constants_table", "note": "Elementary charge" }
+      ],
+      "solvable_for": ["D_n", "mu_n", "T"],
+      "compute": {
+        "D_n": "mu_n*k*T/q",
+        "mu_n": "D_n*q/(k*T)",
+        "T": "D_n*q/(k*mu_n)"
+      },
+      "version": 1
+    },
+    {
+      "id": "ct_f8_einstein_relation_holes",
+      "name": "Einstein relation (holes)",
+      "equation_latex": "D_p = \\mu_p \\frac{k T}{q}",
+      "description": "Relates hole mobility and diffusion coefficient via kT/q.",
+      "variables": [
+        {
+          "key": "D_p",
+          "name": "Hole diffusion coefficient",
+          "si_unit": "m^2/s",
+          "preferred_units": ["m^2/s"],
+          "constraints": { "type": "positive" }
+        },
+        {
+          "key": "mu_p",
+          "name": "Hole mobility",
+          "si_unit": "m^2/(V*s)",
+          "preferred_units": ["m^2/(V*s)", "cm^2/(V*s)"],
+          "constraints": { "type": "positive" }
+        },
+        {
+          "key": "T",
+          "name": "Temperature",
+          "si_unit": "K",
+          "preferred_units": ["K"],
+          "constraints": { "type": "positive" }
+        }
+      ],
+      "constants_used": [
+        { "key": "k", "source": "physical_constants_table", "note": "Boltzmann constant" },
+        { "key": "q", "source": "physical_constants_table", "note": "Elementary charge" }
+      ],
+      "solvable_for": ["D_p", "mu_p", "T"],
+      "compute": {
+        "D_p": "mu_p*k*T/q",
+        "mu_p": "D_p*q/(k*T)",
+        "T": "D_p*q/(k*mu_p)"
+      },
+      "version": 1
+    },
+    {
+      "id": "ct_f9_conductivity",
+      "name": "Conductivity",
+      "equation_latex": "\\sigma = q(n\\mu_n + p\\mu_p)",
+      "description": "Electrical conductivity from carrier densities and mobilities.",
+      "variables": [
+        {
+          "key": "sigma",
+          "name": "Conductivity",
+          "si_unit": "S/m",
+          "preferred_units": ["S/m"],
+          "constraints": { "type": "positive" }
+        },
+        {
+          "key": "n",
+          "name": "Electron concentration",
+          "si_unit": "m^-3",
+          "preferred_units": ["m^-3", "cm^-3"],
+          "constraints": { "type": "positive" }
+        },
+        {
+          "key": "mu_n",
+          "name": "Electron mobility",
+          "si_unit": "m^2/(V*s)",
+          "preferred_units": ["m^2/(V*s)", "cm^2/(V*s)"],
+          "constraints": { "type": "positive" }
+        },
+        {
+          "key": "p",
+          "name": "Hole concentration",
+          "si_unit": "m^-3",
+          "preferred_units": ["m^-3", "cm^-3"],
+          "constraints": { "type": "positive" }
+        },
+        {
+          "key": "mu_p",
+          "name": "Hole mobility",
+          "si_unit": "m^2/(V*s)",
+          "preferred_units": ["m^2/(V*s)", "cm^2/(V*s)"],
+          "constraints": { "type": "positive" }
+        }
+      ],
+      "constants_used": [
+        { "key": "q", "source": "physical_constants_table", "note": "Elementary charge" }
+      ],
+      "solvable_for": ["sigma", "n", "p", "mu_n", "mu_p"],
+      "compute": {
+        "sigma": "q*(n*mu_n + p*mu_p)",
+        "n": "(sigma/q - p*mu_p)/mu_n",
+        "p": "(sigma/q - n*mu_n)/mu_p",
+        "mu_n": "(sigma/q - p*mu_p)/n",
+        "mu_p": "(sigma/q - n*mu_n)/p"
+      },
+      "version": 1
+    },
+    {
+      "id": "ct_f10_resistivity",
+      "name": "Resistivity",
+      "equation_latex": "\\rho = \\frac{1}{\\sigma}",
+      "description": "Resistivity as the reciprocal of conductivity.",
+      "variables": [
+        {
+          "key": "rho",
+          "name": "Resistivity",
+          "si_unit": "ohm*m",
+          "preferred_units": ["ohm*m"],
+          "constraints": { "type": "positive" }
+        },
+        {
+          "key": "sigma",
+          "name": "Conductivity",
+          "si_unit": "S/m",
+          "preferred_units": ["S/m"],
+          "constraints": { "type": "positive" }
+        }
+      ],
+      "constants_used": [],
+      "solvable_for": ["rho", "sigma"],
+      "compute": {
+        "rho": "1/sigma",
+        "sigma": "1/rho"
+      },
+      "version": 1
+    }
+  ]
+}
