@@ -33,7 +33,7 @@ class UniversalStepTemplate {
     }
 
     // Step 2
-    steps.add(StepItem.text('$_step2Prefix$targetLabelLatex'));
+    steps.add(StepItem.math(r'\textbf{' '$_step2Prefix' r'} ' + targetLabelLatex));
     final rearrange = rearrangeLines.where((l) => l.trim().isNotEmpty).toList();
     if (rearrange.isEmpty) {
       steps.add(const StepItem.math(r'\text{No rearrangement required.}'));

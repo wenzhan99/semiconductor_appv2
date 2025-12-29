@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/constants_repository.dart';
+import '../../core/constants/formula_constants_resolver.dart';
 import '../../core/constants/latex_symbols.dart';
 import '../../core/formulas/formula_definition.dart';
 import '../../core/formulas/formula_repository.dart';
@@ -46,24 +47,48 @@ class _FormulaPanelState extends State<FormulaPanel> {
   Map<String, SymbolValue>? _lastOutputs;
   String? _lastError;
   String? _lastNotice;
-  String? _selectedSolveFor;
   bool get _isEnergyBandCategory =>
       widget.formula.id == 'parabolic_band_dispersion' ||
       widget.formula.id == 'effective_mass_from_curvature';
   bool _isComputing = false;
+  static const double _valueFieldWidth = 168;
+  String? _densityDisplayUnitMeta; // Tracks current density unit preference (cm^-3 or m^-3)
 
   @override
   void initState() {
     super.initState();
     _initControllers();
     _initSolver();
-    _selectedSolveFor = _initialSolveFor();
   }
 
   Widget _buildConstantsSection(LatexSymbolMap latexMap) {
     final constantsRepo = context.read<ConstantsRepository>();
-    final constantsUsed = widget.formula.constantsUsedResolved;
-    if (constantsUsed.isEmpty) return const SizedBox.shrink();
+    final constantsResolver = FormulaConstantsResolver(constantsRepo);
+    final requiredKeys = <String>[];
+    final seen = <String>{};
+
+    // Preserve declared order, then add any additional constants discovered from expressions.
+    for (final c in widget.formula.constantsUsedResolved) {
+      final normalized = constantsRepo.normalizeConstantKey(c.key);
+      if (normalized.isEmpty || seen.contains(normalized)) continue;
+      seen.add(normalized);
+      requiredKeys.add(normalized);
+    }
+    for (final k in constantsResolver.requiredKeys(widget.formula)) {
+      final normalized = constantsRepo.normalizeConstantKey(k);
+      if (normalized.isEmpty || seen.contains(normalized)) continue;
+      seen.add(normalized);
+      requiredKeys.add(normalized);
+    }
+
+    if (requiredKeys.isEmpty) return const SizedBox.shrink();
+
+    final resolved = constantsRepo.resolveConstants(requiredKeys);
+    final noteByKey = {
+      for (final c in widget.formula.constantsUsedResolved)
+        constantsRepo.normalizeConstantKey(c.key): c.note
+    };
+    final constantsFormatter = const NumberFormatter(significantFigures: 6, sciThresholdExp: 3);
 
     return Container(
       width: double.infinity,
@@ -80,12 +105,14 @@ class _FormulaPanelState extends State<FormulaPanel> {
             style: Theme.of(context).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 8),
-          ...constantsUsed.map((c) {
-            final latex = latexMap.latexOf(c.key);
-            final value = constantsRepo.getConstantValue(c.key);
-            final constant = constantsRepo.getConstant(c.key);
-            final unit = constant?.unit ?? '';
-            final valueLatex = value != null ? _formatter.formatLatexWithUnit(value, unit) : '\\text{Missing constant}';
+          ...requiredKeys.map((key) {
+            final latex = latexMap.latexOf(key);
+            final symbolValue = resolved[key];
+            final unit = symbolValue?.unit ?? '';
+            final valueLatex = symbolValue != null
+                ? constantsFormatter.formatLatexWithUnit(symbolValue.value, unit)
+                : r'\text{Missing constant}';
+            final note = noteByKey[key];
             return Padding(
               padding: const EdgeInsets.only(bottom: 4),
               child: Row(
@@ -104,11 +131,11 @@ class _FormulaPanelState extends State<FormulaPanel> {
                       child: LatexText('= $valueLatex', style: Theme.of(context).textTheme.bodyMedium),
                     ),
                   ),
-                  if (c.note != null && c.note!.isNotEmpty) ...[
+                  if (note != null && note.isNotEmpty) ...[
                     const SizedBox(width: 8),
                     Flexible(
                       child: Text(
-                        '(${c.note})',
+                        '($note)',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               color: Colors.grey[600],
                               fontStyle: FontStyle.italic,
@@ -142,7 +169,9 @@ class _FormulaPanelState extends State<FormulaPanel> {
       if (v.preferredUnits.contains('eV') && v.preferredUnits.contains('J')) {
         _unitSelections[v.key] = existing?.unit.isNotEmpty == true ? existing!.unit : v.preferredUnits.first;
       } else if (v.preferredUnits.contains('cm^-3') && v.preferredUnits.contains('m^-3')) {
-        _unitSelections[v.key] = existing?.unit.isNotEmpty == true ? existing!.unit : v.preferredUnits.first;
+        final existingUnit = existing?.unit.isNotEmpty == true ? existing!.unit : v.preferredUnits.first;
+        _unitSelections[v.key] = existingUnit;
+        _densityDisplayUnitMeta ??= existingUnit;
       }
     }
   }
@@ -153,16 +182,6 @@ class _FormulaPanelState extends State<FormulaPanel> {
     setState(() {
       _solver = FormulaSolver(formulaRepo: repo, constantsRepo: context.read<ConstantsRepository>());
     });
-  }
-
-  String _initialSolveFor() {
-    // Prefer the first variable with an empty controller; otherwise first solvable.
-    for (final v in widget.formula.variablesResolved) {
-      if ((_controllers[v.key]?.text.trim().isEmpty ?? true) && (widget.formula.solvableFor?.contains(v.key) ?? false)) {
-        return v.key;
-      }
-    }
-    return widget.formula.solvableFor?.first ?? (widget.formula.variablesResolved.isNotEmpty ? widget.formula.variablesResolved.first.key : '');
   }
 
   String _formatInput(double value) {
@@ -180,8 +199,6 @@ class _FormulaPanelState extends State<FormulaPanel> {
         _buildHeader(latexMap),
         const SizedBox(height: 12),
         _buildConstantsSection(latexMap),
-        const SizedBox(height: 12),
-        _buildSolveSelector(),
         const SizedBox(height: 12),
         _buildInputs(latexMap),
         const SizedBox(height: 12),
@@ -227,34 +244,6 @@ class _FormulaPanelState extends State<FormulaPanel> {
     );
   }
 
-  Widget _buildSolveSelector() {
-    if (_isEnergyBandCategory) return const SizedBox.shrink();
-    final solvable = widget.formula.solvableFor ?? [];
-    if (solvable.isEmpty) return const SizedBox.shrink();
-    return Row(
-      children: [
-        const Text('Solve for:'),
-        const SizedBox(width: 8),
-        DropdownButton<String>(
-          value: _selectedSolveFor,
-          items: solvable
-              .map((v) => DropdownMenuItem(
-                    value: v,
-                    child: Text(v),
-                  ))
-              .toList(),
-          onChanged: (v) {
-            if (v != null) {
-              setState(() {
-                _selectedSolveFor = v;
-              });
-            }
-          },
-        ),
-      ],
-    );
-  }
-
   Widget _buildInputs(LatexSymbolMap latexMap) {
     final variables = widget.formula.variablesResolved;
     final unitConverter = UnitConverter(context.read<ConstantsRepository>());
@@ -273,6 +262,18 @@ class _FormulaPanelState extends State<FormulaPanel> {
     );
   }
 
+  Widget _inputRow({required Widget inputField, required Widget unitWidget}) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        SizedBox(width: _valueFieldWidth, height: FormulaUiTheme.fieldHeight, child: inputField),
+        const SizedBox(width: 8),
+        unitWidget,
+      ],
+    );
+  }
+
   Widget _buildVariableInput(
     FormulaVariable v,
     Widget? labelWidget,
@@ -287,141 +288,112 @@ class _FormulaPanelState extends State<FormulaPanel> {
 
     if (supportsEnergy) {
       final selectedUnit = _unitSelections[v.key] ?? v.preferredUnits.first;
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          SizedBox(
-            width: 140,
-            height: FormulaUiTheme.fieldHeight,
-            child: TextField(
-              controller: _controllers[v.key],
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              style: FormulaUiTheme.inputTextStyle(context),
-              decoration: FormulaUiTheme.inputDecoration(
-                context,
-                label: labelWidget,
-                labelText: labelWidget == null ? v.name : null,
-                hintText: 'Enter value',
-              ),
-            ),
+      final inputField = TextField(
+        controller: _controllers[v.key],
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        style: FormulaUiTheme.inputTextStyle(context),
+        decoration: FormulaUiTheme.inputDecoration(
+          context,
+          label: labelWidget,
+          labelText: labelWidget == null ? v.name : null,
+          hintText: 'Enter value',
+        ),
+      );
+      final unitWidget = UnitDropdown<String>(
+        value: selectedUnit,
+        width: FormulaUiTheme.unitMinWidth,
+        items: [
+          DropdownMenuItem(
+            value: 'J',
+            child: LatexText(r'\mathrm{J}', style: FormulaUiTheme.unitTextStyle(context)),
           ),
-          const SizedBox(width: 8),
-          UnitDropdown<String>(
-            value: selectedUnit,
-            width: FormulaUiTheme.unitMinWidth,
-            items: [
-              DropdownMenuItem(
-                value: 'J',
-                child: Text('J', style: FormulaUiTheme.unitTextStyle(context)),
-              ),
-              DropdownMenuItem(
-                value: 'eV',
-                child: Text('eV', style: FormulaUiTheme.unitTextStyle(context)),
-              ),
-            ],
-            onChanged: (u) {
-              if (u == null || u == selectedUnit) return;
-              final controller = _controllers[v.key];
-              final currentText = controller?.text.trim() ?? '';
-              final parsed = InputNumberParser.parseFlexibleDouble(currentText);
-              if (parsed != null) {
-                final converted = unitConverter.convertEnergy(parsed, selectedUnit, u);
-                if (converted != null) {
-                  final fmt6 = NumberFormatter(significantFigures: 6, sciThresholdExp: 6);
-                  controller?.text = fmt6.formatPlainText(converted);
-                }
-              }
-              setState(() {
-                _unitSelections[v.key] = u;
-              });
-            },
+          DropdownMenuItem(
+            value: 'eV',
+            child: LatexText(r'\mathrm{eV}', style: FormulaUiTheme.unitTextStyle(context)),
           ),
         ],
+        onChanged: (u) {
+          if (u == null || u == selectedUnit) return;
+          final controller = _controllers[v.key];
+          final currentText = controller?.text.trim() ?? '';
+          final parsed = InputNumberParser.parseFlexibleDouble(currentText);
+          if (parsed != null) {
+            final converted = unitConverter.convertEnergy(parsed, selectedUnit, u);
+            if (converted != null) {
+              final fmt6 = NumberFormatter(significantFigures: 6, sciThresholdExp: 6);
+              controller?.text = fmt6.formatPlainText(converted);
+            }
+          }
+          setState(() {
+            _unitSelections[v.key] = u;
+            _densityDisplayUnitMeta = u;
+          });
+        },
       );
+      return _inputRow(inputField: inputField, unitWidget: unitWidget);
     }
 
     if (supportsDensity) {
       final selectedUnit = _unitSelections[v.key] ?? (unitSystem == UnitSystem.cm ? 'cm^-3' : v.preferredUnits.first);
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          SizedBox(
-            width: 140,
-            height: FormulaUiTheme.fieldHeight,
-            child: TextField(
-              controller: _controllers[v.key],
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              style: FormulaUiTheme.inputTextStyle(context),
-              decoration: FormulaUiTheme.inputDecoration(
-                context,
-                label: labelWidget,
-                labelText: labelWidget == null ? v.name : null,
-                hintText: 'Enter value',
-              ),
-            ),
+      final inputField = TextField(
+        controller: _controllers[v.key],
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        style: FormulaUiTheme.inputTextStyle(context),
+        decoration: FormulaUiTheme.inputDecoration(
+          context,
+          label: labelWidget,
+          labelText: labelWidget == null ? v.name : null,
+          hintText: 'Enter value',
+        ),
+      );
+      final unitWidget = UnitDropdown<String>(
+        value: selectedUnit,
+        width: FormulaUiTheme.unitMinWidth,
+        items: [
+          DropdownMenuItem(
+            value: 'cm^-3',
+            child: LatexText(r'\mathrm{cm^{-3}}', style: FormulaUiTheme.unitTextStyle(context)),
           ),
-          const SizedBox(width: 8),
-          UnitDropdown<String>(
-            value: selectedUnit,
-            width: FormulaUiTheme.unitMinWidth,
-            items: [
-              DropdownMenuItem(
-                value: 'cm^-3',
-                child: Text('cm^-3', style: FormulaUiTheme.unitTextStyle(context)),
-              ),
-              DropdownMenuItem(
-                value: 'm^-3',
-                child: Text('m^-3', style: FormulaUiTheme.unitTextStyle(context)),
-              ),
-            ],
-            onChanged: (u) {
-              if (u == null || u == selectedUnit) return;
-              final controller = _controllers[v.key];
-              final currentText = controller?.text.trim() ?? '';
-              final parsed = InputNumberParser.parseFlexibleDouble(currentText);
-              if (parsed != null) {
-                final converted = unitConverter.convertDensity(parsed, selectedUnit, u);
-                if (converted != null) {
-                  final fmt6 = NumberFormatter(significantFigures: 6, sciThresholdExp: 6);
-                  controller?.text = fmt6.formatPlainText(converted);
-                }
-              }
-              setState(() {
-                _unitSelections[v.key] = u;
-              });
-            },
+          DropdownMenuItem(
+            value: 'm^-3',
+            child: LatexText(r'\mathrm{m^{-3}}', style: FormulaUiTheme.unitTextStyle(context)),
           ),
         ],
+        onChanged: (u) {
+          if (u == null || u == selectedUnit) return;
+          final controller = _controllers[v.key];
+          final currentText = controller?.text.trim() ?? '';
+          final parsed = InputNumberParser.parseFlexibleDouble(currentText);
+          if (parsed != null) {
+            final converted = unitConverter.convertDensity(parsed, selectedUnit, u);
+            if (converted != null) {
+              final fmt6 = NumberFormatter(significantFigures: 6, sciThresholdExp: 6);
+              controller?.text = fmt6.formatPlainText(converted);
+            }
+          }
+          setState(() {
+            _unitSelections[v.key] = u;
+          });
+        },
       );
+      return _inputRow(inputField: inputField, unitWidget: unitWidget);
     }
 
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        SizedBox(
-          width: 140,
-          height: FormulaUiTheme.fieldHeight,
-          child: TextField(
-            controller: _controllers[v.key],
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            style: FormulaUiTheme.inputTextStyle(context),
-            decoration: FormulaUiTheme.inputDecoration(
-              context,
-              label: labelWidget,
-              labelText: labelWidget == null ? v.name : null,
-              hintText: 'Enter value',
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        UnitCell(
-          latex: _unitLatexFor(v, latexMap, unitConverter, unitSystem),
-        ),
-      ],
+    final inputField = TextField(
+      controller: _controllers[v.key],
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      style: FormulaUiTheme.inputTextStyle(context),
+      decoration: FormulaUiTheme.inputDecoration(
+        context,
+        label: labelWidget,
+        labelText: labelWidget == null ? v.name : null,
+        hintText: 'Enter value',
+      ),
     );
+    final unitWidget = UnitCell(
+      latex: _unitLatexFor(v, latexMap, unitConverter, unitSystem),
+    );
+    return _inputRow(inputField: inputField, unitWidget: unitWidget);
   }
 
   String _unitLatexFor(
@@ -474,6 +446,7 @@ class _FormulaPanelState extends State<FormulaPanel> {
     final constantsRepo = context.read<ConstantsRepository>();
     final latexMap = context.read<LatexSymbolMap>();
     final workspace = appState.currentWorkspace;
+    final unitConverter = UnitConverter(constantsRepo);
     if (workspace == null) {
       setState(() {
         _isComputing = false;
@@ -483,7 +456,11 @@ class _FormulaPanelState extends State<FormulaPanel> {
     }
 
     final overrides = <String, SymbolValue>{};
+    String? densityUnitMeta;
+    String? energyUnitMeta;
     final missing = <String>[];
+    final unitSystem = workspace.unitSystem;
+    final sanityHints = <String>{};
     for (final v in widget.formula.variablesResolved) {
       final raw = _controllers[v.key]?.text.trim() ?? '';
       if (raw.isEmpty) {
@@ -498,33 +475,91 @@ class _FormulaPanelState extends State<FormulaPanel> {
         });
         return;
       }
-      overrides[v.key] = SymbolValue(value: parsed, unit: v.siUnit, source: SymbolSource.user);
+
+      final supportsEnergy = v.preferredUnits.contains('eV') && v.preferredUnits.contains('J');
+      final supportsDensity = v.preferredUnits.contains('cm^-3') && v.preferredUnits.contains('m^-3');
+
+      double value = parsed;
+      String unit = v.siUnit;
+
+      if (supportsEnergy) {
+        final selectedUnit = _unitSelections[v.key] ?? v.preferredUnits.first;
+        energyUnitMeta ??= selectedUnit;
+        if (selectedUnit == 'eV') {
+          final converted = unitConverter.convertEnergy(value, 'eV', 'J');
+          if (converted == null) {
+            setState(() {
+              _isComputing = false;
+              _lastError = 'Unable to convert energy to J for ${v.name}.';
+            });
+            return;
+          }
+          value = converted;
+        }
+        unit = 'J';
+      } else if (supportsDensity) {
+        final selectedUnit = _unitSelections[v.key] ?? (unitSystem == UnitSystem.cm ? 'cm^-3' : v.preferredUnits.first);
+        densityUnitMeta ??= selectedUnit;
+        if (selectedUnit == 'cm^-3') {
+          final converted = unitConverter.convertDensity(value, 'cm^-3', 'm^-3');
+          if (converted == null) {
+            setState(() {
+              _isComputing = false;
+              _lastError = 'Unable to convert density to m^-3 for ${v.name}.';
+            });
+            return;
+          }
+          value = converted;
+        }
+        if (selectedUnit == 'm^-3' && value >= 1e12 && value <= 1e19) {
+          final cmGuess = unitConverter.convertDensity(value, 'm^-3', 'cm^-3');
+          final fmt6 = NumberFormatter(significantFigures: 6, sciThresholdExp: 6);
+          final guessed = cmGuess != null ? fmt6.formatPlainText(cmGuess) : null;
+          final hint = guessed != null
+              ? 'Value for ${v.name} is $value m^-3 (≈ $guessed cm^-3); typical doping is often entered in cm^-3.'
+              : 'Value for ${v.name} is $value m^-3; typical doping is often entered in cm^-3.';
+          sanityHints.add(hint);
+        }
+        unit = 'm^-3';
+      }
+
+      overrides[v.key] = SymbolValue(value: value, unit: unit, source: SymbolSource.user);
     }
 
-    // Determine target variable
-    String solveFor = _selectedSolveFor ?? '';
-    if (_isEnergyBandCategory) {
-      // Autosolve: exactly one missing -> solve for it; else first solvable or bail.
-      if (missing.length == 1) {
-        solveFor = missing.first;
-      } else if (missing.isEmpty) {
-        // All provided: run consistency check by solving for first solvable (no overwrite of inputs)
-        solveFor = widget.formula.solvableFor?.first ?? '';
-      } else {
-        setState(() {
-          _isComputing = false;
-          _lastError = 'Missing required inputs: ${missing.join(", ")}';
-        });
-        return;
-      }
+    // Propagate meta unit preferences for step rendering.
+    overrides['__meta__unit_system'] = SymbolValue(
+      value: 0,
+      unit: unitSystem == UnitSystem.cm ? 'cm' : 'si',
+      source: SymbolSource.computed,
+    );
+    if (densityUnitMeta != null) {
+      overrides['__meta__density_unit'] = SymbolValue(value: 0, unit: densityUnitMeta!, source: SymbolSource.computed);
+      _densityDisplayUnitMeta = densityUnitMeta;
+    }
+    if (energyUnitMeta != null) {
+      overrides['__meta__E_unit'] = SymbolValue(value: 0, unit: energyUnitMeta!, source: SymbolSource.computed);
+    }
+
+    // Determine target variable via autosolve: single missing -> solve for it; none missing -> consistency solve.
+    String solveFor;
+    if (missing.length == 1) {
+      solveFor = missing.first;
+    } else if (missing.isEmpty) {
+      solveFor = widget.formula.solvableFor?.first ?? (widget.formula.variablesResolved.isNotEmpty ? widget.formula.variablesResolved.first.key : '');
     } else {
-      if (solveFor.isEmpty || !(widget.formula.solvableFor?.contains(solveFor) ?? false)) {
-        if (missing.length == 1) {
-          solveFor = missing.first;
-        } else {
-          solveFor = widget.formula.solvableFor?.first ?? '';
-        }
-      }
+      setState(() {
+        _isComputing = false;
+        _lastError = 'Missing required inputs: ${missing.join(", ")}';
+      });
+      return;
+    }
+
+    if (solveFor.isEmpty || !(widget.formula.solvableFor?.contains(solveFor) ?? false)) {
+      setState(() {
+        _isComputing = false;
+        _lastError = 'Formula cannot be solved for: ${solveFor.isEmpty ? 'unknown target' : solveFor}';
+      });
+      return;
     }
 
     // Build solver context maps
@@ -548,7 +583,7 @@ class _FormulaPanelState extends State<FormulaPanel> {
     final outputs = result.outputs;
     final solvedValue = outputs[solveFor];
     // Update controller for solved variable with 6 s.f. (skip backfill for consistency runs with no missing vars)
-    final shouldBackfill = !_isEnergyBandCategory || missing.length == 1;
+    final shouldBackfill = missing.length == 1;
     if (solvedValue != null && shouldBackfill) {
       final fmt6 = NumberFormatter(significantFigures: 6, sciThresholdExp: 6);
       _controllers[solveFor]?.text = fmt6.formatPlainText(solvedValue.value);
@@ -571,7 +606,13 @@ class _FormulaPanelState extends State<FormulaPanel> {
       _isComputing = false;
       _lastOutputs = outputs;
       _lastSteps = result.stepsLatex;
-      _lastNotice = result.notice;
+      if (result.notice != null && result.notice!.isNotEmpty) {
+        _lastNotice = result.notice;
+      } else if (sanityHints.isNotEmpty) {
+        _lastNotice = sanityHints.join(' ');
+      } else {
+        _lastNotice = null;
+      }
     });
   }
 
@@ -654,9 +695,10 @@ class _FormulaPanelState extends State<FormulaPanel> {
               final key = entry.key;
               final value = entry.value;
               final latexLabel = latexMap.latexOf(key);
-              final latexVal = value.unit.isNotEmpty
-                  ? formatter.formatLatexWithUnit(value.value, value.unit)
-                  : formatter.formatLatex(value.value);
+              final displayValue = _convertResultForDisplay(key, value);
+              final latexVal = displayValue.unit.isNotEmpty
+                  ? formatter.formatLatexWithUnit(displayValue.value, displayValue.unit)
+                  : formatter.formatLatex(displayValue.value);
               return Padding(
                 padding: const EdgeInsets.only(bottom: 6),
                 child: SingleChildScrollView(
@@ -682,12 +724,29 @@ class _FormulaPanelState extends State<FormulaPanel> {
     );
   }
 
+  SymbolValue _convertResultForDisplay(String key, SymbolValue value) {
+    final constantsRepo = context.read<ConstantsRepository>();
+    final unitConverter = UnitConverter(constantsRepo);
+    final densityPreference = _densityDisplayUnitMeta;
+    final isDensityVar = widget.formula.variablesResolved.any(
+      (v) => v.key == key && v.preferredUnits.contains('cm^-3') && v.preferredUnits.contains('m^-3'),
+    );
+    if (isDensityVar && densityPreference != null && value.unit == 'm^-3' && densityPreference != 'm^-3') {
+      final converted = unitConverter.convertDensity(value.value, 'm^-3', densityPreference);
+      if (converted != null) {
+        return SymbolValue(value: converted, unit: densityPreference, source: value.source);
+      }
+    }
+    return value;
+  }
+
   Widget _buildSteps(LatexSymbolMap latexMap) {
     final steps = _lastSteps!;
     final items = steps.workingItems;
     if (items.isEmpty) return const SizedBox.shrink();
-    final headerStyle = Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700);
-    final bodyStyle = Theme.of(context).textTheme.bodyMedium;
+    final headerStyle = FormulaUiTheme.stepHeaderTextStyle(context);
+    final bodyStyle = FormulaUiTheme.stepBodyTextStyle(context);
+    final mathStyle = FormulaUiTheme.stepMathTextStyle(context);
     return Card(
       elevation: 0,
       color: Theme.of(context).colorScheme.surfaceContainerHighest,
@@ -709,7 +768,11 @@ class _FormulaPanelState extends State<FormulaPanel> {
                 padding: const EdgeInsets.only(bottom: 6),
                 child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
-                  child: LatexText(item.latex, style: bodyStyle),
+                  child: LatexText(
+                    item.latex,
+                    style: mathStyle,
+                    displayMode: true,
+                  ),
                 ),
               );
             }),

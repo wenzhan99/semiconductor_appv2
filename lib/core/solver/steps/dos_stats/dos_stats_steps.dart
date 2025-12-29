@@ -146,6 +146,7 @@ class DosStatsSteps {
     required bool isValence,
   }) {
     final fmt6 = formatter.withSigFigs(6);
+    final densityDisplayUnit = context.getUnit('__meta__density_unit') ?? 'm^-3';
     final densityKey = isValence ? 'N_v' : 'N_c';
     final massKey = isValence ? 'm_p_star' : 'm_n_star';
     final densitySym = _safeSymbol(densityKey, latexMap);
@@ -162,17 +163,23 @@ class DosStatsSteps {
     final h = context.getSymbolValue('h');
     final t = context.getSymbolValue('T');
 
+    final unitConversionLines = <String>[];
+    final densityConversionLine = _densityConversionLine(
+      key: densityKey,
+      value: density,
+      displayUnit: densityDisplayUnit,
+      latexMap: latexMap,
+      formatter: formatter,
+      converter: unitConverter,
+    );
+    if (densityConversionLine != null) unitConversionLines.add(densityConversionLine);
+
     final densityConversion = _maybeConvertDensity(
       density,
       unitConverter,
       targetUnit: 'm^-3',
       formatter: formatter,
     );
-
-    final unitConversionLines = <String>[];
-    if (densityConversion?.line != null) {
-      unitConversionLines.add(densityConversion!.line!);
-    }
 
     final rearrangeLines = <String>[];
     if (solveFor == densityKey) {
@@ -430,6 +437,7 @@ class DosStatsSteps {
     }
 
     final fmt6 = formatter.withSigFigs(6);
+    final densityDisplayUnit = context.getUnit('__meta__density_unit') ?? 'm^-3';
     final nc = context.getSymbolValue('N_c');
     final nv = context.getSymbolValue('N_v');
     final ni = context.getSymbolValue('n_i');
@@ -442,6 +450,33 @@ class DosStatsSteps {
     final egConv = _maybeEnergyConversion(eg, unitConverter, label: latexMap.latexOf('E_g'), formatter: formatter);
 
     final unitConversions = <String>[];
+    final ncDisplayLine = _densityConversionLine(
+      key: 'N_c',
+      value: nc,
+      displayUnit: densityDisplayUnit,
+      latexMap: latexMap,
+      formatter: formatter,
+      converter: unitConverter,
+    );
+    final nvDisplayLine = _densityConversionLine(
+      key: 'N_v',
+      value: nv,
+      displayUnit: densityDisplayUnit,
+      latexMap: latexMap,
+      formatter: formatter,
+      converter: unitConverter,
+    );
+    final niDisplayLine = _densityConversionLine(
+      key: 'n_i',
+      value: ni,
+      displayUnit: densityDisplayUnit,
+      latexMap: latexMap,
+      formatter: formatter,
+      converter: unitConverter,
+    );
+    if (ncDisplayLine != null) unitConversions.add(ncDisplayLine);
+    if (nvDisplayLine != null) unitConversions.add(nvDisplayLine);
+    if (niDisplayLine != null) unitConversions.add(niDisplayLine);
     if (ncConv?.line != null) unitConversions.add(ncConv!.line!);
     if (nvConv?.line != null) unitConversions.add(nvConv!.line!);
     if (egConv?.line != null) unitConversions.add(egConv!.line!);
@@ -897,6 +932,25 @@ class DosStatsSteps {
     if (fromMap.isNotEmpty && fromMap != key) return fromMap;
     final escaped = key.replaceAll('_', r'\_');
     return r'\mathrm{' + escaped + '}';
+  }
+
+  static String? _densityConversionLine({
+    required String key,
+    required SymbolValue? value,
+    required String displayUnit,
+    required LatexSymbolMap latexMap,
+    required NumberFormatter formatter,
+    UnitConverter? converter,
+  }) {
+    if (value == null) return null;
+    final baseUnit = value.unit.isNotEmpty ? value.unit : 'm^-3';
+    if (displayUnit == baseUnit) return null;
+    if (converter == null) return null;
+    final converted = converter.convertDensity(value.value, baseUnit, displayUnit);
+    if (converted == null) return null;
+    final convertedFmt = formatter.formatLatexWithUnit(converted, displayUnit);
+    final baseFmt = formatter.formatLatexWithUnit(value.value, baseUnit);
+    return '${_safeSymbol(key, latexMap)} = $convertedFmt = $baseFmt';
   }
 
   static _EnergyConversion? _maybeEnergyConversion(

@@ -11,13 +11,14 @@ class SymbolContext {
   /// Merge constants, globals, and overrides in priority order.
   /// Priority: constants (lowest) -> globals -> overrides (highest)
   void mergeIn({
+    Map<String, SymbolValue>? constants,
     Map<String, SymbolValue>? globals,
     Map<String, SymbolValue>? overrides,
   }) {
     _merged.clear();
 
     // 1. Add constants (read-only, from repository)
-    _addConstants();
+    _addConstants(constants);
 
     // 2. Add globals (user inputs shared across panels)
     if (globals != null) {
@@ -34,33 +35,9 @@ class SymbolContext {
     }
   }
 
-  void _addConstants() {
-    // Add common physical constants
-    final constants = [
-      'q', 'k', 'h', 'c', 'eps_0', 'mu_0', 'm_0', 'm_p', 'N_A', 'R', 'eV', 'V_T'
-    ];
-
-    for (final symbol in constants) {
-      final value = _constantsRepo.getConstantValue(symbol);
-      if (value != null) {
-        final constant = _constantsRepo.getConstant(symbol);
-        _merged[symbol] = SymbolValue(
-          value: value,
-          unit: constant?.unit ?? '',
-          source: SymbolSource.material,
-        );
-      }
-    }
-
-    // Add hbar (derived constant)
-    final hbar = _constantsRepo.getHbar();
-    if (hbar != null) {
-      _merged['hbar'] = SymbolValue(
-        value: hbar,
-        unit: 'J*s',
-        source: SymbolSource.material,
-      );
-    }
+  void _addConstants(Map<String, SymbolValue>? resolved) {
+    final constants = resolved ?? _constantsRepo.resolveConstants(null);
+    _merged.addAll(constants);
   }
 
   /// Get the numeric value for a symbol key.

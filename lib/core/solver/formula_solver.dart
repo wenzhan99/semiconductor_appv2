@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:equatable/equatable.dart';
 
 import '../constants/constants_repository.dart';
+import '../constants/formula_constants_resolver.dart';
 import '../constants/latex_symbols.dart';
 import '../formulas/formula_definition.dart';
 import '../formulas/formula_repository.dart';
@@ -86,8 +87,14 @@ class FormulaSolver {
     }
 
     // Build symbol context (merge constants -> globals -> overrides)
+    final constantsResolver = FormulaConstantsResolver(_constantsRepo);
+    final resolvedConstants = constantsResolver.resolveConstants(formula);
     final context = SymbolContext(_constantsRepo);
-    context.mergeIn(globals: workspaceGlobals, overrides: panelOverrides);
+    context.mergeIn(
+      constants: resolvedConstants,
+      globals: workspaceGlobals,
+      overrides: panelOverrides,
+    );
 
     // Validate required inputs
     final requiredVars = _extractVariables(computeExpr);

@@ -9,11 +9,38 @@ class FormulaUiTheme {
   static const double dropdownWidth = 120;
   static const EdgeInsets contentPadding = EdgeInsets.symmetric(horizontal: 12, vertical: 12);
   static const BorderRadius fieldRadius = BorderRadius.all(Radius.circular(8));
+  static const double stepHeaderFontSize = 16;
+  static const double stepBodyFontSize = 14;
+  static const double stepMathFontSize = 18;
 
   static TextStyle? inputTextStyle(BuildContext context) => Theme.of(context).textTheme.bodyMedium;
 
   static TextStyle? unitTextStyle(BuildContext context) =>
       inputTextStyle(context)?.copyWith(fontWeight: FontWeight.w600);
+
+  static TextStyle stepHeaderTextStyle(BuildContext context) {
+    final base = Theme.of(context).textTheme.bodyMedium;
+    return (base ?? const TextStyle()).copyWith(
+      fontSize: stepHeaderFontSize,
+      fontWeight: FontWeight.w700,
+    );
+  }
+
+  static TextStyle stepBodyTextStyle(BuildContext context) {
+    final base = Theme.of(context).textTheme.bodyMedium;
+    return (base ?? const TextStyle()).copyWith(
+      fontSize: stepBodyFontSize,
+      fontWeight: FontWeight.w500,
+    );
+  }
+
+  static TextStyle stepMathTextStyle(BuildContext context) {
+    final base = Theme.of(context).textTheme.bodyMedium;
+    return (base ?? const TextStyle()).copyWith(
+      fontSize: stepMathFontSize,
+      fontWeight: FontWeight.w500,
+    );
+  }
 
   static InputDecoration inputDecoration(
     BuildContext context, {
@@ -105,4 +132,3 @@ class UnitDropdown<T> extends StatelessWidget {
     );
   }
 }
-
