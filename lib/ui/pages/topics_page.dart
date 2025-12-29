@@ -225,6 +225,25 @@ class _TopicsPageState extends State<TopicsPage> {
                           ),
                     ),
                   )
+                else if (category.id == 'carrier_transport_fundamentals')
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final crossAxisCount = constraints.maxWidth < 360 ? 1 : 2;
+                      final aspectRatio = constraints.maxWidth < 720 ? 1.8 : 2.2;
+                      return GridView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: crossAxisCount,
+                          crossAxisSpacing: 12,
+                          mainAxisSpacing: 12,
+                          childAspectRatio: aspectRatio,
+                        ),
+                        itemCount: formulas.length,
+                        itemBuilder: (context, index) => _buildFormulaCard(formulas[index]),
+                      );
+                    },
+                  )
                 else
                   ...formulas.map<Widget>((formula) => _buildFormulaCard(formula)),
               ],

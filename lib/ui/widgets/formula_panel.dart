@@ -115,35 +115,44 @@ class _FormulaPanelState extends State<FormulaPanel> {
             final note = noteByKey[key];
             return Padding(
               padding: const EdgeInsets.only(bottom: 4),
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: 48,
-                    child: LatexText(
-                      latex,
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: LatexText('= $valueLatex', style: Theme.of(context).textTheme.bodyMedium),
-                    ),
-                  ),
-                  if (note != null && note.isNotEmpty) ...[
-                    const SizedBox(width: 8),
-                    Flexible(
-                      child: Text(
-                        '($note)',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Colors.grey[600],
-                              fontStyle: FontStyle.italic,
-                            ),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final maxNoteWidth = constraints.maxWidth * 0.35;
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: 48,
+                        child: LatexText(
+                          latex,
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                        ),
                       ),
-                    ),
-                  ],
-                ],
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: LatexText('= $valueLatex', style: Theme.of(context).textTheme.bodyMedium),
+                        ),
+                      ),
+                      if (note != null && note.isNotEmpty) ...[
+                        const SizedBox(width: 12),
+                        ConstrainedBox(
+                          constraints: BoxConstraints(maxWidth: maxNoteWidth),
+                          child: Text(
+                            '($note)',
+                            overflow: TextOverflow.visible,
+                            softWrap: true,
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  color: Colors.grey[600],
+                                  fontStyle: FontStyle.italic,
+                                ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  );
+                },
               ),
             );
           }),

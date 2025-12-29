@@ -56,6 +56,16 @@
     "sigma": "\\sigma",
     "rho": "\\rho",
     "eV": "\\mathrm{eV}",
-    "E_field": "\\mathcal{E}"
+    "E_field": "\\mathcal{E}",
+    "J_n": "J_{n}",
+    "J_p": "J_{p}",
+    "J_total": "J_{\\mathrm{total}}",
+    "J": "J",
+    "I": "I",
+    "A": "A",
+    "V": "V",
+    "d": "d",
+    "dn_dx": "\\frac{dn}{dx}",
+    "dp_dx": "\\frac{dp}{dx}"
   }
 }
