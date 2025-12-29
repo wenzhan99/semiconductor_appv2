@@ -1,0 +1,215 @@
+{
+  "id": "pn_junction",
+  "name": "PN Junction",
+  "formula_ids": [
+    "pn_built_in_potential",
+    "pn_depletion_potential",
+    "pn_depletion_width",
+    "pn_depletion_width_xn",
+    "pn_depletion_width_xp",
+    "pn_peak_field",
+    "pn_depletion_charge_per_area",
+    "pn_junction_cap_per_area",
+    "pn_junction_cap_total"
+  ],
+  "formulas": [
+    {
+      "id": "pn_built_in_potential",
+      "name": "Built-in potential",
+      "equation_latex": "V_{bi}=\\frac{kT}{q}\\ln\\left(\\frac{N_A N_D}{n_i^{2}}\\right)",
+      "description": "Built-in potential of an abrupt pn junction.",
+      "variables": [
+        { "key": "V_bi", "name": "Built-in potential", "si_unit": "V", "preferred_units": ["V"], "constraints": { "type": "finite" } },
+        { "key": "k", "name": "Boltzmann constant", "si_unit": "J/K", "preferred_units": ["J/K"], "constraints": { "type": "positive" } },
+        { "key": "T", "name": "Temperature", "si_unit": "K", "preferred_units": ["K"], "constraints": { "type": "positive" } },
+        { "key": "q", "name": "Elementary charge", "si_unit": "C", "preferred_units": ["C"], "constraints": { "type": "positive" } },
+        { "key": "N_A", "name": "Acceptor concentration", "si_unit": "m^-3", "preferred_units": ["m^-3", "cm^-3"], "constraints": { "type": "positive" } },
+        { "key": "N_D", "name": "Donor concentration", "si_unit": "m^-3", "preferred_units": ["m^-3", "cm^-3"], "constraints": { "type": "positive" } },
+        { "key": "n_i", "name": "Intrinsic concentration", "si_unit": "m^-3", "preferred_units": ["m^-3", "cm^-3"], "constraints": { "type": "positive" } }
+      ],
+      "constants_used": [
+        { "key": "k", "source": "physical_constants_table", "note": "Boltzmann constant" },
+        { "key": "q", "source": "physical_constants_table", "note": "Elementary charge" }
+      ],
+      "solvable_for": ["V_bi", "T", "N_A", "N_D", "n_i", "k", "q"],
+      "compute": {
+        "V_bi": "(k*T/q)*ln((N_A*N_D)/(n_i*n_i))",
+        "T": "(V_bi*q)/(k*ln((N_A*N_D)/(n_i*n_i)))",
+        "N_A": "(n_i*n_i*exp(V_bi*q/(k*T)))/N_D",
+        "N_D": "(n_i*n_i*exp(V_bi*q/(k*T)))/N_A",
+        "n_i": "sqrt((N_A*N_D)/exp(V_bi*q/(k*T)))",
+        "k": "(V_bi*q)/(T*ln((N_A*N_D)/(n_i*n_i)))",
+        "q": "(k*T*ln((N_A*N_D)/(n_i*n_i)))/V_bi"
+      },
+      "notes": [
+        "If N_A/N_D/n_i entered in cm^-3, they will be converted to m^-3 internally.",
+        "Autosolve any single missing variable."
+      ],
+      "version": 1
+    },
+    {
+      "id": "pn_depletion_potential",
+      "name": "Depletion potential term",
+      "equation_latex": "V_{dep}=V_{bi}-V_{a}",
+      "description": "Net barrier term under applied bias.",
+      "variables": [
+        { "key": "V_dep", "name": "Depletion potential", "si_unit": "V", "preferred_units": ["V"], "constraints": { "type": "finite" } },
+        { "key": "V_bi", "name": "Built-in potential", "si_unit": "V", "preferred_units": ["V"], "constraints": { "type": "finite" } },
+        { "key": "V_a", "name": "Applied bias (forward +)", "si_unit": "V", "preferred_units": ["V"], "constraints": { "type": "finite" } }
+      ],
+      "constants_used": [],
+      "solvable_for": ["V_dep", "V_bi", "V_a"],
+      "compute": {
+        "V_dep": "V_bi - V_a",
+        "V_bi": "V_dep + V_a",
+        "V_a": "V_bi - V_dep"
+      },
+      "version": 1
+    },
+    {
+      "id": "pn_depletion_width",
+      "name": "Depletion width (abrupt junction)",
+      "equation_latex": "W=\\sqrt{\\frac{2\\varepsilon_s}{q}\\left(\\frac{N_A+N_D}{N_A N_D}\\right)V_{dep}}",
+      "description": "Total depletion width for an abrupt pn junction.",
+      "variables": [
+        { "key": "W", "name": "Depletion width", "si_unit": "m", "preferred_units": ["m"], "constraints": { "type": "positive" } },
+        { "key": "eps_s", "name": "Semiconductor permittivity", "si_unit": "F/m", "preferred_units": ["F/m"], "constraints": { "type": "positive" } },
+        { "key": "q", "name": "Elementary charge", "si_unit": "C", "preferred_units": ["C"], "constraints": { "type": "positive" } },
+        { "key": "N_A", "name": "Acceptor concentration", "si_unit": "m^-3", "preferred_units": ["m^-3", "cm^-3"], "constraints": { "type": "positive" } },
+        { "key": "N_D", "name": "Donor concentration", "si_unit": "m^-3", "preferred_units": ["m^-3", "cm^-3"], "constraints": { "type": "positive" } },
+        { "key": "V_dep", "name": "Depletion potential", "si_unit": "V", "preferred_units": ["V"], "constraints": { "type": "finite" } }
+      ],
+      "constants_used": [
+        { "key": "q", "source": "physical_constants_table", "note": "Elementary charge" }
+      ],
+      "solvable_for": ["W", "eps_s", "V_dep", "N_A", "N_D"],
+      "compute": {
+        "W": "sqrt((2*eps_s/q)*((N_A+N_D)/(N_A*N_D))*V_dep)",
+        "eps_s": "(W*W*q*(N_A*N_D))/(2*V_dep*(N_A+N_D))",
+        "V_dep": "(W*W*q*(N_A*N_D))/(2*eps_s*(N_A+N_D))",
+        "N_A": "1/(((W*W*q)/(2*eps_s*V_dep)) - (1/N_D))",
+        "N_D": "1/(((W*W*q)/(2*eps_s*V_dep)) - (1/N_A))"
+      },
+      "version": 1
+    },
+    {
+      "id": "pn_depletion_width_xn",
+      "name": "Depletion width on n-side",
+      "equation_latex": "x_{n}=\\frac{N_A}{N_A+N_D}W",
+      "description": "Depletion width extending into the n-side.",
+      "variables": [
+        { "key": "x_n", "name": "x_n", "si_unit": "m", "preferred_units": ["m"], "constraints": { "type": "positive" } },
+        { "key": "N_A", "name": "Acceptor concentration", "si_unit": "m^-3", "preferred_units": ["m^-3", "cm^-3"], "constraints": { "type": "positive" } },
+        { "key": "N_D", "name": "Donor concentration", "si_unit": "m^-3", "preferred_units": ["m^-3", "cm^-3"], "constraints": { "type": "positive" } },
+        { "key": "W", "name": "Total depletion width", "si_unit": "m", "preferred_units": ["m"], "constraints": { "type": "positive" } }
+      ],
+      "constants_used": [],
+      "solvable_for": ["x_n", "W"],
+      "compute": {
+        "x_n": "(N_A/(N_A+N_D))*W",
+        "W": "x_n*(N_A+N_D)/N_A"
+      },
+      "version": 1
+    },
+    {
+      "id": "pn_depletion_width_xp",
+      "name": "Depletion width on p-side",
+      "equation_latex": "x_{p}=\\frac{N_D}{N_A+N_D}W",
+      "description": "Depletion width extending into the p-side.",
+      "variables": [
+        { "key": "x_p", "name": "x_p", "si_unit": "m", "preferred_units": ["m"], "constraints": { "type": "positive" } },
+        { "key": "N_A", "name": "Acceptor concentration", "si_unit": "m^-3", "preferred_units": ["m^-3", "cm^-3"], "constraints": { "type": "positive" } },
+        { "key": "N_D", "name": "Donor concentration", "si_unit": "m^-3", "preferred_units": ["m^-3", "cm^-3"], "constraints": { "type": "positive" } },
+        { "key": "W", "name": "Total depletion width", "si_unit": "m", "preferred_units": ["m"], "constraints": { "type": "positive" } }
+      ],
+      "constants_used": [],
+      "solvable_for": ["x_p", "W"],
+      "compute": {
+        "x_p": "(N_D/(N_A+N_D))*W",
+        "W": "x_p*(N_A+N_D)/N_D"
+      },
+      "version": 1
+    },
+    {
+      "id": "pn_peak_field",
+      "name": "Peak electric field",
+      "equation_latex": "\\mathcal{E}_{max}=\\frac{2V_{dep}}{W}",
+      "description": "Peak electric field in depletion region.",
+      "variables": [
+        { "key": "E_max", "name": "Peak field", "si_unit": "V/m", "preferred_units": ["V/m"], "constraints": { "type": "finite" } },
+        { "key": "V_dep", "name": "Depletion potential", "si_unit": "V", "preferred_units": ["V"], "constraints": { "type": "finite" } },
+        { "key": "W", "name": "Depletion width", "si_unit": "m", "preferred_units": ["m"], "constraints": { "type": "positive" } }
+      ],
+      "constants_used": [],
+      "solvable_for": ["E_max", "V_dep", "W"],
+      "compute": {
+        "E_max": "(2*V_dep)/W",
+        "V_dep": "(E_max*W)/2",
+        "W": "(2*V_dep)/E_max"
+      },
+      "version": 1
+    },
+    {
+      "id": "pn_depletion_charge_per_area",
+      "name": "Depletion charge per unit area",
+      "equation_latex": "Q' = q N_D x_n",
+      "description": "Depletion charge per unit area (using n-side expression).",
+      "variables": [
+        { "key": "Q_dep_per_area", "name": "Depletion charge per area", "si_unit": "C/m^2", "preferred_units": ["C/m^2"], "constraints": { "type": "finite" } },
+        { "key": "q", "name": "Elementary charge", "si_unit": "C", "preferred_units": ["C"], "constraints": { "type": "positive" } },
+        { "key": "N_D", "name": "Donor concentration", "si_unit": "m^-3", "preferred_units": ["m^-3", "cm^-3"], "constraints": { "type": "positive" } },
+        { "key": "x_n", "name": "Depletion width on n-side", "si_unit": "m", "preferred_units": ["m"], "constraints": { "type": "positive" } }
+      ],
+      "constants_used": [
+        { "key": "q", "source": "physical_constants_table", "note": "Elementary charge" }
+      ],
+      "solvable_for": ["Q_dep_per_area", "N_D", "x_n"],
+      "compute": {
+        "Q_dep_per_area": "q*N_D*x_n",
+        "N_D": "Q_dep_per_area/(q*x_n)",
+        "x_n": "Q_dep_per_area/(q*N_D)"
+      },
+      "version": 1
+    },
+    {
+      "id": "pn_junction_cap_per_area",
+      "name": "Junction capacitance per unit area",
+      "equation_latex": "C'_{j}=\\frac{\\varepsilon_s}{W}",
+      "description": "Small-signal junction capacitance per unit area.",
+      "variables": [
+        { "key": "Cj_per_area", "name": "Capacitance per unit area", "si_unit": "F/m^2", "preferred_units": ["F/m^2"], "constraints": { "type": "positive" } },
+        { "key": "eps_s", "name": "Semiconductor permittivity", "si_unit": "F/m", "preferred_units": ["F/m"], "constraints": { "type": "positive" } },
+        { "key": "W", "name": "Depletion width", "si_unit": "m", "preferred_units": ["m"], "constraints": { "type": "positive" } }
+      ],
+      "constants_used": [],
+      "solvable_for": ["Cj_per_area", "eps_s", "W"],
+      "compute": {
+        "Cj_per_area": "eps_s/W",
+        "eps_s": "Cj_per_area*W",
+        "W": "eps_s/Cj_per_area"
+      },
+      "version": 1
+    },
+    {
+      "id": "pn_junction_cap_total",
+      "name": "Junction capacitance",
+      "equation_latex": "C_{j}=A\\frac{\\varepsilon_s}{W}",
+      "description": "Total junction capacitance for area A.",
+      "variables": [
+        { "key": "C_j", "name": "Junction capacitance", "si_unit": "F", "preferred_units": ["F"], "constraints": { "type": "positive" } },
+        { "key": "A_area", "name": "Area", "si_unit": "m^2", "preferred_units": ["m^2"], "constraints": { "type": "positive" } },
+        { "key": "eps_s", "name": "Semiconductor permittivity", "si_unit": "F/m", "preferred_units": ["F/m"], "constraints": { "type": "positive" } },
+        { "key": "W", "name": "Depletion width", "si_unit": "m", "preferred_units": ["m"], "constraints": { "type": "positive" } }
+      ],
+      "constants_used": [],
+      "solvable_for": ["C_j", "A_area", "eps_s", "W"],
+      "compute": {
+        "C_j": "A_area*eps_s/W",
+        "A_area": "C_j*W/eps_s",
+        "eps_s": "C_j*W/A_area",
+        "W": "A_area*eps_s/C_j"
+      },
+      "version": 1
+    }
+  ]
+}

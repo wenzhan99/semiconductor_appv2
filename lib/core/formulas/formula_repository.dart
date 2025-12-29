@@ -32,6 +32,7 @@ class FormulaRepository {
     await _loadCategory('assets/formulas/density_of_states_statistics.json');
     await _loadCategory('assets/formulas/carrier_concentration_equilibrium.json');
     await _loadCategory('assets/formulas/carrier_transport_fundamentals.json');
+    await _loadCategory('assets/formulas/pn_junction.json');
 
     _loaded = true;
   }
