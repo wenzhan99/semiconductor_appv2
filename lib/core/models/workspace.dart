@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
+import '../utils/parse_utils.dart';
 import 'unit_preferences.dart';
 
 const _uuid = Uuid();
@@ -52,7 +53,7 @@ class SymbolValue extends Equatable {
   });
 
   factory SymbolValue.fromJson(Map<String, dynamic> json) {
-    final value = _parseDouble(json['value'], context: 'SymbolValue.value');
+    final value = coerceDouble(json['value'], context: 'SymbolValue.value');
     final unit = json['unit']?.toString() ?? '';
     final sourceRaw = json['source']?.toString() ?? 'user';
     if (value == null) {
@@ -308,17 +309,6 @@ class Workspace extends Equatable {
         createdAt,
         updatedAt,
       ];
-}
-
-double? _parseDouble(dynamic raw, {required String context}) {
-  if (raw == null) return null;
-  if (raw is num) return raw.toDouble();
-  if (raw is String) {
-    final parsed = double.tryParse(raw);
-    if (parsed != null) return parsed;
-  }
-  debugPrint('Invalid numeric value for $context: $raw (${raw.runtimeType})');
-  return null;
 }
 
 Map<String, SymbolValue> _safeSymbolMap(dynamic raw) {

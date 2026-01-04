@@ -225,6 +225,14 @@ class StepLaTeXBuilder {
     UnitConverter? unitConverter, {
     String primaryEnergyUnit = 'J',
   }) {
+    final pnSteps = _buildPnBuiltInPotentialSteps(
+      formula: formula,
+      solveFor: solveFor,
+      context: context,
+      outputs: outputs,
+    );
+    if (pnSteps != null) return pnSteps;
+
     final ctFundamental = _buildCtFundamentalSteps(
       formula: formula,
       solveFor: solveFor,
@@ -292,6 +300,7 @@ class StepLaTeXBuilder {
       latexMap: _latexMap,
       substitutionMap: substitutionMap,
       wrapValuesWithParens: showUnits,
+      debugLabel: 'global-substitution',
     );
   }
   
@@ -1964,6 +1973,98 @@ n_i &= \sqrt{({{NC}})({{NV}})\,{{EXPX}}} = {{NI_M}} \\
       baseEq,
       substitutionEq,
       if (computedLine.isNotEmpty) computedLine,
+    ];
+
+    return UniversalStepTemplate.build(
+      targetLabelLatex: targetLatex,
+      unitConversionLines: const [],
+      rearrangeLines: rearrangeLines,
+      substitutionLines: substitutionLines,
+      substitutionEvaluationLine: computedLine,
+      computedValueLine: computedLine,
+      roundedValueLine: roundedLine,
+    );
+  }
+
+  List<StepItem>? _buildPnBuiltInPotentialSteps({
+    required FormulaDefinition formula,
+    required String solveFor,
+    required SymbolContext context,
+    required Map<String, SymbolValue> outputs,
+  }) {
+    if (formula.id != 'pn_built_in_potential') return null;
+
+    final vb = _latexLabel('V_bi');
+    final kSym = _latexLabel('k');
+    final tSym = _latexLabel('T');
+    final qSym = _latexLabel('q');
+    final naSym = _latexLabel('N_A');
+    final ndSym = _latexLabel('N_D');
+    final niSym = _latexLabel('n_i');
+    final targetLatex = _latexLabel(solveFor);
+
+    final baseEq = '$vb = \\frac{$kSym $tSym}{$qSym} \\ln\\left(\\frac{$naSym $ndSym}{${niSym}^{2}}\\right)';
+
+    String rearranged;
+    if (solveFor == 'V_bi') {
+      rearranged = baseEq;
+    } else if (solveFor == 'N_A') {
+      rearranged = '$naSym = \\frac{{${niSym}}^{2}}{$ndSym}\\exp\\left(\\frac{$qSym $vb}{$kSym $tSym}\\right)';
+    } else if (solveFor == 'N_D') {
+      rearranged = '$ndSym = \\frac{{${niSym}}^{2}}{$naSym}\\exp\\left(\\frac{$qSym $vb}{$kSym $tSym}\\right)';
+    } else if (solveFor == 'n_i') {
+      rearranged = '$niSym = \\sqrt{$naSym $ndSym}\\,\\exp\\left(-\\frac{$qSym $vb}{2 $kSym $tSym}\\right)';
+    } else if (solveFor == 'T') {
+      rearranged = '$tSym = \\frac{$vb $qSym}{$kSym \\ln\\left(\\frac{$naSym $ndSym}{{${niSym}}^{2}}\\right)}';
+    } else {
+      // For any unexpected target, fall back to base equation.
+      rearranged = baseEq;
+    }
+
+    String _formatFull(SymbolValue? v, {String? defaultUnit}) {
+      if (v == null) return '';
+      final unit = v.unit.isNotEmpty ? v.unit : (defaultUnit ?? '');
+      return unit.isNotEmpty
+          ? _formatter.formatLatexWithUnitFullPrecision(v.value, unit)
+          : _formatter.formatLatexFullPrecision(v.value);
+    }
+
+    final substitutionMap = <String, String>{};
+    context.getAll().forEach((key, val) {
+      substitutionMap[key] = _formatFull(val);
+    });
+    // Include outputs (if already computed) so they can appear in substitution when solving inverses.
+    outputs.forEach((key, val) {
+      substitutionMap[key] = _formatFull(val);
+    });
+
+    final substitutionEq = buildSubstitutionEquation(
+      equationLatex: rearranged,
+      latexMap: _latexMap,
+      substitutionMap: substitutionMap,
+      wrapValuesWithParens: true,
+      debugLabel: 'pn_built_in_potential:$solveFor',
+    );
+
+    final fmt6 = _formatter.withSigFigs(6);
+    final fmt3 = _formatter;
+    final result = outputs[solveFor];
+    final computedLine = result != null
+        ? '$targetLatex = ${(result.unit.isNotEmpty ? _formatter.formatLatexWithUnitFullPrecision(result.value, result.unit) : _formatter.formatLatexFullPrecision(result.value))}'
+        : targetLatex;
+    final roundedLine = result != null
+        ? '$targetLatex = ${(result.unit.isNotEmpty ? fmt3.formatLatexWithUnit(result.value, result.unit) : fmt3.formatLatex(result.value))}'
+        : targetLatex;
+
+    final rearrangeLines = <String>[];
+    if (solveFor != 'V_bi') {
+      rearrangeLines.add(rearranged);
+    }
+
+    final substitutionLines = <String>[
+      baseEq,
+      rearranged,
+      substitutionEq,
     ];
 
     return UniversalStepTemplate.build(

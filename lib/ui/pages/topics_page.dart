@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -229,8 +230,14 @@ class _TopicsPageState extends State<TopicsPage> {
                   LayoutBuilder(
                     builder: (context, constraints) {
                       final crossAxisCount = constraints.maxWidth < 360 ? 1 : 2;
-                      final aspectRatio = constraints.maxWidth < 720 ? 1.8 : 2.2;
+                      const spacing = 12.0;
+                      final availableWidth = constraints.maxWidth - spacing * (crossAxisCount - 1);
+                      final tileWidth = availableWidth / crossAxisCount;
+                      final targetHeight = constraints.maxWidth < 720 ? 140.0 : 120.0;
+                      final aspectRatio = tileWidth / targetHeight;
                       return GridView.builder(
+                        primary: false,
+                        controller: ScrollController(keepScrollOffset: false),
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
                         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
@@ -240,12 +247,62 @@ class _TopicsPageState extends State<TopicsPage> {
                           childAspectRatio: aspectRatio,
                         ),
                         itemCount: formulas.length,
-                        itemBuilder: (context, index) => _buildFormulaCard(formulas[index]),
+                        itemBuilder: (context, index) => _safeFormulaCard(formulas[index]),
+                      );
+                    },
+                  )
+                else if (category.id == 'density_of_states_statistics' || category.id == 'carrier_concentration_equilibrium')
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final crossAxisCount = constraints.maxWidth < 360 ? 1 : 2;
+                      const spacing = 12.0;
+                      final availableWidth = constraints.maxWidth - spacing * (crossAxisCount - 1);
+                      final tileWidth = availableWidth / crossAxisCount;
+                      final targetHeight = constraints.maxWidth < 720 ? 150.0 : 130.0;
+                      final aspectRatio = tileWidth / targetHeight;
+                      return GridView.builder(
+                        primary: false,
+                        controller: ScrollController(keepScrollOffset: false),
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: crossAxisCount,
+                          crossAxisSpacing: spacing,
+                          mainAxisSpacing: spacing,
+                          childAspectRatio: aspectRatio,
+                        ),
+                        itemCount: formulas.length,
+                        itemBuilder: (context, index) => _safeFormulaCard(formulas[index]),
+                      );
+                    },
+                  )
+                else if (category.id == 'pn_junction')
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final crossAxisCount = constraints.maxWidth < 360 ? 1 : 2;
+                      const spacing = 12.0;
+                      final availableWidth = constraints.maxWidth - spacing * (crossAxisCount - 1);
+                      final tileWidth = availableWidth / crossAxisCount;
+                      final targetHeight = constraints.maxWidth < 720 ? 170.0 : 150.0;
+                      final aspectRatio = tileWidth / targetHeight;
+                      return GridView.builder(
+                        primary: false,
+                        controller: ScrollController(keepScrollOffset: false),
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: crossAxisCount,
+                          crossAxisSpacing: spacing,
+                          mainAxisSpacing: spacing,
+                          childAspectRatio: aspectRatio,
+                        ),
+                        itemCount: formulas.length,
+                        itemBuilder: (context, index) => _safeFormulaCard(formulas[index]),
                       );
                     },
                   )
                 else
-                  ...formulas.map<Widget>((formula) => _buildFormulaCard(formula)),
+                  ...formulas.map<Widget>((formula) => _safeFormulaCard(formula)),
               ],
             ),
           ),
@@ -299,12 +356,16 @@ class _TopicsPageState extends State<TopicsPage> {
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Checkbox(
-              value: isSelected,
-              onChanged: (value) async {
-                await _toggleFormulaSelection(formula.id, value ?? false);
-              },
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Checkbox(
+                value: isSelected,
+                onChanged: (value) async {
+                  await _toggleFormulaSelection(formula.id, value ?? false);
+                },
+              ),
             ),
             Expanded(
               child: Column(
@@ -349,6 +410,22 @@ class _TopicsPageState extends State<TopicsPage> {
         ),
       ),
     );
+  }
+
+  /// Guarded wrapper to avoid crashing the grid if a single card fails to build.
+  Widget _safeFormulaCard(Formula formula) {
+    try {
+      return _buildFormulaCard(formula);
+    } catch (e, st) {
+      debugPrint('Error building formula card for ${formula.id}: $e\n$st');
+      return Card(
+        color: Colors.red[50],
+        child: ListTile(
+          title: Text('Error loading ${formula.name}'),
+          subtitle: Text(e.toString()),
+        ),
+      );
+    }
   }
 
   Widget _buildWorkspaceSettingsCard(
@@ -475,37 +552,20 @@ class _TopicsPageState extends State<TopicsPage> {
           key: ValueKey(panel.id),
           margin: const EdgeInsets.only(bottom: 12),
           elevation: 2,
-          child: Column(
-            children: [
-              // Header row: formula name + remove button
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        formula.name,
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close),
-                      iconSize: 20,
-                      tooltip: 'Remove',
-                      onPressed: () => _removePanel(context, appState, panel.id),
-                    ),
-                  ],
-                ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: FormulaPanel(
+              formula: formula,
+              panel: panel,
+              showHeader: true,
+              showTitleInHeader: true,
+              headerTrailing: IconButton(
+                icon: const Icon(Icons.close),
+                iconSize: 20,
+                tooltip: 'Remove',
+                onPressed: () => _removePanel(context, appState, panel.id),
               ),
-              // Formula panel content
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: FormulaPanel(
-                  formula: formula,
-                  panel: panel,
-                ),
-              ),
-            ],
+            ),
           ),
         );
       },

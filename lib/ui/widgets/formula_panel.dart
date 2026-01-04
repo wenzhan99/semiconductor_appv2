@@ -26,11 +26,17 @@ import 'latex_text.dart';
 class FormulaPanel extends StatefulWidget {
   final FormulaDefinition formula;
   final WorkspacePanel panel;
+  final bool showHeader;
+  final bool showTitleInHeader;
+  final Widget? headerTrailing;
 
   const FormulaPanel({
     super.key,
     required this.formula,
     required this.panel,
+    this.showHeader = true,
+    this.showTitleInHeader = true,
+    this.headerTrailing,
   });
 
   @override
@@ -105,57 +111,65 @@ class _FormulaPanelState extends State<FormulaPanel> {
             style: Theme.of(context).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 8),
-          ...requiredKeys.map((key) {
-            final latex = latexMap.latexOf(key);
-            final symbolValue = resolved[key];
-            final unit = symbolValue?.unit ?? '';
-            final valueLatex = symbolValue != null
-                ? constantsFormatter.formatLatexWithUnit(symbolValue.value, unit)
-                : r'\text{Missing constant}';
-            final note = noteByKey[key];
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final maxNoteWidth = constraints.maxWidth * 0.35;
-                  return Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      SizedBox(
-                        width: 48,
-                        child: LatexText(
-                          latex,
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                        ),
+          Table(
+            columnWidths: const {
+              0: FixedColumnWidth(52),
+              1: FixedColumnWidth(10),
+              2: FlexColumnWidth(2),
+              3: FlexColumnWidth(1),
+            },
+            defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+            children: requiredKeys.map((key) {
+              final latex = latexMap.latexOf(key);
+              final symbolValue = resolved[key];
+              final unit = symbolValue?.unit ?? '';
+              final valueLatex = symbolValue != null
+                  ? constantsFormatter.formatLatexWithUnit(symbolValue.value, unit)
+                  : r'\text{Missing constant}';
+              final note = noteByKey[key];
+              return TableRow(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: LatexText(
+                      latex,
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Text(
+                      '=',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6, right: 4),
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: LatexText(
+                        valueLatex,
+                        style: Theme.of(context).textTheme.bodyMedium,
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: LatexText('= $valueLatex', style: Theme.of(context).textTheme.bodyMedium),
-                        ),
-                      ),
-                      if (note != null && note.isNotEmpty) ...[
-                        const SizedBox(width: 12),
-                        ConstrainedBox(
-                          constraints: BoxConstraints(maxWidth: maxNoteWidth),
-                          child: Text(
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6, left: 4),
+                    child: note != null && note.isNotEmpty
+                        ? Text(
                             '($note)',
-                            overflow: TextOverflow.visible,
                             softWrap: true,
                             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                   color: Colors.grey[600],
                                   fontStyle: FontStyle.italic,
                                 ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  );
-                },
-              ),
-            );
-          }),
+                          )
+                        : const SizedBox.shrink(),
+                  ),
+                ],
+              );
+            }).toList(),
+          ),
         ],
       ),
     );
@@ -205,8 +219,10 @@ class _FormulaPanelState extends State<FormulaPanel> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildHeader(latexMap),
-        const SizedBox(height: 12),
+        if (widget.showHeader) ...[
+          _buildHeader(latexMap),
+          const SizedBox(height: 12),
+        ],
         _buildConstantsSection(latexMap),
         const SizedBox(height: 12),
         _buildInputs(latexMap),
@@ -228,28 +244,52 @@ class _FormulaPanelState extends State<FormulaPanel> {
   }
 
   Widget _buildHeader(LatexSymbolMap latexMap) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Expanded(
-          child: Text(
+    final equation = LatexText(
+      latexMap.sanitizeEquationLatexForRender(widget.formula.equationLatex),
+      style: Theme.of(context).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
+      displayMode: true,
+      scale: 1.15,
+    );
+
+    const sidePadding = 60.0; // reserve space to avoid overlap with trailing controls
+    final title = widget.showTitleInHeader
+        ? Text(
             widget.formula.name,
             style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Flexible(
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: LatexText(
-              latexMap.sanitizeEquationLatexForRender(widget.formula.equationLatex),
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
-              displayMode: true,
-              scale: 1.15,
+            overflow: TextOverflow.ellipsis,
+          )
+        : null;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          if (title != null)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Padding(
+                padding: const EdgeInsets.only(right: sidePadding),
+                child: title,
+              ),
+            ),
+          Align(
+            alignment: Alignment.center,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: sidePadding),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: equation,
+              ),
             ),
           ),
-        ),
-      ],
+          if (widget.headerTrailing != null)
+            Align(
+              alignment: Alignment.centerRight,
+              child: widget.headerTrailing,
+            ),
+        ],
+      ),
     );
   }
 

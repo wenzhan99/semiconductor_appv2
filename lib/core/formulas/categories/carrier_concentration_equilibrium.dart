@@ -5,12 +5,11 @@ const FormulaCategory carrierConcentrationEquilibrium = FormulaCategory(
   id: 'carrier_concentration_equilibrium',
   name: 'Carrier Concentration (Equilibrium)',
   formulaIds: [
+    'mass_action_law',
     'carrier_electron_concentration_n0',
     'carrier_hole_concentration_p0',
-    'mass_action_law',
+    'charge_neutrality_equilibrium',
     'doped_n_type_majority',
     'doped_p_type_majority',
-    'charge_neutrality_equilibrium',
   ],
 );
-

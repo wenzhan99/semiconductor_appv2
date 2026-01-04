@@ -1,5 +1,7 @@
 import 'package:equatable/equatable.dart';
 
+import '../core/utils/parse_utils.dart';
+
 /// One physical constant entry from the constants table JSON.
 class PhysicalConstant extends Equatable {
   final String id; // stable key (snake_case)
@@ -29,6 +31,12 @@ class PhysicalConstant extends Equatable {
   });
 
   factory PhysicalConstant.fromJson(Map<String, dynamic> json) {
+    final parsedValue = coerceDouble(json['value'], context: 'PhysicalConstant.value');
+    if (parsedValue == null) {
+      throw FormatException(
+        'Invalid numeric value for PhysicalConstant ${json['id']}: ${json['value']} (${json['value']?.runtimeType})',
+      );
+    }
     return PhysicalConstant(
       id: json['id'] as String,
       name: json['name'] as String,
@@ -37,13 +45,16 @@ class PhysicalConstant extends Equatable {
               ?.map((e) => e.toString())
               .toList() ??
           const <String>[],
-      value: (json['value'] as num).toDouble(),
+      value: parsedValue,
       unit: json['unit'] as String,
       category: json['category'] as String?,
       expression: json['expression'] as String?,
       note: json['note'] as String?,
       definition: json['definition'] as String?,
-      assumedTemperatureK: (json['assumed_temperature_K'] as num?)?.toDouble(),
+      assumedTemperatureK: coerceDouble(
+        json['assumed_temperature_K'],
+        context: 'PhysicalConstant.assumed_temperature_K',
+      ),
     );
   }
 

@@ -1,8 +1,10 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
 import '../core/models/workspace.dart';
+import '../core/utils/parse_utils.dart';
 
 /// Service for local storage using Hive.
 class StorageService {
@@ -65,8 +67,14 @@ class StorageService {
     final jsonStr = box.get(id);
     if (jsonStr == null) return null;
     try {
-      final data = jsonDecode(jsonStr) as Map<String, dynamic>;
-      return Workspace.fromJson(data);
+      final decoded = jsonDecode(jsonStr) as Map<String, dynamic>;
+      final sanitized = _sanitizeWorkspaceJson(decoded, workspaceId: id);
+      final workspace = Workspace.fromJson(sanitized);
+      if (!mapEquals(decoded, sanitized)) {
+        // Persist cleaned data to avoid repeated sanitization.
+        await saveWorkspace(workspace);
+      }
+      return workspace;
     } catch (_) {
       return null;
     }
@@ -95,5 +103,79 @@ class StorageService {
     final box = await _ensureBox();
     await box.clear();
     // The IDs list will also be cleared since it's in the same box
+  }
+
+  Map<String, dynamic> _sanitizeWorkspaceJson(
+    Map<String, dynamic> data, {
+    required String workspaceId,
+  }) {
+    bool changed = false;
+    final sanitized = Map<String, dynamic>.from(data);
+
+    Map<String, dynamic> _cleanSymbolValueMap(dynamic raw, String path) {
+      final out = <String, dynamic>{};
+      if (raw is Map<String, dynamic>) {
+        raw.forEach((key, value) {
+          if (value is Map<String, dynamic>) {
+            final numeric = coerceDouble(value['value'], context: '$path.$key.value');
+            if (numeric != null) {
+              out[key] = {
+                ...value,
+                'value': numeric,
+              };
+              // Normalize unit/source to strings in case other types slipped in.
+              out[key]['unit'] = value['unit']?.toString() ?? '';
+              out[key]['source'] = value['source']?.toString() ?? 'user';
+            } else {
+              changed = true;
+              debugPrint(
+                'Sanitized workspace \"$workspaceId\": removed invalid numeric entry at $path.$key (value=${value['value']} type=${value['value']?.runtimeType})',
+              );
+            }
+          } else {
+            changed = true;
+            debugPrint(
+              'Sanitized workspace \"$workspaceId\": removed non-object entry at $path.$key (value=$value, type=${value.runtimeType})',
+            );
+          }
+        });
+      } else if (raw != null) {
+        changed = true;
+        debugPrint(
+          'Sanitized workspace \"$workspaceId\": replaced non-map $path (value=$raw, type=${raw.runtimeType})',
+        );
+      }
+      return out;
+    }
+
+    sanitized['globals'] = _cleanSymbolValueMap(data['globals'], 'globals');
+
+    if (data['panels'] is List) {
+      final panels = <dynamic>[];
+      for (var i = 0; i < (data['panels'] as List).length; i++) {
+        final rawPanel = (data['panels'] as List)[i];
+        if (rawPanel is Map<String, dynamic>) {
+          final panel = Map<String, dynamic>.from(rawPanel);
+          panel['overrides'] = _cleanSymbolValueMap(rawPanel['overrides'], 'panels[$i].overrides');
+          panel['outputs'] = _cleanSymbolValueMap(rawPanel['outputs'], 'panels[$i].outputs');
+          panels.add(panel);
+          if (!mapEquals(panel, rawPanel)) {
+            changed = true;
+          }
+        } else {
+          changed = true;
+          debugPrint(
+            'Sanitized workspace \"$workspaceId\": removed non-object panel at index $i (value=$rawPanel, type=${rawPanel.runtimeType})',
+          );
+        }
+      }
+      sanitized['panels'] = panels;
+    }
+
+    if (changed) {
+      debugPrint('Workspace \"$workspaceId\" contained invalid persisted data that was sanitized.');
+    }
+
+    return sanitized;
   }
 }

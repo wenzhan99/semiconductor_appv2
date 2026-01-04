@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import '../constants/constants_repository.dart';
+import '../utils/parse_utils.dart';
 
 /// Converts between different units.
 class UnitConverter {
@@ -9,37 +10,41 @@ class UnitConverter {
   UnitConverter(this._constantsRepo);
 
   /// Convert energy from J to eV or vice versa.
-  double? convertEnergy(double value, String fromUnit, String toUnit) {
+  double? convertEnergy(dynamic value, String fromUnit, String toUnit) {
+    final coerced = coerceDouble(value, context: 'UnitConverter.convertEnergy');
+    if (coerced == null) return null;
     final q = _constantsRepo.getElectronVoltJoules();
     if (q == null) return null;
 
     if (fromUnit == 'J' && toUnit == 'eV') {
-      return value / q;
+      return coerced / q;
     } else if (fromUnit == 'eV' && toUnit == 'J') {
-      return value * q;
+      return coerced * q;
     }
     return null;
   }
 
   /// Convert length from one unit to another.
-  double? convertLength(double value, String fromUnit, String toUnit) {
-    if (fromUnit == toUnit) return value;
+  double? convertLength(dynamic value, String fromUnit, String toUnit) {
+    final coerced = coerceDouble(value, context: 'UnitConverter.convertLength');
+    if (coerced == null) return null;
+    if (fromUnit == toUnit) return coerced;
 
     // Convert to meters first
-    double meters = value;
+    double meters = coerced;
     switch (fromUnit) {
       case 'm':
-        meters = value;
+        meters = coerced;
         break;
       case 'cm':
-        meters = value / 100;
+        meters = coerced / 100;
         break;
       case 'nm':
-        meters = value / 1e9;
+        meters = coerced / 1e9;
         break;
       case 'um':
-      case 'μm':
-        meters = value / 1e6;
+      case 'µm':
+        meters = coerced / 1e6;
         break;
       default:
         return null;
@@ -54,7 +59,7 @@ class UnitConverter {
       case 'nm':
         return meters * 1e9;
       case 'um':
-      case 'μm':
+      case 'µm':
         return meters * 1e6;
       default:
         return null;
@@ -62,8 +67,10 @@ class UnitConverter {
   }
 
   /// Convert density from one unit to another (e.g., m^-3 to cm^-3).
-  double? convertDensity(double value, String fromUnit, String toUnit) {
-    if (fromUnit == toUnit) return value;
+  double? convertDensity(dynamic value, String fromUnit, String toUnit) {
+    final coerced = coerceDouble(value, context: 'UnitConverter.convertDensity');
+    if (coerced == null) return null;
+    if (fromUnit == toUnit) return coerced;
 
     // Extract base unit and power
     final fromMatch = RegExp(r'^(.+)\^(-?\d+)$').firstMatch(fromUnit);
@@ -85,12 +92,11 @@ class UnitConverter {
 
     // Apply the dimensional power, including negative exponents.
     // Example: m^-3 -> cm^-3: factor = (100)^(-3) = 1e-6
-    return value * math.pow(baseConversion, fromPower).toDouble();
+    return coerced * math.pow(baseConversion, fromPower).toDouble();
   }
 
   /// Convert wavevector from one unit to another (e.g., 1/m to 1/cm).
-  double? convertWavevector(double value, String fromUnit, String toUnit) {
+  double? convertWavevector(dynamic value, String fromUnit, String toUnit) {
     return convertDensity(value, fromUnit, toUnit);
   }
 }
-

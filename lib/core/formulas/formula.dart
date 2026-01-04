@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:flutter/foundation.dart';
 
 import 'formula_constant.dart';
 import 'formula_test.dart';
@@ -59,6 +60,23 @@ class Formula extends Equatable {
       }
     }
 
+    // Remove any variables that collide with declared constants to prevent constants from becoming inputs.
+    if (parsedVars != null && parsedVars.isNotEmpty) {
+      final constantKeys = (json['constants_used'] as List<dynamic>?)
+              ?.map((e) => (e as Map<String, dynamic>)['key']?.toString())
+              .whereType<String>()
+              .toSet() ??
+          const <String>{};
+      if (constantKeys.isNotEmpty) {
+        final originalCount = parsedVars.length;
+        parsedVars = parsedVars.where((v) => !constantKeys.contains(v.key)).toList();
+        if (parsedVars.length != originalCount) {
+          debugPrint(
+              'Filtered ${originalCount - parsedVars.length} constant-backed variables from formula ${json['id']} to avoid editable constants.');
+        }
+      }
+    }
+
     return Formula(
       id: json['id'] as String,
       name: json['name'] as String,
@@ -116,4 +134,3 @@ class Formula extends Equatable {
         version,
       ];
 }
-
