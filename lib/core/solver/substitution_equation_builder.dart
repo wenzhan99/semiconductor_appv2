@@ -23,8 +23,13 @@ String buildSubstitutionEquation({
     final replacement = wrapValuesWithParens ? '(${entry.value})' : entry.value;
     final latexSymbol = latexMap.latexOf(key);
     if (latexSymbol.isEmpty) continue;
-    replacements.add(_Replacement(token: latexSymbol, replacement: replacement));
     final braceStripped = latexSymbol.replaceAll(RegExp(r'\{([^}]*)\}'), r'\1');
+    // Only add replacements for tokens that actually appear in the equation to avoid false warnings
+    final tokenUsed =
+        result.contains(latexSymbol) || (braceStripped != latexSymbol && result.contains(braceStripped));
+    if (!tokenUsed) continue;
+
+    replacements.add(_Replacement(token: latexSymbol, replacement: replacement));
     if (braceStripped != latexSymbol) {
       replacements.add(_Replacement(token: braceStripped, replacement: replacement));
     }
@@ -44,11 +49,26 @@ String buildSubstitutionEquation({
   }
 
   // Diagnostics: log any symbols that still appear unsubstituted even though a value existed.
+  // IMPORTANT: Only check for ACTUAL symbol tokens, not letters inside LaTeX commands.
+  // For example, 'c' in '\frac' or 'q' in '\sqrt' should NOT be flagged.
   final missingTokens = <String>[];
   for (final repl in replacements) {
-    final braceStripped = repl.token.replaceAll(RegExp(r'\\{?'), '').replaceAll(RegExp(r'[{}]'), '');
-    if (result.contains(repl.token) || (braceStripped.isNotEmpty && result.contains(braceStripped))) {
-      missingTokens.add(repl.token);
+    // Skip if token is a single letter that might be part of LaTeX commands
+    // Common LaTeX commands: \frac (c), \sqrt (q), \right (h), \left (e), etc.
+    final isSingleLetter = repl.token.length == 1 && RegExp(r'^[a-z]$').hasMatch(repl.token);
+    if (isSingleLetter) {
+      // For single letters, only check if they appear as standalone symbols
+      // Use word boundary check to avoid matching command internals
+      final pattern = RegExp(r'(?<![\\A-Za-z])' + RegExp.escape(repl.token) + r'(?![A-Za-z])');
+      if (pattern.hasMatch(result)) {
+        missingTokens.add(repl.token);
+      }
+    } else {
+      // For multi-character tokens, use original logic
+      final braceStripped = repl.token.replaceAll(RegExp(r'\\{?'), '').replaceAll(RegExp(r'[{}]'), '');
+      if (result.contains(repl.token) || (braceStripped.isNotEmpty && result.contains(braceStripped))) {
+        missingTokens.add(repl.token);
+      }
     }
   }
   if (missingTokens.isNotEmpty) {

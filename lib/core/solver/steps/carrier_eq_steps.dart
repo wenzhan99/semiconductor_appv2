@@ -28,6 +28,7 @@ class CarrierEqSteps {
     required LatexSymbolMap latexMap,
     required NumberFormatter formatter,
     UnitConverter? unitConverter,
+    UnitConversionLog? conversions,
     String primaryEnergyUnit = 'J',
   }) {
     if (formula.id == _electronId) {
@@ -100,6 +101,7 @@ class CarrierEqSteps {
     required NumberFormatter formatter,
     UnitConverter? unitConverter,
     required String primaryEnergyUnit,
+    UnitConversionLog? conversions,
   }) {
     if (solveFor != 'n_0' && solveFor != 'n_i' && solveFor != 'E_F' && solveFor != 'E_i' && solveFor != 'T') {
       return null;
@@ -123,32 +125,6 @@ class CarrierEqSteps {
     final computedBase = result?.value;
 
     final unitConversions = <String>[];
-    void _addConv(String? line) {
-      if (line != null && line.trim().isNotEmpty) unitConversions.add(line);
-    }
-
-    _addConv(_densityConversionLine(key: 'n_0', value: n0, displayUnit: densityUnit, latexMap: latexMap, formatter: fmt6, converter: unitConverter));
-    _addConv(_densityConversionLine(key: 'n_i', value: ni, displayUnit: densityUnit, latexMap: latexMap, formatter: fmt6, converter: unitConverter));
-    final efEnergyLines = _energyConversionLines(
-      key: 'E_F',
-      valueJ: ef?.value,
-      context: context,
-      latexMap: latexMap,
-      formatter: fmt6,
-      converter: unitConverter,
-      primaryEnergyUnit: primaryEnergyUnit,
-    );
-    final eiEnergyLines = _energyConversionLines(
-      key: 'E_i',
-      valueJ: ei?.value,
-      context: context,
-      latexMap: latexMap,
-      formatter: fmt6,
-      converter: unitConverter,
-      primaryEnergyUnit: primaryEnergyUnit,
-    );
-    if (efEnergyLines != null) unitConversions.addAll(efEnergyLines);
-    if (eiEnergyLines != null) unitConversions.addAll(eiEnergyLines);
 
     final rearrangeLines = <String>[];
     if (solveFor == 'n_0') {
@@ -285,6 +261,7 @@ class CarrierEqSteps {
     required NumberFormatter formatter,
     UnitConverter? unitConverter,
     required String primaryEnergyUnit,
+    UnitConversionLog? conversions,
   }) {
     if (solveFor != 'p_0' && solveFor != 'n_i' && solveFor != 'E_F' && solveFor != 'E_i' && solveFor != 'T') {
       return null;
@@ -308,32 +285,6 @@ class CarrierEqSteps {
     final computedBase = result?.value;
 
     final unitConversions = <String>[];
-    void _addConv(String? line) {
-      if (line != null && line.trim().isNotEmpty) unitConversions.add(line);
-    }
-
-    _addConv(_densityConversionLine(key: 'p_0', value: p0, displayUnit: densityUnit, latexMap: latexMap, formatter: fmt6, converter: unitConverter));
-    _addConv(_densityConversionLine(key: 'n_i', value: ni, displayUnit: densityUnit, latexMap: latexMap, formatter: fmt6, converter: unitConverter));
-    final efEnergyLines = _energyConversionLines(
-      key: 'E_F',
-      valueJ: ef?.value,
-      context: context,
-      latexMap: latexMap,
-      formatter: fmt6,
-      converter: unitConverter,
-      primaryEnergyUnit: primaryEnergyUnit,
-    );
-    final eiEnergyLines = _energyConversionLines(
-      key: 'E_i',
-      valueJ: ei?.value,
-      context: context,
-      latexMap: latexMap,
-      formatter: fmt6,
-      converter: unitConverter,
-      primaryEnergyUnit: primaryEnergyUnit,
-    );
-    if (efEnergyLines != null) unitConversions.addAll(efEnergyLines);
-    if (eiEnergyLines != null) unitConversions.addAll(eiEnergyLines);
 
     final rearrangeLines = <String>[];
     if (solveFor == 'p_0') {
@@ -469,6 +420,7 @@ class CarrierEqSteps {
     required LatexSymbolMap latexMap,
     required NumberFormatter formatter,
     UnitConverter? unitConverter,
+    UnitConversionLog? conversions,
   }) {
     if (solveFor != 'n_0' && solveFor != 'p_0' && solveFor != 'n_i') {
       return null;
@@ -482,14 +434,40 @@ class CarrierEqSteps {
     final ni = context.getSymbolValue('n_i');
     final result = outputs[solveFor];
 
-    final unitConversions = <String>[];
-    for (final entry in [
-      _densityConversionLine(key: 'n_0', value: n0, displayUnit: densityUnit, latexMap: latexMap, formatter: fmt6, converter: unitConverter),
-      _densityConversionLine(key: 'p_0', value: p0, displayUnit: densityUnit, latexMap: latexMap, formatter: fmt6, converter: unitConverter),
-      _densityConversionLine(key: 'n_i', value: ni, displayUnit: densityUnit, latexMap: latexMap, formatter: fmt6, converter: unitConverter),
-    ]) {
-      if (entry != null) unitConversions.add(entry);
+    // Determine the target unit for computation (output unit takes precedence)
+    final targetUnit = result?.unit.isNotEmpty == true ? result!.unit : densityUnit;
+    
+    // Build explicit unit conversion lines
+    final unitConversionLines = <String>[];
+    final needsConversion = targetUnit != 'cm^-3' && 
+                           (n0?.unit == 'cm^-3' || p0?.unit == 'cm^-3' || ni?.unit == 'cm^-3');
+    
+    if (needsConversion) {
+      final targetSymbol = _sym(solveFor, latexMap);
+      unitConversionLines.add(r'\text{Since } ' + targetSymbol + r' \text{ is in } \mathrm{' + 
+                             targetUnit.replaceAll('^', r'^{').replaceAll('-', r'-') + r'}\text{, we convert all inputs:}');
+      unitConversionLines.add('');
     }
+
+    // Convert inputs to target unit with explicit logging
+    double? _toTargetDensity(SymbolValue? v, String key) {
+      if (v == null) return null;
+      final fromUnit = v.unit.isNotEmpty ? v.unit : 'm^-3';
+      if (fromUnit == targetUnit) return v.value;
+      
+      final converted = unitConverter?.convertDensity(v.value, fromUnit, targetUnit);
+      if (converted != null && fromUnit != targetUnit) {
+        final symLatex = _sym(key, latexMap);
+        final fromStr = fmt6.formatLatexWithUnit(v.value, fromUnit);
+        final toStr = fmt6.formatLatexWithUnit(converted, targetUnit);
+        unitConversionLines.add('$symLatex = $fromStr = $toStr');
+      }
+      return converted ?? v.value;
+    }
+
+    final n0Base = _toTargetDensity(n0, 'n_0');
+    final p0Base = _toTargetDensity(p0, 'p_0');
+    final niBase = _toTargetDensity(ni, 'n_i');
 
     final rearrangeLines = <String>[
       '${_sym('n_i', latexMap)}^{2} = ${_sym('n_0', latexMap)}${_sym('p_0', latexMap)}',
@@ -502,51 +480,56 @@ class CarrierEqSteps {
       rearrangeLines.add('${_sym('p_0', latexMap)} = \\frac{{${_sym('n_i', latexMap)}}^{2}}{${_sym('n_0', latexMap)}}');
     }
 
-    String _val(SymbolValue? v, String key) =>
-        v != null ? fmt6.formatLatexWithUnit(v.value, v.unit.isNotEmpty ? v.unit : 'm^-3') : _sym(key, latexMap);
-    final n0Fmt = _val(n0, 'n_0');
-    final p0Fmt = _val(p0, 'p_0');
-    final niFmt = _val(ni, 'n_i');
+    String _val(SymbolValue? v, String key, double? baseVal) =>
+        v != null ? fmt6.formatLatexWithUnit(baseVal ?? v.value, targetUnit) : _sym(key, latexMap);
+    final n0Fmt = _val(n0, 'n_0', n0Base);
+    final p0Fmt = _val(p0, 'p_0', p0Base);
+    final niFmt = _val(ni, 'n_i', niBase);
 
     final substitutionLines = <String>[];
-    final n0Val = n0?.value;
-    final p0Val = p0?.value;
-    final niVal = ni?.value;
+    final n0Val = n0Base;
+    final p0Val = p0Base;
+    final niVal = niBase;
     final product = (n0Val != null && p0Val != null) ? n0Val * p0Val : null;
     final niSquared = niVal != null ? niVal * niVal : null;
+    
+    // Use target unit for squared density (adjust power: -3 -> -6)
+    final squaredUnit = targetUnit.replaceAll('^-3', '^{-6}').replaceAll('^{-3}', '^{-6}');
+    
     double? computedBase;
     String substitutionEvaluation;
     if (solveFor == 'n_i') {
       substitutionLines.add('${_sym('n_i', latexMap)} = \\sqrt{${_sym('n_0', latexMap)}${_sym('p_0', latexMap)}}');
       substitutionLines.add('${_sym('n_i', latexMap)} = \\sqrt{($n0Fmt)($p0Fmt)}');
       if (product != null) {
-        substitutionLines.add('${_sym('n_i', latexMap)} = \\sqrt{${fmt6.formatLatexWithUnit(product, 'm^-6')}}');
+        substitutionLines.add('${_sym('n_i', latexMap)} = \\sqrt{${fmt6.formatLatexWithUnit(product, squaredUnit)}}');
       }
       computedBase = result?.value ?? (product != null ? math.sqrt(product) : null);
-      final resultFmt = computedBase != null ? fmt6.formatLatexWithUnit(computedBase, 'm^-3') : null;
+      final resultFmt = computedBase != null ? fmt6.formatLatexWithUnit(computedBase, targetUnit) : null;
       substitutionEvaluation = resultFmt != null ? '${_sym('n_i', latexMap)} = $resultFmt' : '';
     } else if (solveFor == 'n_0') {
       substitutionLines.add('${_sym('n_0', latexMap)} = \\frac{{${_sym('n_i', latexMap)}}^{2}}{${_sym('p_0', latexMap)}}');
       substitutionLines.add('${_sym('n_0', latexMap)} = \\frac{($niFmt)^{2}}{$p0Fmt}');
       if (niSquared != null) {
-        substitutionLines.add('${_sym('n_0', latexMap)} = \\frac{${fmt6.formatLatexWithUnit(niSquared, 'm^-6')}}{$p0Fmt}');
+        substitutionLines.add('${_sym('n_0', latexMap)} = \\frac{${fmt6.formatLatexWithUnit(niSquared, squaredUnit)}}{$p0Fmt}');
       }
       computedBase = result?.value ?? (niSquared != null && p0Val != null && p0Val != 0 ? niSquared / p0Val : null);
-      final resultFmt = computedBase != null ? fmt6.formatLatexWithUnit(computedBase, 'm^-3') : null;
+      final resultFmt = computedBase != null ? fmt6.formatLatexWithUnit(computedBase, targetUnit) : null;
       substitutionEvaluation = resultFmt != null ? '${_sym('n_0', latexMap)} = $resultFmt' : '';
     } else {
       substitutionLines.add('${_sym('p_0', latexMap)} = \\frac{{${_sym('n_i', latexMap)}}^{2}}{${_sym('n_0', latexMap)}}');
       substitutionLines.add('${_sym('p_0', latexMap)} = \\frac{($niFmt)^{2}}{$n0Fmt}');
       if (niSquared != null) {
-        substitutionLines.add('${_sym('p_0', latexMap)} = \\frac{${fmt6.formatLatexWithUnit(niSquared, 'm^-6')}}{$n0Fmt}');
+        substitutionLines.add('${_sym('p_0', latexMap)} = \\frac{${fmt6.formatLatexWithUnit(niSquared, squaredUnit)}}{$n0Fmt}');
       }
       computedBase = result?.value ?? (niSquared != null && n0Val != null && n0Val != 0 ? niSquared / n0Val : null);
-      final resultFmt = computedBase != null ? fmt6.formatLatexWithUnit(computedBase, 'm^-3') : null;
+      final resultFmt = computedBase != null ? fmt6.formatLatexWithUnit(computedBase, targetUnit) : null;
       substitutionEvaluation = resultFmt != null ? '${_sym('p_0', latexMap)} = $resultFmt' : '';
     }
 
     final targetLatex = _sym(solveFor, latexMap);
-    final baseUnit = (result != null && result.unit.isNotEmpty) ? result.unit : 'm^-3';
+    // computedBase is in targetUnit, convert to user's display preference if needed
+    final baseUnit = targetUnit;
     final displayValue6 = _convertDensity(computedBase, baseUnit, densityUnit, unitConverter) ?? computedBase;
     final displayValue3 = _convertDensity(computedBase, baseUnit, densityUnit, unitConverter) ?? computedBase;
     final computedValueLine = computedBase != null
@@ -558,7 +541,7 @@ class CarrierEqSteps {
 
     return UniversalStepTemplate.build(
       targetLabelLatex: targetLatex,
-      unitConversionLines: unitConversions,
+      unitConversionLines: unitConversionLines,
       rearrangeLines: rearrangeLines,
       substitutionLines: substitutionLines,
       substitutionEvaluationLine: substitutionEvaluation,
@@ -590,14 +573,42 @@ class CarrierEqSteps {
     final ni = context.getSymbolValue('n_i');
     final result = outputs[solveFor];
 
+    // Determine the target unit for computation (output unit takes precedence)
+    final targetUnit = result?.unit.isNotEmpty == true ? result!.unit : densityUnit;
+    
+    // Build explicit unit conversion narrative
     final unitConversions = <String>[];
-    for (final entry in [
-      _densityConversionLine(key: 'N_D', value: nd, displayUnit: densityUnit, latexMap: latexMap, formatter: fmt6, converter: unitConverter),
-      _densityConversionLine(key: 'N_A', value: na, displayUnit: densityUnit, latexMap: latexMap, formatter: fmt6, converter: unitConverter),
-      _densityConversionLine(key: 'n_i', value: ni, displayUnit: densityUnit, latexMap: latexMap, formatter: fmt6, converter: unitConverter),
-    ]) {
-      if (entry != null) unitConversions.add(entry);
+    final needsConversion = targetUnit != 'cm^-3' && 
+                           (nd?.unit == 'cm^-3' || na?.unit == 'cm^-3' || ni?.unit == 'cm^-3');
+    
+    if (needsConversion) {
+      // Add explanatory header
+      final targetSymbol = _sym(solveFor, latexMap);
+      unitConversions.add(r'\text{Since } ' + targetSymbol + r' \text{ is in } \mathrm{' + 
+                         targetUnit.replaceAll('^', r'^{').replaceAll('-', r'-') + r'}\text{, we convert all inputs:}');
+      unitConversions.add(''); // Blank line for readability
     }
+
+    // Convert inputs to target unit and log conversions
+    double? _convertToTarget(SymbolValue? v, String key) {
+      if (v == null) return null;
+      final fromUnit = v.unit.isNotEmpty ? v.unit : 'm^-3';
+      if (fromUnit == targetUnit) return v.value;
+      
+      final converted = unitConverter?.convertDensity(v.value, fromUnit, targetUnit);
+      if (converted != null && fromUnit != targetUnit) {
+        // Build explicit conversion line
+        final symLatex = _sym(key, latexMap);
+        final fromStr = fmt6.formatLatexWithUnit(v.value, fromUnit);
+        final toStr = fmt6.formatLatexWithUnit(converted, targetUnit);
+        unitConversions.add('$symLatex = $fromStr = $toStr');
+      }
+      return converted ?? v.value;
+    }
+
+    final ndVal = _convertToTarget(nd, 'N_D') ?? 0;
+    final naVal = _convertToTarget(na, 'N_A') ?? 0;
+    final niVal = _convertToTarget(ni, 'n_i') ?? 0;
 
     final rearrangeLines = <String>[];
     if (solveFor == targetKey) {
@@ -639,27 +650,34 @@ class CarrierEqSteps {
       }
     }
 
-    String _fmt(SymbolValue? v, String key) =>
-        v != null ? fmt6.formatLatexWithUnit(v.value, v.unit.isNotEmpty ? v.unit : 'm^-3') : _sym(key, latexMap);
-    final ndFmt = _fmt(nd, 'N_D');
-    final naFmt = _fmt(na, 'N_A');
-    final niFmt = _fmt(ni, 'n_i');
+    // Format values using the target unit (already converted)
+    String _fmtConverted(double val, String key) =>
+        fmt6.formatLatexWithUnit(val, targetUnit);
+    
+    final ndFmt = _fmtConverted(ndVal, 'N_D');
+    final naFmt = _fmtConverted(naVal, 'N_A');
+    final niFmt = _fmtConverted(niVal, 'n_i');
+    
+    // Handle target variable (might be input when solving for dopant)
     final targetVal = context.getSymbolValue(targetKey);
-    final targetFmt = _fmt(targetVal, targetKey);
+    final double targetValNum = targetVal != null ? _convertToTarget(targetVal, targetKey) ?? 0.0 : 0.0;
+    final targetFmt = targetValNum != 0 ? _fmtConverted(targetValNum, targetKey) : _sym(targetKey, latexMap);
 
-    final ndVal = nd?.value ?? 0;
-    final naVal = na?.value ?? 0;
-    final niVal = ni?.value ?? 0;
-    final targetValNum = targetVal?.value ?? 0;
     final delta = isPType ? (naVal - ndVal) : (ndVal - naVal);
     final deltaExpr = isPType ? '($naFmt - $ndFmt)' : '($ndFmt - $naFmt)';
-    final deltaFmt = fmt6.formatLatexWithUnit(delta, 'm^-3');
+    final deltaFmt = fmt6.formatLatexWithUnit(delta, targetUnit);
     final deltaSq = delta * delta;
     final niTerm = 4 * niVal * niVal;
     final discr = deltaSq + niTerm;
     final sqrtDiscr = math.sqrt(discr);
 
     final substitutionLines = <String>[];
+    
+    // Helper to create SymbolValue with converted value in targetUnit
+    SymbolValue? _toSymbolValue(double? val, String key) {
+      return val != null ? SymbolValue(value: val, unit: targetUnit, source: SymbolSource.computed) : null;
+    }
+
     void addSubstitution(String equation, Map<String, SymbolValue?> values) {
       substitutionLines.add(equation);
       substitutionLines.add(_buildSubstitutionLine(
@@ -674,9 +692,9 @@ class CarrierEqSteps {
       final equation =
           '${_sym(targetKey, latexMap)} = \\frac{$deltaExpr + \\sqrt{$deltaExpr^{2} + 4({$niFmt})^{2}}}{2}';
       addSubstitution(equation, {
-        'N_A': na,
-        'N_D': nd,
-        'n_i': ni,
+        'N_A': _toSymbolValue(naVal, 'N_A'),
+        'N_D': _toSymbolValue(ndVal, 'N_D'),
+        'n_i': _toSymbolValue(niVal, 'n_i'),
       });
       final deltaDef = isPType
           ? r'\Delta N \equiv ' + '${_sym('N_A', latexMap)} - ${_sym('N_D', latexMap)}'
@@ -686,15 +704,19 @@ class CarrierEqSteps {
           : r'\Delta N = ' + '$ndFmt - $naFmt = $deltaFmt';
       substitutionLines.add(deltaDef);
       substitutionLines.add(deltaNumeric);
-      substitutionLines.add(r'\Delta N^{2} = ' + fmt6.formatLatexWithUnit(deltaSq, 'm^-6'));
-      substitutionLines.add(r'4n_i^{2} = ' + fmt6.formatLatexWithUnit(niTerm, 'm^-6'));
-      substitutionLines.add(r'\sqrt{\Delta N^{2} + 4n_i^{2}} = ' + fmt6.formatLatexWithUnit(sqrtDiscr, 'm^-3'));
+      
+      // Use target unit for squared density (adjust power: -3 -> -6)
+      final deltaSqUnit = targetUnit.replaceAll('^-3', '^{-6}').replaceAll('^{-3}', '^{-6}');
+      final niTermUnit = deltaSqUnit;
+      substitutionLines.add(r'\Delta N^{2} = ' + fmt6.formatLatexWithUnit(deltaSq, deltaSqUnit));
+      substitutionLines.add(r'4n_i^{2} = ' + fmt6.formatLatexWithUnit(niTerm, niTermUnit));
+      substitutionLines.add(r'\sqrt{\Delta N^{2} + 4n_i^{2}} = ' + fmt6.formatLatexWithUnit(sqrtDiscr, targetUnit));
     } else if (solveFor == 'n_i') {
       final equation = '${_sym('n_i', latexMap)} = \\sqrt{$targetFmt\\left($targetFmt - $deltaExpr\\right)}';
       addSubstitution(equation, {
-        targetKey: targetVal,
-        'N_A': na,
-        'N_D': nd,
+        targetKey: _toSymbolValue(targetValNum, targetKey),
+        'N_A': _toSymbolValue(naVal, 'N_A'),
+        'N_D': _toSymbolValue(ndVal, 'N_D'),
       });
       // Explicit Δ definition and numeric evaluation for clarity
       final deltaDef = isPType
@@ -713,7 +735,7 @@ class CarrierEqSteps {
         final ill = dVal.abs() <= _relEps * scale;
         final negBeyond = dVal < -_absEps;
         final smallNeg = dVal < 0 && !negBeyond;
-        final dFmt = fmt6.formatLatexWithUnit(dVal, 'm^-3');
+        final dFmt = fmt6.formatLatexWithUnit(dVal, targetUnit);
         substitutionLines.add('d = ${targetFmt} - ($deltaExpr) = $dFmt');
         if (negBeyond) {
           substitutionLines.add(r'\text{Inputs inconsistent: }d < 0 \text{ would make } n_i \text{ imaginary.}');
@@ -725,33 +747,33 @@ class CarrierEqSteps {
       final equation =
           '${_sym('N_A', latexMap)} = ${_sym('N_D', latexMap)} + ${_sym('p_0', latexMap)} - \\frac{{${_sym('n_i', latexMap)}}^{2}}{{${_sym('p_0', latexMap)}}}';
       addSubstitution(equation, {
-        'N_D': nd,
-        'p_0': targetVal,
-        'n_i': ni,
+        'N_D': _toSymbolValue(ndVal, 'N_D'),
+        'p_0': _toSymbolValue(targetValNum, 'p_0'),
+        'n_i': _toSymbolValue(niVal, 'n_i'),
       });
     } else if (isPType && solveFor == 'N_D') {
       final equation =
           '${_sym('N_D', latexMap)} = ${_sym('N_A', latexMap)} - ${_sym('p_0', latexMap)} + \\frac{{${_sym('n_i', latexMap)}}^{2}}{{${_sym('p_0', latexMap)}}}';
       addSubstitution(equation, {
-        'N_A': na,
-        'p_0': targetVal,
-        'n_i': ni,
+        'N_A': _toSymbolValue(naVal, 'N_A'),
+        'p_0': _toSymbolValue(targetValNum, 'p_0'),
+        'n_i': _toSymbolValue(niVal, 'n_i'),
       });
     } else if (!isPType && solveFor == 'N_D') {
       final equation =
           '${_sym('N_D', latexMap)} = ${_sym('N_A', latexMap)} + ${_sym('n_0', latexMap)} - \\frac{{${_sym('n_i', latexMap)}}^{2}}{{${_sym('n_0', latexMap)}}}';
       addSubstitution(equation, {
-        'N_A': na,
-        'n_0': targetVal,
-        'n_i': ni,
+        'N_A': _toSymbolValue(naVal, 'N_A'),
+        'n_0': _toSymbolValue(targetValNum, 'n_0'),
+        'n_i': _toSymbolValue(niVal, 'n_i'),
       });
     } else {
       final equation =
           '${_sym('N_A', latexMap)} = ${_sym('N_D', latexMap)} - ${_sym('n_0', latexMap)} + \\frac{{${_sym('n_i', latexMap)}}^{2}}{{${_sym('n_0', latexMap)}}}';
       addSubstitution(equation, {
-        'N_D': nd,
-        'n_0': targetVal,
-        'n_i': ni,
+        'N_D': _toSymbolValue(ndVal, 'N_D'),
+        'n_0': _toSymbolValue(targetValNum, 'n_0'),
+        'n_i': _toSymbolValue(niVal, 'n_i'),
       });
     }
 
@@ -759,38 +781,39 @@ class CarrierEqSteps {
     double? computedBase;
     if (solveFor == targetKey) {
       computedBase = result?.value ?? (delta + sqrtDiscr) / 2;
-      final expr = '${_sym(targetKey, latexMap)} = \\frac{($deltaFmt) + (${fmt6.formatLatexWithUnit(sqrtDiscr, 'm^-3')})}{2}';
-      substitutionEvaluation = '$expr = ${fmt6.formatLatexWithUnit(computedBase, 'm^-3')}';
+      final expr = '${_sym(targetKey, latexMap)} = \\frac{($deltaFmt) + (${fmt6.formatLatexWithUnit(sqrtDiscr, targetUnit)})}{2}';
+      substitutionEvaluation = '$expr = ${fmt6.formatLatexWithUnit(computedBase, targetUnit)}';
     } else if (solveFor == 'n_i') {
       final inside = targetValNum * (targetValNum - delta);
       computedBase = result?.value ?? (inside > 0 ? math.sqrt(inside) : null);
       final expr = '${_sym('n_i', latexMap)} = \\sqrt{${_sym(targetKey, latexMap)}\\left(${_sym(targetKey, latexMap)} - ${_sym('N_D', latexMap)} + ${_sym('N_A', latexMap)}\\right)}';
-      substitutionEvaluation = computedBase != null ? '$expr = ${fmt6.formatLatexWithUnit(computedBase, 'm^-3')}' : expr;
+      substitutionEvaluation = computedBase != null ? '$expr = ${fmt6.formatLatexWithUnit(computedBase, targetUnit)}' : expr;
     } else if (isPType && solveFor == 'N_A') {
       final denom = targetValNum;
       computedBase = result?.value ?? (denom != 0 ? ndVal + targetValNum - (niVal * niVal) / denom : null);
       final expr = '${_sym('N_A', latexMap)} = ${_sym('N_D', latexMap)} + ${_sym('p_0', latexMap)} - \\frac{{${_sym('n_i', latexMap)}}^{2}}{{${_sym('p_0', latexMap)}}}';
-      substitutionEvaluation = computedBase != null ? '$expr = ${fmt6.formatLatexWithUnit(computedBase, 'm^-3')}' : expr;
+      substitutionEvaluation = computedBase != null ? '$expr = ${fmt6.formatLatexWithUnit(computedBase, targetUnit)}' : expr;
     } else if (isPType && solveFor == 'N_D') {
       final denom = targetValNum;
       computedBase = result?.value ?? (denom != 0 ? naVal - targetValNum + (niVal * niVal) / denom : null);
       final expr = '${_sym('N_D', latexMap)} = ${_sym('N_A', latexMap)} - ${_sym('p_0', latexMap)} + \\frac{({$niFmt})^{2}}{$targetFmt}';
-      substitutionEvaluation = computedBase != null ? '$expr = ${fmt6.formatLatexWithUnit(computedBase, 'm^-3')}' : expr;
+      substitutionEvaluation = computedBase != null ? '$expr = ${fmt6.formatLatexWithUnit(computedBase, targetUnit)}' : expr;
     } else if (!isPType && solveFor == 'N_D') {
       final denom = targetValNum;
       computedBase = result?.value ?? (denom != 0 ? naVal + targetValNum - (niVal * niVal) / denom : null);
       final expr = '${_sym('N_D', latexMap)} = ${_sym('N_A', latexMap)} + ${_sym('n_0', latexMap)} - \\frac{({$niFmt})^{2}}{$targetFmt}';
-      substitutionEvaluation = computedBase != null ? '$expr = ${fmt6.formatLatexWithUnit(computedBase, 'm^-3')}' : expr;
+      substitutionEvaluation = computedBase != null ? '$expr = ${fmt6.formatLatexWithUnit(computedBase, targetUnit)}' : expr;
     } else if (!isPType) {
       final denom = targetValNum;
       computedBase = result?.value ??
           (denom != 0 ? ndVal - targetValNum + (niVal * niVal) / denom : null);
       final expr = '${_sym('N_A', latexMap)} = $ndFmt - $targetFmt + \\frac{({$niFmt})^{2}}{$targetFmt}';
-      substitutionEvaluation = computedBase != null ? '$expr = ${fmt6.formatLatexWithUnit(computedBase, 'm^-3')}' : expr;
+      substitutionEvaluation = computedBase != null ? '$expr = ${fmt6.formatLatexWithUnit(computedBase, targetUnit)}' : expr;
     }
 
     final targetLatex = _sym(solveFor, latexMap);
-    final baseUnit = (result != null && result.unit.isNotEmpty) ? result.unit : 'm^-3';
+    // computedBase is in targetUnit, convert to user's display preference if needed
+    final baseUnit = targetUnit;
     final displayValue6 = _convertDensity(computedBase, baseUnit, densityUnit, unitConverter) ?? computedBase;
     final displayValue3 = _convertDensity(computedBase, baseUnit, densityUnit, unitConverter) ?? computedBase;
     final computedValueLine = computedBase != null
@@ -832,14 +855,36 @@ class CarrierEqSteps {
     final ndPlus = context.getSymbolValue('N_D_plus');
     final result = outputs[solveFor];
 
+    // Determine the target unit for computation
+    final targetUnit = result?.unit.isNotEmpty == true ? result!.unit : densityUnit;
+    
+    // Build explicit unit conversion lines
     final unitConversions = <String>[];
-    for (final entry in [
-      _densityConversionLine(key: 'n_0', value: n0, displayUnit: densityUnit, latexMap: latexMap, formatter: fmt6, converter: unitConverter),
-      _densityConversionLine(key: 'p_0', value: p0, displayUnit: densityUnit, latexMap: latexMap, formatter: fmt6, converter: unitConverter),
-      _densityConversionLine(key: 'N_A_minus', value: naMinus, displayUnit: densityUnit, latexMap: latexMap, formatter: fmt6, converter: unitConverter),
-      _densityConversionLine(key: 'N_D_plus', value: ndPlus, displayUnit: densityUnit, latexMap: latexMap, formatter: fmt6, converter: unitConverter),
-    ]) {
-      if (entry != null) unitConversions.add(entry);
+    final needsConversion = targetUnit != 'cm^-3' && 
+                           (n0?.unit == 'cm^-3' || p0?.unit == 'cm^-3' || 
+                            naMinus?.unit == 'cm^-3' || ndPlus?.unit == 'cm^-3');
+    
+    if (needsConversion) {
+      final targetSymbol = _sym(solveFor, latexMap);
+      unitConversions.add(r'\text{Since } ' + targetSymbol + r' \text{ is in } \mathrm{' + 
+                         targetUnit.replaceAll('^', r'^{').replaceAll('-', r'-') + r'}\text{, we convert all inputs:}');
+      unitConversions.add('');
+    }
+
+    // Convert inputs to target unit
+    double? _toTarget(SymbolValue? v, String key) {
+      if (v == null) return null;
+      final fromUnit = v.unit.isNotEmpty ? v.unit : 'm^-3';
+      if (fromUnit == targetUnit) return v.value;
+      
+      final converted = unitConverter?.convertDensity(v.value, fromUnit, targetUnit);
+      if (converted != null && fromUnit != targetUnit) {
+        final symLatex = _sym(key, latexMap);
+        final fromStr = fmt6.formatLatexWithUnit(v.value, fromUnit);
+        final toStr = fmt6.formatLatexWithUnit(converted, targetUnit);
+        unitConversions.add('$symLatex = $fromStr = $toStr');
+      }
+      return converted ?? v.value;
     }
 
     final rearrangeLines = <String>[];
@@ -857,46 +902,70 @@ class CarrierEqSteps {
       rearrangeLines.add('${_sym('N_D_plus', latexMap)} = ${_sym('n_0', latexMap)} + ${_sym('N_A_minus', latexMap)} - ${_sym('p_0', latexMap)}');
     }
 
+    // Convert and format values in target unit
+    final n0Val = _toTarget(n0, 'n_0');
+    final p0Val = _toTarget(p0, 'p_0');
+    final naMinusVal = _toTarget(naMinus, 'N_A_minus');
+    final ndPlusVal = _toTarget(ndPlus, 'N_D_plus');
+
+    // Format values with units for substitution
+    String _fmtVal(double? val, String key) =>
+        val != null ? '(' + fmt6.formatLatexWithUnit(val, targetUnit) + ')' : _sym(key, latexMap);
+    
+    final n0Fmt = _fmtVal(n0Val, 'n_0');
+    final p0Fmt = _fmtVal(p0Val, 'p_0');
+    final naMinusFmt = _fmtVal(naMinusVal, 'N_A_minus');
+    final ndPlusFmt = _fmtVal(ndPlusVal, 'N_D_plus');
+
+    // Build substitution lines by substituting into the rearranged equation
     final substitutionLines = <String>[];
-    if (n0 != null && solveFor != 'n_0') {
-      substitutionLines.add('${_sym('n_0', latexMap)} = ${fmt6.formatLatexWithUnit(n0.value, n0.unit.isNotEmpty ? n0.unit : 'm^-3')}');
-    }
-    if (p0 != null && solveFor != 'p_0') {
-      substitutionLines.add('${_sym('p_0', latexMap)} = ${fmt6.formatLatexWithUnit(p0.value, p0.unit.isNotEmpty ? p0.unit : 'm^-3')}');
-    }
-    if (naMinus != null && solveFor != 'N_A_minus') {
-      substitutionLines.add('${_sym('N_A_minus', latexMap)} = ${fmt6.formatLatexWithUnit(naMinus.value, naMinus.unit.isNotEmpty ? naMinus.unit : 'm^-3')}');
-    }
-    if (ndPlus != null && solveFor != 'N_D_plus') {
-      substitutionLines.add('${_sym('N_D_plus', latexMap)} = ${fmt6.formatLatexWithUnit(ndPlus.value, ndPlus.unit.isNotEmpty ? ndPlus.unit : 'm^-3')}');
+    if (solveFor == 'n_0') {
+      // Repeat Step 2 equation
+      substitutionLines.add('${_sym('n_0', latexMap)} = ${_sym('p_0', latexMap)} + ${_sym('N_D_plus', latexMap)} - ${_sym('N_A_minus', latexMap)}');
+      // Substitute numeric values
+      substitutionLines.add('${_sym('n_0', latexMap)} = $p0Fmt + $ndPlusFmt - $naMinusFmt');
+    } else if (solveFor == 'p_0') {
+      substitutionLines.add('${_sym('p_0', latexMap)} = ${_sym('n_0', latexMap)} + ${_sym('N_A_minus', latexMap)} - ${_sym('N_D_plus', latexMap)}');
+      substitutionLines.add('${_sym('p_0', latexMap)} = $n0Fmt + $naMinusFmt - $ndPlusFmt');
+    } else if (solveFor == 'N_A_minus') {
+      substitutionLines.add('${_sym('N_A_minus', latexMap)} = ${_sym('p_0', latexMap)} + ${_sym('N_D_plus', latexMap)} - ${_sym('n_0', latexMap)}');
+      substitutionLines.add('${_sym('N_A_minus', latexMap)} = $p0Fmt + $ndPlusFmt - $n0Fmt');
+    } else {
+      substitutionLines.add('${_sym('N_D_plus', latexMap)} = ${_sym('n_0', latexMap)} + ${_sym('N_A_minus', latexMap)} - ${_sym('p_0', latexMap)}');
+      substitutionLines.add('${_sym('N_D_plus', latexMap)} = $n0Fmt + $naMinusFmt - $p0Fmt');
     }
 
     double? computed;
     final targetSym = _sym(solveFor, latexMap);
     if (solveFor == 'n_0') {
-      if (p0?.value != null && ndPlus?.value != null && naMinus?.value != null) {
-        computed = p0!.value + ndPlus!.value - naMinus!.value;
+      if (p0Val != null && ndPlusVal != null && naMinusVal != null) {
+        computed = p0Val + ndPlusVal - naMinusVal;
       }
     } else if (solveFor == 'p_0') {
-      if (n0?.value != null && naMinus?.value != null && ndPlus?.value != null) {
-        computed = n0!.value + naMinus!.value - ndPlus!.value;
+      if (n0Val != null && naMinusVal != null && ndPlusVal != null) {
+        computed = n0Val + naMinusVal - ndPlusVal;
       }
     } else if (solveFor == 'N_A_minus') {
-      if (p0?.value != null && ndPlus?.value != null && n0?.value != null) {
-        computed = p0!.value + ndPlus!.value - n0!.value;
+      if (p0Val != null && ndPlusVal != null && n0Val != null) {
+        computed = p0Val + ndPlusVal - n0Val;
       }
     } else {
-      if (n0?.value != null && naMinus?.value != null && p0?.value != null) {
-        computed = n0!.value + naMinus!.value - p0!.value;
+      if (n0Val != null && naMinusVal != null && p0Val != null) {
+        computed = n0Val + naMinusVal - p0Val;
       }
     }
 
-    final substitutionEvaluation = computed != null
-        ? '$targetSym = ${fmt6.formatLatexWithUnit(computed, 'm^-3')}'
+    // Single source of truth: use solver's result if available, else local computation
+    // This ensures Step 3 evaluation and Step 4 use IDENTICAL values
+    final computedBase = result?.value ?? computed;
+    final baseUnit = targetUnit;
+    
+    // Step 3 evaluation uses the same computedBase as Step 4
+    final substitutionEvaluation = computedBase != null
+        ? '$targetSym = ${fmt6.formatLatexWithUnit(computedBase, targetUnit)}'
         : targetSym;
 
-    final baseUnit = (result != null && result.unit.isNotEmpty) ? result.unit : 'm^-3';
-    final computedBase = result?.value ?? computed;
+    // Convert to user's display preference if needed
     final displayValue6 = _convertDensity(computedBase, baseUnit, densityUnit, unitConverter) ?? computedBase;
     final displayValue3 = _convertDensity(computedBase, baseUnit, densityUnit, unitConverter) ?? computedBase;
 
@@ -990,7 +1059,7 @@ class CarrierEqSteps {
     if (valueJ == null) return null;
     if (primaryEnergyUnit != 'eV') return null;
     if (converter == null) return null;
-    final converted = converter.convertEnergy(valueJ, 'J', 'eV');
+    final converted = converter.convertEnergy(valueJ, 'J', 'eV', symbol: 'q', reason: 'carrier eq display');
     if (converted == null) return null;
 
     final sym = _sym(key, latexMap);
@@ -1023,7 +1092,7 @@ class CarrierEqSteps {
   ) {
     if (valueJ == null) return '';
     if (preferredUnit == 'eV' && converter != null) {
-      final converted = converter.convertEnergy(valueJ, 'J', 'eV');
+    final converted = converter.convertEnergy(valueJ, 'J', 'eV', symbol: 'q', reason: 'carrier eq display');
       if (converted != null) {
         return formatter.formatLatexWithUnit(converted, 'eV');
       }

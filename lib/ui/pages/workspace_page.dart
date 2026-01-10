@@ -156,20 +156,20 @@ class _WorkspacePageState extends State<WorkspacePage> {
           Icon(
             Icons.science,
             size: 64,
-            color: Colors.grey[400],
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
           const SizedBox(height: 16),
           Text(
             'No formulas in workspace',
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  color: Colors.grey[600],
+                  color: Theme.of(context).colorScheme.onSurface,
                 ),
           ),
           const SizedBox(height: 8),
           Text(
             'Go to the Topics tab to add semiconductor formulas',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Colors.grey[500],
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
           ),
           const SizedBox(height: 24),
@@ -313,7 +313,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
         statusText = 'Error';
         break;
       case PanelStatus.stale:
-        statusColor = Colors.grey;
+        statusColor = Theme.of(context).colorScheme.outline;
         statusIcon = Icons.refresh;
         statusText = 'Stale';
         break;

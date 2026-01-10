@@ -70,9 +70,18 @@ class Formula extends Equatable {
       if (constantKeys.isNotEmpty) {
         final originalCount = parsedVars.length;
         parsedVars = parsedVars.where((v) => !constantKeys.contains(v.key)).toList();
-        if (parsedVars.length != originalCount) {
-          debugPrint(
-              'Filtered ${originalCount - parsedVars.length} constant-backed variables from formula ${json['id']} to avoid editable constants.');
+        // Debug-only: log which variables were filtered (reduced spam)
+        if (parsedVars.length != originalCount && kDebugMode) {
+          final filteredKeys = <String>[];
+          for (final key in constantKeys) {
+            if (!parsedVars.any((v) => v.key == key)) {
+              filteredKeys.add(key);
+            }
+          }
+          if (filteredKeys.isNotEmpty) {
+            debugPrint(
+                'Formula ${json['id']}: filtered ${filteredKeys.length} constant-backed vars: ${filteredKeys.join(", ")}');
+          }
         }
       }
     }

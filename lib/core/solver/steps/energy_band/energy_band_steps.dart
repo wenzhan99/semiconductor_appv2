@@ -39,6 +39,7 @@ class EnergyBandSteps {
     required LatexSymbolMap latexMap,
     required NumberFormatter formatter,
     UnitConverter? unitConverter,
+    UnitConversionLog? conversions,
     String primaryEnergyUnit = 'J',
   }) {
     if (formula.id == _parabolicId) {
@@ -85,34 +86,42 @@ class EnergyBandSteps {
     final kVal = context.getSymbolValue('k');
     final mStar = context.getSymbolValue('m_star');
     final energy = context.getSymbolValue('E');
+    final energyInput = context.getSymbolValue('__meta__input_E');
 
     final hbarStr6 = _formatSymbolValue(fmt6, latexMap, 'hbar', hbar, defaultUnit: 'J*s');
     final kStr6 = _formatSymbolValue(fmt6, latexMap, 'k', kVal, defaultUnit: 'm^-1');
     final mStr6 = _formatSymbolValue(fmt6, latexMap, 'm_star', mStar, defaultUnit: 'kg');
 
-    double? energyJ;
+    final energyInputUnit = energyInput?.unit ?? energy?.unit;
+    final energyInputValue = energyInput?.value ?? energy?.value;
+
+    double? energyJ = energy?.value;
     var convertedEnergy = false;
-    if (energy != null) {
-      if (energy.unit == 'eV') {
-        final converted = _convertEnergy(unitConverter, energy.value, 'eV', 'J');
+    if (energyInputValue != null && energyInputUnit != null) {
+      if (energyInputUnit == 'eV') {
+        final converted = _convertEnergy(unitConverter, energyInputValue, 'eV', 'J');
         if (converted != null) {
           energyJ = converted;
           convertedEnergy = true;
         }
+      } else {
+        energyJ = energyInputValue;
       }
-      energyJ ??= energy.value;
     }
+    energyJ ??= energy?.value;
 
-    final energyEvLatex =
-        energy != null && energy.unit.isNotEmpty ? formatter.formatLatexWithUnit(energy.value, energy.unit) : latexMap.latexOf('E');
-    final energyJLatex6 = energyJ != null
-        ? fmt6.formatLatexWithUnit(energyJ, convertedEnergy ? 'J' : (energy?.unit.isNotEmpty == true ? energy!.unit : 'J'))
-        : latexMap.latexOf('E');
+    final energyEvLatex = energyInputValue != null && energyInputUnit != null
+        ? formatter.formatLatexWithUnit(energyInputValue, energyInputUnit)
+        : (energy != null && energy.unit.isNotEmpty ? formatter.formatLatexWithUnit(energy.value, energy.unit) : latexMap.latexOf('E'));
+    final energyJLatex6 = energyJ != null ? fmt6.formatLatexWithUnit(energyJ, 'J') : latexMap.latexOf('E');
 
     final unitConversions = <String>[];
-    if (energy != null && convertedEnergy) {
-      final energyJLatex3 = formatter.formatLatexWithUnit(energyJ ?? energy.value, 'J');
-      unitConversions.add('${_safeSymbol('E', latexMap)} = $energyEvLatex = $energyJLatex3');
+    if (energyInputUnit != null && energyInputUnit != 'J' && convertedEnergy) {
+      final energyJValue = energyJ ?? energy?.value;
+      if (energyJValue != null) {
+        final energyJLatex3 = formatter.formatLatexWithUnit(energyJValue, 'J');
+        unitConversions.add('${_safeSymbol('E', latexMap)} = $energyEvLatex = $energyJLatex3');
+      }
     }
 
     final rearrangeLines = <String>[];
@@ -145,10 +154,15 @@ class EnergyBandSteps {
     final result = outputs[solveFor];
     String? resultLatex6;
     String? resultLatex3;
+    String? resultAlt6;
+    String? resultAlt3;
     if (result != null) {
       if (solveFor == 'E') {
         resultLatex6 = _formatResultEnergy(fmt6, unitConverter, result, primaryEnergyUnit);
         resultLatex3 = _formatResultEnergy(formatter, unitConverter, result, primaryEnergyUnit);
+        final altUnit = primaryEnergyUnit == 'eV' ? 'J' : 'eV';
+        resultAlt6 = _formatResultEnergy(fmt6, unitConverter, result, altUnit);
+        resultAlt3 = _formatResultEnergy(formatter, unitConverter, result, altUnit);
       } else {
         resultLatex6 = result.unit.isNotEmpty ? fmt6.formatLatexWithUnit(result.value, result.unit) : fmt6.formatLatex(result.value);
         resultLatex3 = result.unit.isNotEmpty ? formatter.formatLatexWithUnit(result.value, result.unit) : formatter.formatLatex(result.value);
@@ -168,8 +182,14 @@ class EnergyBandSteps {
     }
 
     final targetLatex = _safeSymbol(solveFor, latexMap);
-    final computedLine = resultLatex6 != null ? '$targetLatex = $resultLatex6' : targetLatex;
-    final roundedLine = resultLatex3 != null ? '$targetLatex = $resultLatex3' : targetLatex;
+    String _withAlt(String base, String? alt) {
+      if (alt == null || alt.isEmpty || alt == base) return base;
+      return '$base\\; ( $alt )';
+    }
+
+    final computedLine =
+        resultLatex6 != null ? _withAlt('$targetLatex = $resultLatex6', resultAlt6) : targetLatex;
+    final roundedLine = resultLatex3 != null ? _withAlt('$targetLatex = $resultLatex3', resultAlt3) : targetLatex;
 
     return _assemble(
       targetLatex: targetLatex,
@@ -298,7 +318,7 @@ class EnergyBandSteps {
 
   static double? _convertEnergy(UnitConverter? converter, double? value, String fromUnit, String toUnit) {
     if (converter == null || value == null) return null;
-    return converter.convertEnergy(value, fromUnit, toUnit);
+    return converter.convertEnergy(value, fromUnit, toUnit, symbol: '__energy__', reason: 'energy band step');
   }
 
   static String _safeSymbol(String key, LatexSymbolMap latexMap) {

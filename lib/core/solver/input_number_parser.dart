@@ -10,7 +10,12 @@ class InputNumberParser {
     if (raw.isEmpty) return null;
     
     // Sanitize: remove whitespace and commas only
-    var cleaned = raw.trim().replaceAll(' ', '').replaceAll(',', '');
+    var cleaned = raw
+        .trim()
+        .replaceAll(' ', '')
+        .replaceAll(',', '')
+        // Strip common stray prime/backtick characters that appear from copy/paste (e.g., 3.55e-31`)
+        .replaceAll(RegExp(r"[`´’′]"), '');
     
     if (cleaned.isEmpty) return null;
     
@@ -49,4 +54,3 @@ class InputNumberParser {
     return result;
   }
 }
-

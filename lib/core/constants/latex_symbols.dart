@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:flutter/foundation.dart';
 
 /// Holds mapping from a symbol key (e.g. "eps_0") to a LaTeX string (e.g. "\varepsilon_0").
 /// This is presentation-only and should not affect numeric computations.
@@ -26,11 +27,23 @@ class LatexSymbolMap extends Equatable {
         'symbols': symbols,
       };
 
-  /// Returns LaTeX if known; otherwise falls back to the raw symbol key.
-  /// Normalizes subscripts/superscripts to brace form (e.g., n_0 -> n_{0}).
+  /// Returns LaTeX for a symbol key using the canonical mapping.
+  /// If the mapping is missing, emits a debugPrint warning and returns a normalized fallback.
+  String renderSymbol(String symbolKey, {bool warnOnFallback = true}) {
+    final mapped = symbols[symbolKey]?.trim();
+    if (mapped != null && mapped.isNotEmpty) {
+      return _normalizeLatex(mapped);
+    }
+    if (warnOnFallback) {
+      debugPrint('Missing LaTeX mapping for symbol: $symbolKey (source: $source)');
+    }
+    return _normalizeLatex(symbolKey);
+  }
+
+  /// Backwards-compatible wrapper used throughout the solver/rendering code.
+  /// Delegates to [renderSymbol] without warning on fallback.
   String latexOf(String symbolKey) {
-    final raw = symbols[symbolKey] ?? symbolKey;
-    return _normalizeLatex(raw);
+    return renderSymbol(symbolKey, warnOnFallback: false);
   }
 
   /// Sanitize a full equation string for rendering without mutating math structure.

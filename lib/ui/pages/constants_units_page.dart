@@ -265,7 +265,7 @@ class _ConstantsUnitsPageState extends State<ConstantsUnitsPage> {
             ),
           )
           .toList(),
-      headingRowColor: WidgetStateProperty.all(Colors.grey.shade200),
+      headingRowColor: WidgetStateProperty.all(Theme.of(context).colorScheme.surfaceContainerHighest),
       dataRowMinHeight: 32,
       dataRowMaxHeight: 48,
     );

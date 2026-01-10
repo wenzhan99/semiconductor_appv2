@@ -10,6 +10,7 @@ import '../core/utils/parse_utils.dart';
 class StorageService {
   static const String _workspacesBoxName = 'workspaces';
   static const String _workspaceIdsKey = 'workspace_ids';
+  static const String _themePreferenceKey = 'theme_preference';
   Box<String>? _workspacesBox;
 
   Future<void> initialize() async {
@@ -103,6 +104,18 @@ class StorageService {
     final box = await _ensureBox();
     await box.clear();
     // The IDs list will also be cleared since it's in the same box
+  }
+
+  /// Save theme preference.
+  Future<void> saveThemePreference(String themeMode) async {
+    final box = await _ensureBox();
+    await box.put(_themePreferenceKey, themeMode);
+  }
+
+  /// Load theme preference.
+  Future<String?> loadThemePreference() async {
+    final box = await _ensureBox();
+    return box.get(_themePreferenceKey);
   }
 
   Map<String, dynamic> _sanitizeWorkspaceJson(

@@ -56,7 +56,7 @@ class SemiconductorCalculatorApp extends StatelessWidget {
           debugShowCheckedModeBanner: false,
           theme: AppTheme.lightTheme,
           darkTheme: AppTheme.darkTheme,
-          themeMode: ThemeMode.light, // Force light mode
+          themeMode: appState.themeMode, // Respect user's theme preference
           home: const MainApp(),
         );
       },

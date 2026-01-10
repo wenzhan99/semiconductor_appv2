@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:semiconductor_appv2/core/solver/step_items.dart';
 
 /// Canonical step template used by all formulas.
@@ -18,7 +19,25 @@ class UniversalStepTemplate {
     required String substitutionEvaluationLine,
     required String computedValueLine,
     required String roundedValueLine,
+    double? debugComputedValue, // For debug assertions
+    double? debugRoundedValue,  // For debug assertions
   }) {
+    // Debug assertion: Step 3 evaluation and Step 4 must use same pre-rounded value
+    assert(() {
+      if (debugComputedValue != null && debugRoundedValue != null) {
+        final relativeError = (debugComputedValue - debugRoundedValue).abs() / 
+                              (debugComputedValue.abs() + 1e-100); // Avoid div by zero
+        if (relativeError > 1e-12) {
+          debugPrint('⚠️  WARNING: Step 3 and Step 4 value mismatch!');
+          debugPrint('   Step 3 (substitutionEval): $debugComputedValue');
+          debugPrint('   Step 4 (computed): $debugRoundedValue');
+          debugPrint('   Relative error: $relativeError');
+          debugPrint('   These should be the SAME value (single source of truth)');
+        }
+      }
+      return true;
+    }());
+
     final steps = <StepItem>[];
 
     // Step 1
@@ -33,7 +52,8 @@ class UniversalStepTemplate {
     }
 
     // Step 2
-    steps.add(StepItem.math(r'\textbf{' '$_step2Prefix' r'} ' + targetLabelLatex));
+    final step2HeadingLatex = r'\textbf{' + _step2Prefix + '}' + targetLabelLatex;
+    steps.add(StepItem.math(step2HeadingLatex));
     final rearrange = rearrangeLines.where((l) => l.trim().isNotEmpty).toList();
     if (rearrange.isEmpty) {
       steps.add(const StepItem.math(r'\text{No rearrangement required.}'));

@@ -190,6 +190,7 @@ class StepLaTeXBuilder {
     SymbolContext context,
     Map<String, SymbolValue> outputs, {
     bool showUnitsInSubstitution = false,
+    UnitConversionLog? conversions,
   }) {
     final formulaLatex = formula.equationLatex;
     final substitutionLatex = _buildSubstitutionLatex(
@@ -201,11 +202,14 @@ class StepLaTeXBuilder {
     final resultValue = outputs[solveFor];
     final resultLatex = resultValue != null ? _buildResultLatex(solveFor, resultValue) : '';
 
+    final conversionLines = _conversionLines(conversions);
+
     final universalSteps = _buildUniversalSteps(
       formula: formula,
       solveFor: solveFor,
       context: context,
       outputs: outputs,
+      conversionLines: conversionLines,
     );
 
     return StepLatex(
@@ -223,15 +227,17 @@ class StepLaTeXBuilder {
     SymbolContext context,
     Map<String, SymbolValue> outputs,
     UnitConverter? unitConverter, {
+    UnitConversionLog? conversions,
     String primaryEnergyUnit = 'J',
   }) {
+    final conversionLines = _conversionLines(conversions);
     final pnSteps = _buildPnBuiltInPotentialSteps(
       formula: formula,
       solveFor: solveFor,
       context: context,
       outputs: outputs,
     );
-    if (pnSteps != null) return pnSteps;
+    if (pnSteps != null) return _applyConversionLinesToWorkingItems(pnSteps, conversionLines);
 
     final ctFundamental = _buildCtFundamentalSteps(
       formula: formula,
@@ -249,9 +255,10 @@ class StepLaTeXBuilder {
       latexMap: _latexMap,
       formatter: _formatter,
       unitConverter: unitConverter,
+      conversions: conversions,
       primaryEnergyUnit: primaryEnergyUnit,
     );
-    if (energySteps != null) return energySteps;
+    if (energySteps != null) return _applyConversionLinesToWorkingItems(energySteps, conversionLines);
 
     final dosSteps = DosStatsSteps.tryBuildSteps(
       formula: formula,
@@ -261,9 +268,10 @@ class StepLaTeXBuilder {
       latexMap: _latexMap,
       formatter: _formatter,
       unitConverter: unitConverter,
+      conversions: conversions,
       primaryEnergyUnit: primaryEnergyUnit,
     );
-    if (dosSteps != null) return dosSteps;
+    if (dosSteps != null) return _applyConversionLinesToWorkingItems(dosSteps, conversionLines);
 
     final carrierSteps = CarrierEqSteps.tryBuildSteps(
       formula: formula,
@@ -273,9 +281,10 @@ class StepLaTeXBuilder {
       latexMap: _latexMap,
       formatter: _formatter,
       unitConverter: unitConverter,
+      conversions: conversions,
       primaryEnergyUnit: primaryEnergyUnit,
     );
-    if (carrierSteps != null) return carrierSteps;
+    if (carrierSteps != null) return _applyConversionLinesToWorkingItems(carrierSteps, conversionLines);
     return null;
   }
 
@@ -1852,17 +1861,7 @@ n_i &= \sqrt{({{NC}})({{NV}})\,{{EXPX}}} = {{NI_M}} \\
   }
 
   String _latexLabel(String key) {
-    const overrides = {
-      'm_n_star': r'm_{n}^{*}',
-      'm_p_star': r'm_{p}^{*}',
-      'N_c': r'N_{c}',
-      'N_v': r'N_{v}',
-    };
-    final override = overrides[key];
-    if (override != null && override.isNotEmpty) return override;
-    final mapped = _latexMap.latexOf(key);
-    if (mapped.isNotEmpty) return mapped;
-    return mapped;
+    return _latexMap.renderSymbol(key, warnOnFallback: true);
   }
 
   List<StepItem> _buildUniversalSteps({
@@ -1870,6 +1869,7 @@ n_i &= \sqrt{({{NC}})({{NV}})\,{{EXPX}}} = {{NI_M}} \\
     required String solveFor,
     required SymbolContext context,
     required Map<String, SymbolValue> outputs,
+    required List<String> conversionLines,
   }) {
     final targetLatex = _latexLabel(solveFor);
     final fmt6 = _formatter.withSigFigs(6);
@@ -1902,13 +1902,72 @@ n_i &= \sqrt{({{NC}})({{NV}})\,{{EXPX}}} = {{NI_M}} \\
 
     return UniversalStepTemplate.build(
       targetLabelLatex: targetLatex,
-      unitConversionLines: const [],
+      unitConversionLines: conversionLines,
       rearrangeLines: rearrangeLines,
       substitutionLines: substitutionLines,
       substitutionEvaluationLine: evaluatedLine,
       computedValueLine: computedLine,
       roundedValueLine: roundedLine,
     );
+  }
+
+  List<String> _conversionLines(UnitConversionLog? log) {
+    if (log == null || log.isEmpty) return const [];
+    final fmt = _formatter.withSigFigs(6);
+    return log.steps.map((step) {
+      final sym = _latexLabel(step.symbol);
+      final fromStr = step.fromUnit.isNotEmpty
+          ? fmt.formatLatexWithUnit(step.fromValue, step.fromUnit)
+          : fmt.formatLatex(step.fromValue);
+      final toStr = step.toUnit.isNotEmpty
+          ? fmt.formatLatexWithUnit(step.toValue, step.toUnit)
+          : fmt.formatLatex(step.toValue);
+      return '$sym = $fromStr = $toStr';
+    }).toList();
+  }
+
+  List<StepItem> _applyConversionLinesToWorkingItems(List<StepItem> items, List<String> conversionLines) {
+    final result = List<StepItem>.from(items);
+    final noConversion = conversionLines.isEmpty;
+    final headingIndex = result.indexWhere((item) => item.type == StepItemType.text && item.value.startsWith('Step 1'));
+    final replacementMathItems = noConversion
+        ? [const StepItem.math(r'\text{No unit conversion required.}')]
+        : conversionLines.map((line) => StepItem.math(line)).toList();
+
+    if (headingIndex == -1) {
+      // Prepend a full Step 1 section.
+      result.insertAll(0, [
+        const StepItem.text('Step 1 - Unit Conversion'),
+        ...replacementMathItems,
+      ]);
+      return result;
+    }
+
+    // Find where Step 1 math lines end (next text heading or list end).
+    int nextHeading = result.length;
+    for (var i = headingIndex + 1; i < result.length; i++) {
+      final item = result[i];
+      final isTextHeading = item.type == StepItemType.text;
+      final isMathHeading = item.type == StepItemType.math && item.latex.trim().startsWith(r'\textbf{Step');
+      if (isTextHeading || isMathHeading) {
+        nextHeading = i;
+        break;
+      }
+    }
+
+    // Remove existing math items in Step 1 block.
+    result.removeRange(headingIndex + 1, nextHeading);
+    result.insertAll(headingIndex + 1, replacementMathItems);
+
+    assert(() {
+      if (!noConversion) {
+        final hasNoConversionLine = replacementMathItems.any((i) => i.type == StepItemType.math && i.latex.contains('No unit conversion required'));
+        assert(!hasNoConversionLine, 'Unit conversion log is non-empty but Step 1 rendered as no conversion.');
+      }
+      return true;
+    }());
+
+    return result;
   }
 
   List<StepItem>? _buildCtFundamentalSteps({

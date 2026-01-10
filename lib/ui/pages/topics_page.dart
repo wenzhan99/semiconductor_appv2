@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -221,7 +220,7 @@ class _TopicsPageState extends State<TopicsPage> {
                     child: Text(
                       'No formulas loaded for this category yet',
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: Colors.grey[600],
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
                             fontStyle: FontStyle.italic,
                           ),
                     ),
@@ -258,7 +257,7 @@ class _TopicsPageState extends State<TopicsPage> {
                       const spacing = 12.0;
                       final availableWidth = constraints.maxWidth - spacing * (crossAxisCount - 1);
                       final tileWidth = availableWidth / crossAxisCount;
-                      final targetHeight = constraints.maxWidth < 720 ? 150.0 : 130.0;
+                      final targetHeight = constraints.maxWidth < 720 ? 190.0 : 160.0;
                       final aspectRatio = tileWidth / targetHeight;
                       return GridView.builder(
                         primary: false,
@@ -384,7 +383,7 @@ class _TopicsPageState extends State<TopicsPage> {
                         latexMap.sanitizeEquationLatexForRender(formula.equationLatex),
                         style: const TextStyle(fontSize: 14),
                         displayMode: true,
-                        scale: 1.5,
+                        scale: 1.3,
                       ),
                     ),
                   ),

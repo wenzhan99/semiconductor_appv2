@@ -21,18 +21,18 @@ class SolveResult extends Equatable {
   final Map<String, SymbolValue> outputs;
   final String? errorMessage;
   final StepLatex? stepsLatex;
-  final String? notice;
+  final UnitConversionLog conversions;
 
   const SolveResult({
     required this.status,
     required this.outputs,
+    required this.conversions,
     this.errorMessage,
     this.stepsLatex,
-    this.notice,
   });
 
   @override
-  List<Object?> get props => [status, outputs, errorMessage, stepsLatex, notice];
+  List<Object?> get props => [status, outputs, errorMessage, stepsLatex, conversions];
 }
 
 /// Solver for evaluating formulas.
@@ -57,12 +57,16 @@ class FormulaSolver {
     required Map<String, SymbolValue> panelOverrides,
     LatexSymbolMap? latexMap,
   }) {
+    final conversionLog = UnitConversionLog();
+    final unitConverter = UnitConverter(_constantsRepo, log: conversionLog);
+
     // Get formula definition
     final formula = _formulaRepo.getFormulaById(formulaId);
     if (formula == null) {
       return SolveResult(
         status: PanelStatus.error,
         outputs: const {},
+        conversions: conversionLog,
         errorMessage: 'Formula not found: $formulaId',
       );
     }
@@ -72,6 +76,7 @@ class FormulaSolver {
       return SolveResult(
         status: PanelStatus.error,
         outputs: const {},
+        conversions: conversionLog,
         errorMessage: 'Formula cannot be solved for: $solveFor',
       );
     }
@@ -82,6 +87,7 @@ class FormulaSolver {
       return SolveResult(
         status: PanelStatus.error,
         outputs: const {},
+        conversions: conversionLog,
         errorMessage: 'No compute expression for: $solveFor',
       );
     }
@@ -89,11 +95,17 @@ class FormulaSolver {
     // Build symbol context (merge constants -> globals -> overrides)
     final constantsResolver = FormulaConstantsResolver(_constantsRepo);
     final resolvedConstants = constantsResolver.resolveConstants(formula);
-    final context = SymbolContext(_constantsRepo);
-    context.mergeIn(
+    final rawContext = SymbolContext(_constantsRepo);
+    rawContext.mergeIn(
       constants: resolvedConstants,
       globals: workspaceGlobals,
       overrides: panelOverrides,
+    );
+    final context = _normalizeContext(
+      formula: formula,
+      rawContext: rawContext,
+      unitConverter: unitConverter,
+      log: conversionLog,
     );
 
     // Validate required inputs
@@ -109,6 +121,7 @@ class FormulaSolver {
       return SolveResult(
         status: PanelStatus.needsInputs,
         outputs: const {},
+        conversions: conversionLog,
         errorMessage: 'Missing required inputs: ${missingVars.join(", ")}',
       );
     }
@@ -123,6 +136,7 @@ class FormulaSolver {
       return SolveResult(
         status: PanelStatus.error,
         outputs: const {},
+        conversions: conversionLog,
         errorMessage: constraintError,
       );
     }
@@ -137,6 +151,7 @@ class FormulaSolver {
       return SolveResult(
         status: PanelStatus.error,
         outputs: const {},
+        conversions: conversionLog,
         errorMessage: customError,
       );
     }
@@ -151,6 +166,7 @@ class FormulaSolver {
       return SolveResult(
         status: PanelStatus.error,
         outputs: const {},
+        conversions: conversionLog,
         errorMessage: custom.error,
       );
     }
@@ -164,6 +180,7 @@ class FormulaSolver {
         return SolveResult(
           status: PanelStatus.error,
           outputs: const {},
+          conversions: conversionLog,
           errorMessage: _cleanEvalError(evaluationResult.error!),
         );
       }
@@ -180,16 +197,47 @@ class FormulaSolver {
       return SolveResult(
         status: PanelStatus.error,
         outputs: const {},
+        conversions: conversionLog,
         errorMessage: outputConstraintError,
       );
     }
 
-    // Get output unit from formula variable definition
+    // Get output unit - prefer user's selected unit from metadata over SI default
     final outputVar = formula.variables?.firstWhere(
       (v) => v.key == solveFor,
       orElse: () => throw StateError('Variable not found in formula'),
     );
-    final outputUnit = outputVar?.siUnit ?? '';
+    final siUnit = outputVar?.siUnit ?? '';
+    
+    // Check for user's unit preference in metadata
+    String outputUnit = siUnit;
+    final userUnitMeta = context.getValue('__meta__unit_$solveFor');
+    if (userUnitMeta != null) {
+      // User has explicit unit preference for this symbol
+      final preferredUnit = context.getUnit('__meta__unit_$solveFor') ?? '';
+      if (preferredUnit.isNotEmpty) {
+        outputUnit = preferredUnit;
+        
+        // Convert computed value to user's preferred unit
+        if (siUnit != outputUnit) {
+          if (siUnit.contains('^-') && outputUnit.contains('^-')) {
+            final converted = unitConverter.convertDensity(computedValue, siUnit, outputUnit);
+            if (converted != null) computedValue = converted;
+          } else if ((siUnit == 'J' || siUnit == 'eV') && (outputUnit == 'J' || outputUnit == 'eV')) {
+            final converted = unitConverter.convertEnergy(computedValue, siUnit, outputUnit);
+            if (converted != null) computedValue = converted;
+          }
+        }
+      }
+    } else if (siUnit.contains('^-')) {
+      // Fallback: check global density unit metadata
+      final densityUnitPref = context.getUnit('__meta__density_unit') ?? '';
+      if (densityUnitPref.isNotEmpty && densityUnitPref != siUnit) {
+        outputUnit = densityUnitPref;
+        final converted = unitConverter.convertDensity(computedValue, siUnit, outputUnit);
+        if (converted != null) computedValue = converted;
+      }
+    }
 
     // Create output
     final outputs = {
@@ -207,9 +255,15 @@ class FormulaSolver {
         latexMap: latexMap,
         formatter: const NumberFormatter(significantFigures: 3, sciThresholdExp: 3),
       );
-      stepsLatex = builder.build(formula, solveFor, context, outputs, showUnitsInSubstitution: true);
+      stepsLatex = builder.build(
+        formula,
+        solveFor,
+        context,
+        outputs,
+        showUnitsInSubstitution: true,
+        conversions: conversionLog,
+      );
 
-      final unitConverter = UnitConverter(_constantsRepo);
       final primaryEnergyUnit = panelOverrides['__meta__E_unit']?.unit ?? 'J';
 
       final canonicalWorking = builder.tryBuildModuleSteps(
@@ -218,6 +272,7 @@ class FormulaSolver {
         context,
         outputs,
         unitConverter,
+        conversions: conversionLog,
         primaryEnergyUnit: primaryEnergyUnit,
       );
 
@@ -271,8 +326,53 @@ class FormulaSolver {
       status: PanelStatus.solved,
       outputs: outputs,
       stepsLatex: stepsLatex,
-      notice: custom.notice,
+      conversions: conversionLog,
     );
+  }
+
+  SymbolContext _normalizeContext({
+    required FormulaDefinition formula,
+    required SymbolContext rawContext,
+    required UnitConverter unitConverter,
+    required UnitConversionLog log,
+  }) {
+    final normalized = SymbolContext(_constantsRepo);
+    final merged = rawContext.getAll();
+    final vars = formula.variables ?? const [];
+    SymbolValue convertSymbol(String key, SymbolValue value) {
+      final varDef = vars.firstWhere(
+        (v) => v.key == key,
+        orElse: () => FormulaVariable(key: key, name: key, siUnit: value.unit, preferredUnits: const []),
+      );
+      final targetUnit = varDef.siUnit.isNotEmpty ? varDef.siUnit : value.unit;
+      if (targetUnit.isEmpty || value.unit == targetUnit) return value;
+
+      double? convertedValue;
+      if (targetUnit.contains('^-')) {
+        convertedValue = unitConverter.convertDensity(value.value, value.unit, targetUnit, symbol: key, reason: 'canonical density unit');
+      } else if (targetUnit == 'J' || targetUnit == 'eV' || value.unit == 'J' || value.unit == 'eV') {
+        convertedValue = unitConverter.convertEnergy(value.value, value.unit, targetUnit, symbol: key, reason: 'canonical energy unit');
+      } else if (RegExp(r'^(m|cm|nm|um|Aćm)$').hasMatch(targetUnit)) {
+        convertedValue = unitConverter.convertLength(value.value, value.unit, targetUnit, symbol: key, reason: 'canonical length unit');
+      } else {
+        convertedValue = null;
+      }
+
+      if (convertedValue == null) return value;
+      return SymbolValue(value: convertedValue, unit: targetUnit, source: value.source);
+    }
+
+    final normalizedMap = <String, SymbolValue>{};
+    merged.forEach((key, val) {
+      if (key.startsWith('__meta__')) {
+        normalizedMap[key] = val;
+      } else {
+        normalizedMap[key] = convertSymbol(key, val);
+      }
+    });
+
+    normalized.mergeIn(overrides: normalizedMap);
+    return normalized;
   }
 
   String _cleanEvalError(String raw) {
@@ -433,6 +533,7 @@ class FormulaSolver {
     return null;
   }
 
+
   _CustomSolveResult _tryMajorityCustomSolve({
     required FormulaDefinition formula,
     required String solveFor,
@@ -453,19 +554,17 @@ class FormulaSolver {
     final ni = context.getValue('n_i');
 
     if (majorityVal != null && majorityVal < 0) {
-      return const _CustomSolveResult(error: 'Non-physical input: carrier concentration must be ≥ 0.');
+      return const _CustomSolveResult(error: 'Non-physical input: carrier concentration must be >= 0.');
     }
     if (na != null && na < -absEps) {
-      return const _CustomSolveResult(error: 'Non-physical input: N_A must be ≥ 0.');
+      return const _CustomSolveResult(error: 'Non-physical input: N_A must be >= 0.');
     }
     if (nd != null && nd < -absEps) {
-      return const _CustomSolveResult(error: 'Non-physical input: N_D must be ≥ 0.');
+      return const _CustomSolveResult(error: 'Non-physical input: N_D must be >= 0.');
     }
     if (ni != null && ni < 0) {
-      return const _CustomSolveResult(error: 'Non-physical input: n_i must be ≥ 0.');
+      return const _CustomSolveResult(error: 'Non-physical input: n_i must be >= 0.');
     }
-
-    String? notice;
 
     double solveNA() {
       if (majorityVal == null || majorityVal <= 0) {
@@ -473,13 +572,9 @@ class FormulaSolver {
       }
       final niVal = ni ?? 0;
       final ndVal = nd ?? 0;
-      final value = isPType
+      return isPType
           ? ndVal + majorityVal - (niVal * niVal) / majorityVal
           : ndVal - majorityVal + (niVal * niVal) / majorityVal;
-      if (isPType && value < ndVal) {
-        notice = 'Computed N_A < N_D → material is n-type; consider the n-type compensated screen.';
-      }
-      return value;
     }
 
     double solveND() {
@@ -488,13 +583,9 @@ class FormulaSolver {
       }
       final niVal = ni ?? 0;
       final naVal = na ?? 0;
-      final value = isPType
+      return isPType
           ? naVal - majorityVal + (niVal * niVal) / majorityVal
           : naVal + majorityVal - (niVal * niVal) / majorityVal;
-      if (!isPType && value < naVal) {
-        notice = 'Computed N_D < N_A → material is p-type; consider the p-type compensated screen.';
-      }
-      return value;
     }
 
     double solveNi() {
@@ -514,8 +605,6 @@ class FormulaSolver {
       }
       if (isIll || d < 0) {
         dSafe = 0;
-        notice =
-            'Ill-conditioned reverse solve: cannot reliably recover n_i because ${isPType ? 'p0' : 'n0'} ≈ ${isPType ? '(N_A - N_D)' : '(N_D - N_A)'} (precision/rounding). Clamped d to 0, so n_i = 0.';
       }
 
       final inside = majorityVal * dSafe;
@@ -532,7 +621,7 @@ class FormulaSolver {
         value = solveNi();
       }
       if (value == null) return const _CustomSolveResult();
-      return _CustomSolveResult(value: value, notice: notice);
+      return _CustomSolveResult(value: value);
     } catch (e) {
       var msg = e.toString();
       msg = msg.replaceFirst('Bad state: ', '');
@@ -545,7 +634,6 @@ class FormulaSolver {
 class _CustomSolveResult {
   final double? value;
   final String? error;
-  final String? notice;
 
-  const _CustomSolveResult({this.value, this.error, this.notice});
+  const _CustomSolveResult({this.value, this.error});
 }

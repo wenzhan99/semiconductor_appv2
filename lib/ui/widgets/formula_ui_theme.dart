@@ -9,9 +9,21 @@ class FormulaUiTheme {
   static const double dropdownWidth = 120;
   static const EdgeInsets contentPadding = EdgeInsets.symmetric(horizontal: 12, vertical: 12);
   static const BorderRadius fieldRadius = BorderRadius.all(Radius.circular(8));
-  static const double stepHeaderFontSize = 16;
-  static const double stepBodyFontSize = 14;
-  static const double stepMathFontSize = 18;
+  // Step-by-step typography (universally applied across all formulas)
+  static const double stepSectionTitleFontSize = 16; // "Step-by-step working" (unchanged)
+  static const double stepHeaderFontSize = 15; // Step 1/2/3/4 headers (unchanged)
+  static const double stepBodyFontSize = 16; // descriptive lines (increased for readability)
+  static const double stepMathFontSize = 18; // equations (increased for better legibility)
+  static const double stepMathScale = 1.15; // LaTeX scale multiplier (increased for fractions/exponents)
+
+  // Step title styles
+  static TextStyle stepSectionTitleStyle(BuildContext context) {
+    final base = Theme.of(context).textTheme.titleSmall;
+    return (base ?? const TextStyle()).copyWith(
+      fontSize: stepSectionTitleFontSize,
+      fontWeight: FontWeight.w600,
+    );
+  }
 
   static TextStyle? inputTextStyle(BuildContext context) => Theme.of(context).textTheme.bodyMedium;
 
@@ -22,7 +34,7 @@ class FormulaUiTheme {
     final base = Theme.of(context).textTheme.bodyMedium;
     return (base ?? const TextStyle()).copyWith(
       fontSize: stepHeaderFontSize,
-      fontWeight: FontWeight.w700,
+      fontWeight: FontWeight.w600,
     );
   }
 
@@ -30,7 +42,8 @@ class FormulaUiTheme {
     final base = Theme.of(context).textTheme.bodyMedium;
     return (base ?? const TextStyle()).copyWith(
       fontSize: stepBodyFontSize,
-      fontWeight: FontWeight.w500,
+      fontWeight: FontWeight.w400,
+      height: 1.35,
     );
   }
 
@@ -38,7 +51,8 @@ class FormulaUiTheme {
     final base = Theme.of(context).textTheme.bodyMedium;
     return (base ?? const TextStyle()).copyWith(
       fontSize: stepMathFontSize,
-      fontWeight: FontWeight.w500,
+      fontWeight: FontWeight.w400,
+      height: 1.2,
     );
   }
 

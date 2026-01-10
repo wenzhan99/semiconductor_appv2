@@ -56,7 +56,7 @@ class _SettingsPageState extends State<SettingsPage> {
         break;
       case ThemeMode.system:
       default:
-        themeLabel = 'System';
+        themeLabel = 'Auto (Follow system)';
         break;
     }
 
@@ -182,7 +182,8 @@ class _SettingsPageState extends State<SettingsPage> {
             RadioListTile<ThemeMode>(
               value: ThemeMode.system,
               groupValue: appState.themeMode,
-              title: const Text('System'),
+              title: const Text('Auto (Follow system)'),
+              subtitle: const Text('Automatically match device theme'),
               secondary: const Icon(Icons.brightness_auto),
               onChanged: (mode) {
                 if (mode != null) {

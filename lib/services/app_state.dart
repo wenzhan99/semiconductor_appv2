@@ -10,7 +10,7 @@ class AppState extends ChangeNotifier {
 
   List<Workspace> _workspaces = [];
   Workspace? _currentWorkspace;
-  ThemeMode _themeMode = ThemeMode.light;
+  ThemeMode _themeMode = ThemeMode.system; // Default to system
 
   AppState(this._storageService, this._authService);
 
@@ -20,6 +20,28 @@ class AppState extends ChangeNotifier {
 
   Future<void> initialize() async {
     await loadWorkspaces();
+    await _loadThemePreference();
+  }
+
+  /// Load theme preference from storage.
+  Future<void> _loadThemePreference() async {
+    final saved = await _storageService.loadThemePreference();
+    if (saved != null) {
+      switch (saved) {
+        case 'light':
+          _themeMode = ThemeMode.light;
+          break;
+        case 'dark':
+          _themeMode = ThemeMode.dark;
+          break;
+        case 'system':
+        default:
+          _themeMode = ThemeMode.system;
+          break;
+      }
+      notifyListeners();
+    }
+    // If no saved preference, keep default (ThemeMode.system)
   }
 
   /// Load all workspaces from storage.
@@ -69,9 +91,26 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Set theme mode.
-  void setThemeMode(ThemeMode mode) {
+  /// Set theme mode and persist to storage.
+  Future<void> setThemeMode(ThemeMode mode) async {
     _themeMode = mode;
+    
+    // Persist to storage
+    String modeStr;
+    switch (mode) {
+      case ThemeMode.light:
+        modeStr = 'light';
+        break;
+      case ThemeMode.dark:
+        modeStr = 'dark';
+        break;
+      case ThemeMode.system:
+      default:
+        modeStr = 'system';
+        break;
+    }
+    await _storageService.saveThemePreference(modeStr);
+    
     notifyListeners();
   }
 
