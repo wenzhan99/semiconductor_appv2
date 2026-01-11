@@ -244,6 +244,7 @@ class StepLaTeXBuilder {
       solveFor: solveFor,
       context: context,
       outputs: outputs,
+      conversionLines: conversionLines,
     );
     if (ctFundamental != null) return ctFundamental;
 
@@ -1975,11 +1976,57 @@ n_i &= \sqrt{({{NC}})({{NV}})\,{{EXPX}}} = {{NI_M}} \\
     required String solveFor,
     required SymbolContext context,
     required Map<String, SymbolValue> outputs,
+    required List<String> conversionLines,
   }) {
-    // Only handle drift velocity (ct_f1, ct_f2) for now.
-    final isElectron = formula.id == 'ct_f1_electron_drift_velocity';
-    final isHole = formula.id == 'ct_f2_hole_drift_velocity';
-    if (!isElectron && !isHole) return null;
+    // Handle Einstein relation (ct_f7, ct_f8)
+    final isEinsteinElectron = formula.id == 'ct_f7_einstein_relation_electrons';
+    final isEinsteinHole = formula.id == 'ct_f8_einstein_relation_holes';
+    if (isEinsteinElectron || isEinsteinHole) {
+      return _buildEinsteinRelationSteps(
+        isElectron: isEinsteinElectron,
+        solveFor: solveFor,
+        context: context,
+        outputs: outputs,
+        conversionLines: conversionLines,
+      );
+    }
+
+    // Handle drift velocity (ct_f1, ct_f2)
+    final isDriftElectron = formula.id == 'ct_f1_electron_drift_velocity';
+    final isDriftHole = formula.id == 'ct_f2_hole_drift_velocity';
+    
+    // Handle diffusion current density (ct_f5, ct_f6)
+    final isDiffElectron = formula.id == 'ct_f5_electron_diffusion_current_density';
+    final isDiffHole = formula.id == 'ct_f6_hole_diffusion_current_density';
+    
+    if (isDiffElectron || isDiffHole) {
+      return _buildDiffusionCurrentSteps(
+        formula: formula,
+        solveFor: solveFor,
+        context: context,
+        outputs: outputs,
+        isElectron: isDiffElectron,
+        conversionLines: conversionLines,
+      );
+    }
+    
+    if (!isDriftElectron && !isDriftHole) {
+      // Fallback: if this is an unhandled carrier transport fundamental, default to universal steps
+      // so canonical IDs don't surface missing-template warnings.
+      if (formula.id.startsWith('ct_f')) {
+        return _buildUniversalSteps(
+          formula: formula,
+          solveFor: solveFor,
+          context: context,
+          outputs: outputs,
+          conversionLines: conversionLines,
+        );
+      }
+      return null;
+    }
+    
+    final isElectron = isDriftElectron;
+    final isHole = isDriftHole;
 
     final vKey = isElectron ? 'v_dn' : 'v_dp';
     final muKey = isElectron ? 'mu_n' : 'mu_p';
@@ -2036,7 +2083,198 @@ n_i &= \sqrt{({{NC}})({{NV}})\,{{EXPX}}} = {{NI_M}} \\
 
     return UniversalStepTemplate.build(
       targetLabelLatex: targetLatex,
-      unitConversionLines: const [],
+      unitConversionLines: conversionLines,
+      rearrangeLines: rearrangeLines,
+      substitutionLines: substitutionLines,
+      substitutionEvaluationLine: computedLine,
+      computedValueLine: computedLine,
+      roundedValueLine: roundedLine,
+    );
+  }
+
+  List<StepItem>? _buildEinsteinRelationSteps({
+    required bool isElectron,
+    required String solveFor,
+    required SymbolContext context,
+    required Map<String, SymbolValue> outputs,
+    required List<String> conversionLines,
+  }) {
+    final dKey = isElectron ? 'D_n' : 'D_p';
+    final muKey = isElectron ? 'mu_n' : 'mu_p';
+    const tKey = 'T';
+
+    // Only handle Einstein relation targets
+    if (solveFor != dKey && solveFor != muKey && solveFor != tKey) {
+      return null;
+    }
+
+    final fmt6 = _formatter.withSigFigs(6);
+    final fmt3 = _formatter;
+
+    final dSym = _latexLabel(dKey);
+    final muSym = _latexLabel(muKey);
+    final tSym = _latexLabel(tKey);
+    final kSym = _latexLabel('k');
+    final qSym = _latexLabel('q');
+
+    final baseEq = '$dSym = $muSym \\frac{$kSym $tSym}{$qSym}';
+
+    String rearranged;
+    if (solveFor == dKey) {
+      rearranged = baseEq;
+    } else if (solveFor == muKey) {
+      rearranged = '$muSym = \\dfrac{$dSym $qSym}{$kSym $tSym}';
+    } else {
+      rearranged = '$tSym = \\dfrac{$dSym $qSym}{$kSym $muSym}';
+    }
+
+    String _fmt(SymbolValue? v, String key, String defaultUnit) {
+      if (v == null) return '';
+      final unit = v.unit.isNotEmpty ? v.unit : defaultUnit;
+      return fmt6.formatLatexWithUnit(v.value, unit);
+    }
+
+    final substitutionMap = <String, String>{};
+    void addIfKnown(String key, String defaultUnit) {
+      if (key == solveFor) return; // keep target symbolic
+      final val = context.getSymbolValue(key);
+      if (val == null) return;
+      substitutionMap[key] = _fmt(val, key, defaultUnit);
+    }
+
+    addIfKnown(dKey, 'm^2/s');
+    addIfKnown(muKey, 'm^2/(V*s)');
+    addIfKnown(tKey, 'K');
+    addIfKnown('k', 'J/K');
+    addIfKnown('q', 'C');
+
+    final substituted = buildSubstitutionEquation(
+      equationLatex: rearranged,
+      latexMap: _latexMap,
+      substitutionMap: substitutionMap,
+      wrapValuesWithParens: true,
+      debugLabel: 'einstein:${isElectron ? 'electron' : 'hole'}:$solveFor',
+    );
+
+    final substitutionLines = <String>[
+      rearranged,
+      substituted,
+    ];
+
+    final result = outputs[solveFor];
+    final targetLatex = _latexLabel(solveFor);
+    final computedLine = result != null
+        ? (result.unit.isNotEmpty
+            ? '$targetLatex = ${fmt6.formatLatexWithUnit(result.value, result.unit)}'
+            : '$targetLatex = ${fmt6.formatLatex(result.value)}')
+        : targetLatex;
+    final roundedLine = result != null
+        ? (result.unit.isNotEmpty
+            ? '$targetLatex = ${fmt3.formatLatexWithUnit(result.value, result.unit)}'
+            : '$targetLatex = ${fmt3.formatLatex(result.value)}')
+        : targetLatex;
+
+    return UniversalStepTemplate.build(
+      targetLabelLatex: targetLatex,
+      unitConversionLines: conversionLines,
+      rearrangeLines: [rearranged],
+      substitutionLines: substitutionLines,
+      substitutionEvaluationLine: computedLine,
+      computedValueLine: computedLine,
+      roundedValueLine: roundedLine,
+    );
+  }
+
+  List<StepItem>? _buildDiffusionCurrentSteps({
+    required FormulaDefinition formula,
+    required String solveFor,
+    required SymbolContext context,
+    required Map<String, SymbolValue> outputs,
+    required bool isElectron,
+    required List<String> conversionLines,
+  }) {
+    // Formula: J = q D (dn/dx) for electrons, J = -q D (dp/dx) for holes
+    final jKey = isElectron ? 'J_n_diff' : 'J_p_diff';
+    final dKey = isElectron ? 'D_n' : 'D_p';
+    final gradKey = isElectron ? 'dn_dx' : 'dp_dx';
+    final sign = isElectron ? '' : '-';
+    
+    // Get LaTeX symbols
+    final jSym = _latexLabel(jKey);
+    final dSym = _latexLabel(dKey);
+    final gradSym = _latexLabel(gradKey);
+    final qSym = _latexLabel('q');
+    
+    final fmt6 = _formatter.withSigFigs(6);
+    final fmt3 = _formatter;
+    
+    // Get values (including constants with full precision)
+    final jVal = context.getSymbolValue(jKey);
+    final dVal = context.getSymbolValue(dKey);
+    final gradVal = context.getSymbolValue(gradKey);
+    final qVal = context.getSymbolValue('q'); // Use full-precision constant from context
+    
+    // Build base equation
+    final baseEq = '$jSym = ${sign}$qSym $dSym $gradSym';
+    
+    // Build rearrangement based on target
+    final rearrangeLines = <String>[];
+    if (solveFor == dKey) {
+      // Solving for D: D = J / (q * gradient)
+      rearrangeLines.add(baseEq);
+      rearrangeLines.add('$dSym = \\dfrac{$jSym}{${sign}$qSym $gradSym}');
+    } else if (solveFor == gradKey) {
+      // Solving for gradient: dn/dx = J / (q * D)
+      rearrangeLines.add(baseEq);
+      rearrangeLines.add('$gradSym = \\dfrac{$jSym}{${sign}$qSym $dSym}');
+    } else {
+      // Solving for J (already isolated)
+      rearrangeLines.add(baseEq);
+    }
+    
+    // Build substitution lines with FULL numeric values
+    final substitutionLines = <String>[];
+    
+    // Format helper with full precision
+    String _fmt(SymbolValue? val, String key, String defaultUnit) {
+      if (val == null) return _latexLabel(key);
+      final unit = val.unit.isNotEmpty ? val.unit : defaultUnit;
+      return '(' + fmt6.formatLatexWithUnit(val.value, unit) + ')';
+    }
+    
+    final jFmt = _fmt(jVal, jKey, 'A/m^2');
+    final dFmt = _fmt(dVal, dKey, 'm^2/s');
+    final gradFmt = _fmt(gradVal, gradKey, 'm^-4');
+    final qFmt = _fmt(qVal, 'q', 'C'); // Full-precision q
+    
+    // Build substituted equation based on target
+    if (solveFor == jKey) {
+      // J = q D (dn/dx)
+      substitutionLines.add('$jSym = ${sign}$qSym $dSym $gradSym');
+      substitutionLines.add('$jSym = ${sign}$qFmt $dFmt $gradFmt');
+    } else if (solveFor == dKey) {
+      // D = J / (q * gradient)
+      substitutionLines.add('$dSym = \\dfrac{$jSym}{${sign}$qSym $gradSym}');
+      substitutionLines.add('$dSym = \\dfrac{$jFmt}{${sign}$qFmt $gradFmt}');
+    } else {
+      // gradient = J / (q * D)
+      substitutionLines.add('$gradSym = \\dfrac{$jSym}{${sign}$qSym $dSym}');
+      substitutionLines.add('$gradSym = \\dfrac{$jFmt}{${sign}$qFmt $dFmt}');
+    }
+    
+    // Compute evaluation line
+    final result = outputs[solveFor];
+    final targetLatex = _latexLabel(solveFor);
+    final computedLine = result != null
+        ? '$targetLatex = ${fmt6.formatLatexWithUnit(result.value, result.unit)}'
+        : targetLatex;
+    final roundedLine = result != null
+        ? '$targetLatex = ${fmt3.formatLatexWithUnit(result.value, result.unit)}'
+        : targetLatex;
+    
+    return UniversalStepTemplate.build(
+      targetLabelLatex: targetLatex,
+      unitConversionLines: conversionLines,
       rearrangeLines: rearrangeLines,
       substitutionLines: substitutionLines,
       substitutionEvaluationLine: computedLine,
