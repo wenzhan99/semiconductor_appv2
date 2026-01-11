@@ -68,65 +68,50 @@ class ConstantsCard extends StatelessWidget {
               style: Theme.of(context).textTheme.bodyMedium,
             )
           else
-          Table(
-            columnWidths: const {
-              0: FixedColumnWidth(52),
-              1: FixedColumnWidth(10),
-              2: FlexColumnWidth(2),
-              3: FlexColumnWidth(1),
-            },
-            defaultVerticalAlignment: TableCellVerticalAlignment.middle,
-            children: requiredKeys.map((key) {
-              final latex = latexMap.latexOf(key);
-              final symbolValue = resolved[key];
-              final unit = symbolValue?.unit ?? '';
-              final valueLatex = symbolValue != null
-                  ? constantsFormatter.formatLatexWithUnit(symbolValue.value, unit)
-                  : r'\text{Missing constant}';
-              final note = noteByKey[key];
-              return TableRow(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: LatexText(
-                      latex,
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: Text(
-                      '=',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 6, right: 4),
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: LatexText(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: requiredKeys.map((key) {
+                final latex = latexMap.latexOf(key);
+                final symbolValue = resolved[key];
+                final unit = symbolValue?.unit ?? '';
+                final valueLatex = symbolValue != null
+                    ? constantsFormatter.formatLatexWithUnit(symbolValue.value, unit)
+                    : r'\text{Missing constant}';
+                final note = noteByKey[key];
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      LatexText(
+                        latex,
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                      ),
+                      Text(
+                        '=',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                      LatexText(
                         valueLatex,
                         style: Theme.of(context).textTheme.bodyMedium,
                       ),
-                    ),
+                      if (note != null && note.isNotEmpty)
+                        Text(
+                          '($note)',
+                          softWrap: true,
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                fontStyle: FontStyle.italic,
+                              ),
+                        ),
+                    ],
                   ),
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 6, left: 4),
-                    child: note != null && note.isNotEmpty
-                        ? Text(
-                            '($note)',
-                            softWrap: true,
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                                  fontStyle: FontStyle.italic,
-                                ),
-                          )
-                        : const SizedBox.shrink(),
-                  ),
-                ],
-              );
-            }).toList(),
-          ),
+                );
+              }).toList(),
+            ),
         ],
       ),
     );
