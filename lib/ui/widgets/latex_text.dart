@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 
-const bool kShowLatexDebug = true;
+const bool kShowLatexDebug = false;
 
 class LatexText extends StatelessWidget {
   final String latex;
