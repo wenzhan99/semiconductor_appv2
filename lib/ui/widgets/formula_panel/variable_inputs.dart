@@ -45,7 +45,7 @@ class VariableInputs extends StatelessWidget {
                 fit: BoxFit.scaleDown,
                 child: LatexText(
                   symbolLatex,
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  style: FormulaUiTheme.inputTextStyle(context)?.copyWith(fontWeight: FontWeight.w400),
                 ),
               ),
             );

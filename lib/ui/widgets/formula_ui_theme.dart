@@ -28,7 +28,7 @@ class FormulaUiTheme {
   static TextStyle? inputTextStyle(BuildContext context) => Theme.of(context).textTheme.bodyMedium;
 
   static TextStyle? unitTextStyle(BuildContext context) =>
-      inputTextStyle(context)?.copyWith(fontWeight: FontWeight.w600);
+      inputTextStyle(context)?.copyWith(fontWeight: FontWeight.w400);
 
   static TextStyle stepHeaderTextStyle(BuildContext context) {
     final base = Theme.of(context).textTheme.bodyMedium;
