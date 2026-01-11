@@ -38,21 +38,16 @@ class VariableInputs extends StatelessWidget {
           runSpacing: 12,
           children: variables.map((v) {
             final symbolLatex = latexMap.latexOf(v.key).isNotEmpty ? latexMap.latexOf(v.key) : v.key;
-            final labelWidget = Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                LatexText(
+            final labelWidget = ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: minWidth),
+              child: FittedBox(
+                alignment: Alignment.centerLeft,
+                fit: BoxFit.scaleDown,
+                child: LatexText(
                   symbolLatex,
                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                 ),
-                if (v.name.isNotEmpty)
-                  Text(
-                    v.name,
-                    style: Theme.of(context).textTheme.labelMedium?.copyWith(height: 1.2),
-                    softWrap: true,
-                  ),
-              ],
+              ),
             );
             return ConstrainedBox(
               constraints: BoxConstraints(minWidth: minWidth),

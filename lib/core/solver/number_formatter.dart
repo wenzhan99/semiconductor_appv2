@@ -199,17 +199,20 @@ class NumberFormatter {
   String _normalizeUnitLatex(String unitLatex) {
     if (unitLatex.isEmpty) return '';
 
-    // Replace tokens like m^{-3} or V with \mathrm{m}^{-3}, \mathrm{V}
+    // Tokenize units so we don't wrap operators like \cdot in \mathrm{}.
     final normalized = unitLatex.replaceAllMapped(
-      RegExp(r'([A-Za-z]+)(\^\{-?\d+\})?'),
+      RegExp(r'(\\cdot|[A-Za-z]+)(\^\{-?\d+\})?'),
       (m) {
-        final base = m.group(1)!;
+        final token = m.group(1)!;
         final exp = m.group(2);
+        if (token == r'\cdot') {
+          return r'\cdot';
+        }
         if (exp != null) {
           final expVal = exp.substring(2, exp.length - 1); // strip ^{ }
-          return r'\mathrm{' + base + '}^{' + expVal + '}';
+          return r'\mathrm{' + token + '}^{' + expVal + '}';
         }
-        return r'\mathrm{' + base + '}';
+        return r'\mathrm{' + token + '}';
       },
     );
 
