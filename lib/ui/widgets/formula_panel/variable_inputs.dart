@@ -37,13 +37,28 @@ class VariableInputs extends StatelessWidget {
           spacing: 12,
           runSpacing: 12,
           children: variables.map((v) {
-            final labelLatex = latexMap.latexOf(v.key);
-            final wantsLatex = labelLatex != v.key || labelLatex.contains(RegExp(r'[\\_^]'));
+            final symbolLatex = latexMap.latexOf(v.key).isNotEmpty ? latexMap.latexOf(v.key) : v.key;
+            final labelWidget = Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                LatexText(
+                  symbolLatex,
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+                if (v.name.isNotEmpty)
+                  Text(
+                    v.name,
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(height: 1.2),
+                    softWrap: true,
+                  ),
+              ],
+            );
             return ConstrainedBox(
               constraints: BoxConstraints(minWidth: minWidth),
               child: _VariableInputField(
                 variable: v,
-                labelWidget: wantsLatex ? LatexText(labelLatex) : null,
+                labelWidget: labelWidget,
                 controller: controller,
                 latexMap: latexMap,
                 unitConverter: unitConverter,
@@ -93,7 +108,7 @@ class _VariableInputField extends StatelessWidget {
       decoration: FormulaUiTheme.inputDecoration(
         context,
         label: labelWidget,
-        labelText: labelWidget == null ? variable.name : null,
+        labelText: null,
         hintText: 'Enter value',
       ),
     );
@@ -138,7 +153,7 @@ class _VariableInputField extends StatelessWidget {
       decoration: FormulaUiTheme.inputDecoration(
         context,
         label: labelWidget,
-        labelText: labelWidget == null ? variable.name : null,
+        labelText: null,
         hintText: 'Enter value',
       ),
     );
@@ -148,11 +163,11 @@ class _VariableInputField extends StatelessWidget {
       items: [
         DropdownMenuItem(
           value: 'cm^-3',
-          child: LatexText(r'\mathrm{cm^{-3}}', style: FormulaUiTheme.unitTextStyle(context)),
+          child: LatexText(r'\mathrm{cm}^{-3}', style: FormulaUiTheme.unitTextStyle(context)),
         ),
         DropdownMenuItem(
           value: 'm^-3',
-          child: LatexText(r'\mathrm{m^{-3}}', style: FormulaUiTheme.unitTextStyle(context)),
+          child: LatexText(r'\mathrm{m}^{-3}', style: FormulaUiTheme.unitTextStyle(context)),
         ),
       ],
       onChanged: (u) {
@@ -181,7 +196,7 @@ class _VariableInputField extends StatelessWidget {
       decoration: FormulaUiTheme.inputDecoration(
         context,
         label: labelWidget,
-        labelText: labelWidget == null ? variable.name : null,
+        labelText: null,
         hintText: 'Enter value',
       ),
     );
