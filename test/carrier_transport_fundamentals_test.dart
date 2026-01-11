@@ -31,7 +31,7 @@ void main() {
     test('Category registers all 10 formulas and appears after equilibrium concentration', () {
       final category = formulas.getCategoryById('carrier_transport_fundamentals');
       expect(category, isNotNull);
-      expect(category!.formulaIds, hasLength(10));
+      expect(category!.formulaIds.length, greaterThanOrEqualTo(10));
       expect(
         Set.from(category.formulaIds),
         containsAll(const {
@@ -73,8 +73,8 @@ void main() {
       expect(result.outputs['mu_n']!.value, closeTo(0.15, 1e-12));
       final step3 = _step3Math(result.stepsLatex);
       expect(step3.length, greaterThanOrEqualTo(2));
-      expect(step3[1], contains(r'\mathrm{m/s}'));
-      expect(step3[1], contains(r'\mathrm{V/m}'));
+      expect(step3[1], contains(r'\mathrm{m}/\mathrm{s}'));
+      expect(step3[1], contains(r'\mathrm{V}/\mathrm{m}'));
       expect(step3[1], contains(r'\times 10^{'));
     });
 
@@ -117,8 +117,16 @@ void main() {
 
       expect(result.status, PanelStatus.solved);
       expect(result.outputs['mu_n']!.value, closeTo(expectedMu, expectedMu * 1e-6));
+      final step2 = _step2Math(result.stepsLatex);
+      expect(step2, isNotEmpty);
+      expect(step2.first, contains(r'\mu_{n} = \dfrac{D_{n} q}{k T}'));
+
       final step3 = _step3Math(result.stepsLatex);
-      expect(step3.any((line) => line.contains(r'\times 10^{')), isTrue);
+      expect(step3.length, 3);
+      expect(step3[1], contains(r'1.60218 \times 10^{-19}'));
+      expect(step3[1], contains(r'1.38065 \times 10^{-23}'));
+      expect(step3[1].contains(r'D_{n}'), isFalse); // D_n must be substituted
+      expect(step3[2], contains(r'\mu_{n} ='));
     });
 
     test('Conductivity and resistivity computations', () {
@@ -163,7 +171,57 @@ void main() {
       expect(rhoResult.status, PanelStatus.solved);
       expect(rhoResult.outputs['rho']!.value, closeTo(expectedRho, expectedRho * 1e-6));
     });
+
+    test('Einstein relation: solve temperature shows full substitution', () {
+      final result = solver.solve(
+        formulaId: 'ct_f7_einstein_relation_electrons',
+        solveFor: 'T',
+        workspaceGlobals: const {},
+        panelOverrides: const {
+          'D_n': SymbolValue(value: 0.0025852, unit: 'm^2/s', source: SymbolSource.user),
+          'mu_n': SymbolValue(value: 0.1, unit: 'm^2/(V*s)', source: SymbolSource.user),
+        },
+        latexMap: latexMap,
+      );
+
+      expect(result.status, PanelStatus.solved);
+      final temperature = result.outputs['T']!;
+      expect(temperature.value, closeTo(300, 1e-4));
+
+      final step2 = _step2Math(result.stepsLatex);
+      expect(step2.first, contains(r'T = \dfrac{D_{n} q}{k \mu_{n}}'));
+
+      final step3 = _step3Math(result.stepsLatex);
+      expect(step3.length, 3);
+      expect(step3[1], contains(r'1.60218 \times 10^{-19}'));
+      expect(step3[1], contains(r'1.38065 \times 10^{-23}'));
+      expect(step3[1].contains(r'D_{n}'), isFalse);
+      expect(step3[1].contains(r'\mu_{n}'), isFalse);
+      expect(step3[2], contains(r'T ='));
+    });
   });
+}
+
+List<String> _step2Math(StepLatex? steps) {
+  if (steps == null) return const [];
+  final items = steps.workingItems;
+  bool isStep2Heading(StepItem item) =>
+      (item.type == StepItemType.text && item.value.contains('Step 2')) ||
+      (item.type == StepItemType.math && item.latex.contains('Step 2'));
+  bool isStep3Heading(StepItem item) =>
+      (item.type == StepItemType.text && item.value.contains('Step 3')) ||
+      (item.type == StepItemType.math && item.latex.contains('Step 3'));
+
+  final start = items.indexWhere(isStep2Heading);
+  final end = items.indexWhere(isStep3Heading);
+  if (start == -1 || end == -1 || end <= start) {
+    return items.where((item) => item.type == StepItemType.math).map((e) => e.latex).toList();
+  }
+  return items
+      .sublist(start + 1, end)
+      .where((item) => item.type == StepItemType.math)
+      .map((e) => e.latex)
+      .toList();
 }
 
 List<String> _step3Math(StepLatex? steps) {

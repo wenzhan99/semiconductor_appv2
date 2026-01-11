@@ -67,7 +67,7 @@ void main() {
       expect(step3[1], contains(r'\sigma'));
       expect(step3[1], contains(r'\sigma'));
       expect(step3[1], contains(r'\times 10^{'));
-      expect(step3[1], contains(r'\mathrm{m^{-3}}'));
+      expect(step3[1], contains(r'\mathrm{m}^{-3}'));
 
       // Evaluated line should match computed sigma value (within tolerance).
       final expectedSigma = q * ((1e21 * 0.12) + (2e20 * 0.04));
@@ -87,12 +87,41 @@ void main() {
       );
 
       expect(result.status, PanelStatus.solved);
+      final step2 = _step2Math(result.stepsLatex);
+      expect(step2, isNotEmpty);
+      expect(step2.first, contains(r'D_{n} = \mu_{n} \frac{k T}{q}'));
+
       final step3 = _step3Math(result.stepsLatex);
       expect(step3.length, 3);
-      expect(step3[1], contains(r'\times 10^{'));
-      expect(step3[1], contains(r'\mathrm{K}'));
+      expect(step3[1], contains(r'1.60218 \times 10^{-19}'));
+      expect(step3[1], contains(r'1.38065 \times 10^{-23}'));
+      expect(step3[1].contains(r'\mu_{n}'), isFalse);
+      expect(step3[1].contains(r'T'), isFalse);
+      expect(step3[2], contains(r'D_{n} ='));
     });
   });
+}
+
+List<String> _step2Math(StepLatex? steps) {
+  if (steps == null) return const [];
+  final items = steps.workingItems;
+  bool isStep2Heading(StepItem item) =>
+      (item.type == StepItemType.text && item.value.contains('Step 2')) ||
+      (item.type == StepItemType.math && item.latex.contains('Step 2'));
+  bool isStep3Heading(StepItem item) =>
+      (item.type == StepItemType.text && item.value.contains('Step 3')) ||
+      (item.type == StepItemType.math && item.latex.contains('Step 3'));
+
+  final start = items.indexWhere(isStep2Heading);
+  final end = items.indexWhere(isStep3Heading);
+  if (start == -1 || end == -1 || end <= start) {
+    return items.where((item) => item.type == StepItemType.math).map((e) => e.latex).toList();
+  }
+  return items
+      .sublist(start + 1, end)
+      .where((item) => item.type == StepItemType.math)
+      .map((e) => e.latex)
+      .toList();
 }
 
 List<String> _step3Math(StepLatex? steps) {

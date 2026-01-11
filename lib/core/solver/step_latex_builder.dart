@@ -1978,6 +1978,18 @@ n_i &= \sqrt{({{NC}})({{NV}})\,{{EXPX}}} = {{NI_M}} \\
     required Map<String, SymbolValue> outputs,
     required List<String> conversionLines,
   }) {
+    // Handle total current density (drift + diffusion)
+    final isTotalElectron = formula.id == 'ct_total_electron_current_density';
+    final isTotalHole = formula.id == 'ct_total_hole_current_density';
+    if (isTotalElectron || isTotalHole) {
+      return _buildTotalCurrentSteps(
+        isElectron: isTotalElectron,
+        solveFor: solveFor,
+        context: context,
+        outputs: outputs,
+      );
+    }
+
     // Handle Einstein relation (ct_f7, ct_f8)
     final isEinsteinElectron = formula.id == 'ct_f7_einstein_relation_electrons';
     final isEinsteinHole = formula.id == 'ct_f8_einstein_relation_holes';
@@ -2178,6 +2190,138 @@ n_i &= \sqrt{({{NC}})({{NV}})\,{{EXPX}}} = {{NI_M}} \\
       targetLabelLatex: targetLatex,
       unitConversionLines: conversionLines,
       rearrangeLines: [rearranged],
+      substitutionLines: substitutionLines,
+      substitutionEvaluationLine: computedLine,
+      computedValueLine: computedLine,
+      roundedValueLine: roundedLine,
+    );
+  }
+
+  List<StepItem>? _buildTotalCurrentSteps({
+    required bool isElectron,
+    required String solveFor,
+    required SymbolContext context,
+    required Map<String, SymbolValue> outputs,
+  }) {
+    final jKey = isElectron ? 'J_n' : 'J_p';
+    final nKey = isElectron ? 'n' : 'p';
+    final muKey = isElectron ? 'mu_n' : 'mu_p';
+    final dKey = isElectron ? 'D_n' : 'D_p';
+    final gradKey = isElectron ? 'dn_dx' : 'dp_dx';
+    const eKey = 'E_field';
+    final sign = isElectron ? 1.0 : -1.0;
+
+    final jSym = _latexLabel(jKey);
+    final nSym = _latexLabel(nKey);
+    final muSym = _latexLabel(muKey);
+    final dSym = _latexLabel(dKey);
+    final gradSym = _latexLabel(gradKey);
+    final eSym = _latexLabel(eKey);
+    final qSym = _latexLabel('q');
+
+    final fmt6 = _formatter.withSigFigs(6);
+    final fmt3 = _formatter;
+
+    // Values in normalized SI
+    final qVal = context.getSymbolValue('q');
+    final nVal = context.getSymbolValue(nKey);
+    final muVal = context.getSymbolValue(muKey);
+    final eVal = context.getSymbolValue(eKey);
+    final dVal = context.getSymbolValue(dKey);
+    final gradVal = context.getSymbolValue(gradKey);
+
+    String fmt(SymbolValue? v, String key, String defaultUnit) {
+      if (v == null) return _latexLabel(key);
+      final unit = v.unit.isNotEmpty ? v.unit : defaultUnit;
+      return fmt6.formatLatexWithUnit(v.value, unit);
+    }
+
+    double? driftValue;
+    double? diffValue;
+    double? totalValue;
+
+    if (qVal != null && nVal != null && muVal != null && eVal != null) {
+      driftValue = qVal.value * nVal.value * muVal.value * eVal.value;
+    }
+    if (qVal != null && dVal != null && gradVal != null) {
+      diffValue = sign * qVal.value * dVal.value * gradVal.value;
+    }
+    if (driftValue != null || diffValue != null) {
+      totalValue = (driftValue ?? 0) + (diffValue ?? 0);
+    }
+
+    final driftSymLabel = isElectron ? r'J_{n,\mathrm{drift}}' : r'J_{p,\mathrm{drift}}';
+    final diffSymLabel = isElectron ? r'J_{n,\mathrm{diff}}' : r'J_{p,\mathrm{diff}}';
+
+    final driftEq = '$driftSymLabel = $qSym $nSym $muSym $eSym';
+    final driftSub = '$driftSymLabel = ${fmt(qVal, 'q', 'C')} ${fmt(nVal, nKey, 'm^{-3}')} '
+        '${fmt(muVal, muKey, 'm^2/(V*s)')} ${fmt(eVal, eKey, 'V/m')}';
+    final driftValLine = driftValue != null
+        ? '$driftSymLabel = ${fmt6.formatLatexWithUnit(driftValue, 'A/m^2')}'
+        : '';
+
+    final diffPrefix = isElectron ? '' : '-';
+    final diffEq = '$diffSymLabel = ${diffPrefix.isEmpty ? '' : diffPrefix}$qSym $dSym $gradSym';
+    final diffSub = '$diffSymLabel = ${diffPrefix.isEmpty ? '' : diffPrefix}${fmt(qVal, 'q', 'C')} '
+        '${fmt(dVal, dKey, 'm^2/s')} ${fmt(gradVal, gradKey, 'm^{-4}')}';
+    final diffValLine = diffValue != null
+        ? '$diffSymLabel = ${fmt6.formatLatexWithUnit(diffValue, 'A/m^2')}'
+        : '';
+
+    final totalEq = '$jSym = $driftSymLabel + $diffSymLabel';
+    final totalSub = (driftValue != null && diffValue != null)
+        ? '$jSym = ${fmt6.formatLatexWithUnit(driftValue, 'A/m^2')} + ${fmt6.formatLatexWithUnit(diffValue, 'A/m^2')}'
+        : '$jSym = $driftSymLabel + $diffSymLabel';
+    final totalValLine = totalValue != null
+        ? '$jSym = ${fmt6.formatLatexWithUnit(totalValue, 'A/m^2')}'
+        : '';
+
+    // Step 2 rearrangement
+    final rearrangeLines = <String>[];
+    if (solveFor == jKey) {
+      rearrangeLines.add(totalEq);
+    } else if (solveFor == nKey) {
+      rearrangeLines.add('$nSym = \\dfrac{$jSym - $qSym $dSym $gradSym}{$qSym $muSym $eSym}');
+    } else if (solveFor == muKey) {
+      rearrangeLines.add('$muSym = \\dfrac{$jSym - $qSym $dSym $gradSym}{$qSym $nSym $eSym}');
+    } else if (solveFor == eKey) {
+      rearrangeLines.add('$eSym = \\dfrac{$jSym - $qSym $dSym $gradSym}{$qSym $nSym $muSym}');
+    } else if (solveFor == dKey) {
+      final signLatex = isElectron ? '' : '-';
+      rearrangeLines.add('$dSym = \\dfrac{$jSym - $qSym $nSym $muSym $eSym}{${signLatex}$qSym $gradSym}');
+    } else if (solveFor == gradKey) {
+      rearrangeLines.add('$gradSym = \\dfrac{$jSym - $qSym $nSym $muSym $eSym}{$qSym $dSym}');
+    }
+
+    final substitutionLines = <String>[
+      driftEq,
+      driftSub,
+      if (driftValLine.isNotEmpty) driftValLine,
+      diffEq,
+      diffSub,
+      if (diffValLine.isNotEmpty) diffValLine,
+      totalEq,
+      totalSub,
+      if (totalValLine.isNotEmpty) totalValLine,
+    ];
+
+    final result = outputs[solveFor];
+    final targetLatex = _latexLabel(solveFor);
+    final computedLine = result != null
+        ? (result.unit.isNotEmpty
+            ? '$targetLatex = ${fmt6.formatLatexWithUnit(result.value, result.unit)}'
+            : '$targetLatex = ${fmt6.formatLatex(result.value)}')
+        : targetLatex;
+    final roundedLine = result != null
+        ? (result.unit.isNotEmpty
+            ? '$targetLatex = ${fmt3.formatLatexWithUnit(result.value, result.unit)}'
+            : '$targetLatex = ${fmt3.formatLatex(result.value)}')
+        : targetLatex;
+
+    return UniversalStepTemplate.build(
+      targetLabelLatex: targetLatex,
+      unitConversionLines: const [],
+      rearrangeLines: rearrangeLines,
       substitutionLines: substitutionLines,
       substitutionEvaluationLine: computedLine,
       computedValueLine: computedLine,

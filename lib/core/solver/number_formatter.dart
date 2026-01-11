@@ -44,12 +44,12 @@ class NumberFormatter {
   }
 
   /// Format a number to LaTeX with unit, e.g.
-  /// 8.85e-12, "F/m" -> 8.85 \\times 10^{-12}\\,\\mathrm{F/m}
+  /// 8.85e-12, "F/m" -> 8.85 \\times 10^{-12}\\,\\mathrm{F}\\,\\mathrm{m}^{-1}
   String formatLatexWithUnit(double value, String unit) {
     final v = formatLatex(value);
-    final u = formatLatexUnit(unit);
+    final u = _normalizeUnitLatex(formatLatexUnit(unit));
     if (u.isEmpty) return v;
-    return '$v\\,\\mathrm{$u}';
+    return '$v\\,$u';
   }
 
   /// Convert unit strings into LaTeX-friendly form.
@@ -144,9 +144,9 @@ class NumberFormatter {
   /// Format a number to LaTeX with unit, using full precision.
   String formatLatexWithUnitFullPrecision(double value, String unit) {
     final v = formatLatexFullPrecision(value);
-    final u = formatLatexUnit(unit);
+    final u = _normalizeUnitLatex(formatLatexUnit(unit));
     if (u.isEmpty) return v;
-    return '$v\\,\\mathrm{$u}';
+    return '$v\\,$u';
   }
 
   /// Create a new formatter with a different significant figure count.
@@ -170,9 +170,9 @@ class NumberFormatter {
         ? NumberFormatter(significantFigures: sigFigs, sciThresholdExp: -1000)
         : withSigFigs(sigFigs);
     final v = fmt.formatLatex(value);
-    final u = fmt.formatLatexUnit(unit);
+    final u = _normalizeUnitLatex(fmt.formatLatexUnit(unit));
     if (u.isEmpty) return v;
-    return '$v\\,\\mathrm{$u}';
+    return '$v\\,$u';
   }
 
   double _roundToSig(double x, int sig) {
@@ -193,5 +193,26 @@ class NumberFormatter {
       return '$mantissa \\times 10^{${exp}}';
     }
     return str;
+  }
+
+  /// Wrap unit tokens in \mathrm{} with exponents outside the \mathrm{} group.
+  String _normalizeUnitLatex(String unitLatex) {
+    if (unitLatex.isEmpty) return '';
+
+    // Replace tokens like m^{-3} or V with \mathrm{m}^{-3}, \mathrm{V}
+    final normalized = unitLatex.replaceAllMapped(
+      RegExp(r'([A-Za-z]+)(\^\{-?\d+\})?'),
+      (m) {
+        final base = m.group(1)!;
+        final exp = m.group(2);
+        if (exp != null) {
+          final expVal = exp.substring(2, exp.length - 1); // strip ^{ }
+          return r'\mathrm{' + base + '}^{' + expVal + '}';
+        }
+        return r'\mathrm{' + base + '}';
+      },
+    );
+
+    return normalized;
   }
 }
