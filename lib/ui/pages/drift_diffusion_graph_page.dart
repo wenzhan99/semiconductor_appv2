@@ -4,8 +4,17 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/constants/constants_repository.dart';
-import '../graphs/utils/text_number_formatter.dart';
+import '../theme/chart_style.dart';
 import '../widgets/latex_text.dart';
+
+// Standardized components
+import '../graphs/common/graph_controller.dart';
+import '../graphs/common/readouts_card.dart';
+import '../graphs/common/point_inspector_card.dart';
+import '../graphs/common/parameters_card.dart';
+import '../graphs/common/key_observations_card.dart';
+import '../graphs/common/plot_selector.dart';
+import '../graphs/utils/latex_number_formatter.dart';
 
 class DriftDiffusionGraphPage extends StatelessWidget {
   const DriftDiffusionGraphPage({super.key});
@@ -14,26 +23,29 @@ class DriftDiffusionGraphPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Drift vs Diffusion Current (1D)')),
-      body: const DriftDiffusionGraphView(),
+      body: const _DriftDiffusionGraphView(),
     );
   }
 }
 
-class DriftDiffusionGraphView extends StatefulWidget {
-  const DriftDiffusionGraphView({super.key});
+class _DriftDiffusionGraphView extends StatefulWidget {
+  const _DriftDiffusionGraphView();
 
   @override
-  State<DriftDiffusionGraphView> createState() => _DriftDiffusionGraphViewState();
+  State<_DriftDiffusionGraphView> createState() => _DriftDiffusionGraphViewState();
 }
 
 enum CarrierMode { electrons, holes, both }
 enum ProfileType { linear, exponential }
 
-class _DriftDiffusionGraphViewState extends State<DriftDiffusionGraphView> {
-  int _chartVersion = 0;
+class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
+    with GraphController {
+  // Plot selection (fix overflow)
+  String _selectedPlot = 'n(x)';
+
+  // Parameters
   CarrierMode _carrierMode = CarrierMode.electrons;
   ProfileType _profileType = ProfileType.linear;
-
   double _temperature = 300;
   double _lengthUm = 10;
   double _electricField = 50000;
@@ -45,17 +57,14 @@ class _DriftDiffusionGraphViewState extends State<DriftDiffusionGraphView> {
   bool _showComponents = true;
   double _manualD = 0.0035; // m^2/s (used when Einstein toggle is off)
 
+  // Interactive system
+  FlSpot? _hoverSpot;
+  String? _hoverPlotId; // 'density' or 'current'
+
   late Future<({double q, double kB})> _constants;
 
   static const int _samples = 180;
   static const double _densityFloor = 1e6; // m^-3 to avoid zeros
-
-  void _updateChart(void Function() updater) {
-    setState(() {
-      updater();
-      _chartVersion++;
-    });
-  }
 
   @override
   void initState() {
@@ -176,6 +185,10 @@ class _DriftDiffusionGraphViewState extends State<DriftDiffusionGraphView> {
       maxJ: maxJ,
       midTotal: midTotal,
       midXUm: midX * 1e6,
+      midDrift: midDrift,
+      midDiff: midDiff,
+      mu: mu,
+      D: D,
     );
   }
 
@@ -195,7 +208,7 @@ class _DriftDiffusionGraphViewState extends State<DriftDiffusionGraphView> {
   }
 
   void _resetDefaults() {
-    setState(() {
+    updateChart(() {
       _carrierMode = CarrierMode.electrons;
       _profileType = ProfileType.linear;
       _temperature = 300;
@@ -208,7 +221,8 @@ class _DriftDiffusionGraphViewState extends State<DriftDiffusionGraphView> {
       _useEinstein = true;
       _showComponents = true;
       _manualD = 0.0035;
-      _chartVersion++;
+      _hoverSpot = null;
+      _hoverPlotId = null;
     });
   }
 
@@ -230,41 +244,16 @@ class _DriftDiffusionGraphViewState extends State<DriftDiffusionGraphView> {
             children: [
               _buildHeader(context),
               const SizedBox(height: 12),
-              _buildInfoPanel(context),
+              _buildAboutCard(context),
               const SizedBox(height: 12),
               Expanded(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      flex: 2,
-                      child: Card(
-                        elevation: 1,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        child: Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              _buildResultsStrip(constants.kB, constants.q, profiles.midTotal),
-                              const SizedBox(height: 12),
-                              Expanded(child: _buildCharts(context, profiles)),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        children: [
-                          _buildControls(context, constants.kB, constants.q),
-                          const SizedBox(height: 12),
-                          Expanded(child: _buildObservations(context)),
-                        ],
-                      ),
-                    ),
-                  ],
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isWide = constraints.maxWidth >= 1100;
+                    return isWide
+                        ? _buildWideLayout(context, constants, profiles)
+                        : _buildNarrowLayout(context, constants, profiles);
+                  },
                 ),
               ),
             ],
@@ -277,56 +266,504 @@ class _DriftDiffusionGraphViewState extends State<DriftDiffusionGraphView> {
   Widget _buildHeader(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: const [
+      children: [
         Text(
           'Drift vs Diffusion Current (1D)',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
         ),
-        SizedBox(height: 4),
-        LatexText(
-          r'J_n = q n \mu_n E + q D_n \frac{dn}{dx}, \quad J_p = q p \mu_p E - q D_p \frac{dp}{dx}',
-          displayMode: true,
-          scale: 1.0,
+        const SizedBox(height: 8),
+        Text(
+          'Carrier Transport Fundamentals',
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+        ),
+        const SizedBox(height: 12),
+        Center(
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primary.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.primary.withOpacity(0.2),
+              ),
+            ),
+            child: const Column(
+              children: [
+                LatexText(
+                  r'J_n = q n \mu_n E + q D_n \frac{dn}{dx}',
+                  displayMode: true,
+                  scale: 1.1,
+                ),
+                SizedBox(height: 8),
+                LatexText(
+                  r'J_p = q p \mu_p E - q D_p \frac{dp}{dx}',
+                  displayMode: true,
+                  scale: 1.1,
+                ),
+              ],
+            ),
+          ),
         ),
       ],
     );
   }
 
-  Widget _buildInfoPanel(BuildContext context) {
+  Widget _buildAboutCard(BuildContext context) {
     return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: ExpansionTile(
-        initiallyExpanded: true,
-        title: const Text('What to observe', style: TextStyle(fontWeight: FontWeight.w700)),
-        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-        children: const [
-          _InfoBullet('Drift scales with E-field and carrier density.'),
-          _InfoBullet('Diffusion scales with concentration gradient dn/dx.'),
-          _InfoBullet('Electron and hole diffusion terms have opposite signs.'),
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'About',
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text(
+                  'Visualizes drift and diffusion current components in a 1D semiconductor. Drift current arises from electric field ',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                const LatexText(r'E', scale: 1.0),
+                Text(
+                  ' acting on carriers, while diffusion current results from concentration gradients ',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                const LatexText(r'dn/dx', scale: 1.0),
+                Text('.', style: Theme.of(context).textTheme.bodyMedium),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWideLayout(BuildContext context, ({double q, double kB}) constants, _ProfileData profiles) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          flex: 2,
+          child: Column(
+            children: [
+              PlotSelector(
+                options: const ['n(x)', 'J components', 'All'],
+                selected: _selectedPlot,
+                onChanged: (plot) => updateChart(() {
+                  _selectedPlot = plot;
+                  _hoverSpot = null;
+                  _hoverPlotId = null;
+                }),
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: Card(
+                  elevation: 1,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: _buildChartArea(context, profiles),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: SingleChildScrollView(
+            child: Column(
+              children: [
+                _buildReadoutsCard(constants, profiles),
+                const SizedBox(height: 12),
+                _buildPointInspectorCard(profiles),
+                const SizedBox(height: 12),
+                _buildParametersCard(constants),
+                const SizedBox(height: 12),
+                _buildKeyObservationsCard(profiles),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNarrowLayout(BuildContext context, ({double q, double kB}) constants, _ProfileData profiles) {
+    return SingleChildScrollView(
+      child: Column(
+        children: [
+          PlotSelector(
+            options: const ['n(x)', 'J components', 'All'],
+            selected: _selectedPlot,
+            onChanged: (plot) => updateChart(() {
+              _selectedPlot = plot;
+              _hoverSpot = null;
+              _hoverPlotId = null;
+            }),
+          ),
+          const SizedBox(height: 12),
+          ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 350, maxHeight: 500),
+            child: Card(
+              elevation: 1,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: _buildChartArea(context, profiles),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          _buildReadoutsCard(constants, profiles),
+          const SizedBox(height: 12),
+          _buildPointInspectorCard(profiles),
+          const SizedBox(height: 12),
+          _buildParametersCard(constants),
+          const SizedBox(height: 12),
+          _buildKeyObservationsCard(profiles),
         ],
       ),
     );
   }
 
-  Widget _buildResultsStrip(double kB, double q, double midJ) {
-    final mu = _mobilityCm2;
-    final displayedD = _diffusivity(kB, q);
-    return Wrap(
-      spacing: 12,
-      runSpacing: 8,
-      children: [
-        _resultChip('Carrier', _carrierMode.name),
-        _resultChip('E (V/m)', _electricField.toStringAsFixed(0)),
-        _resultChip('µ (cm²/V·s)', mu.toStringAsFixed(0)),
-        _resultChip('D (m²/s)', displayedD.toStringAsExponential(3)),
-        _resultChip('J_total @ x=L/2 (A/m²)', midJ.toStringAsExponential(3)),
+  Widget _buildReadoutsCard(({double q, double kB}) constants, _ProfileData profiles) {
+    final densityUnit = _useCmUnits ? 'cm⁻³' : 'm⁻³';
+    final mu = profiles.mu * 1e4; // back to cm²/V·s for display
+    final D = profiles.D;
+    
+    return ReadoutsCard(
+      title: 'Readouts @ x = L/2',
+      readouts: [
+        ReadoutItem(
+          label: r'Carrier',
+          value: _carrierMode.name,
+        ),
+        ReadoutItem(
+          label: r'$E$ (V/m)',
+          value: LatexNumberFormatter.toUnicodeSci(_electricField, sigFigs: 3),
+        ),
+        ReadoutItem(
+          label: r'$\mu$ (cm²/V·s)',
+          value: mu.toStringAsFixed(0),
+        ),
+        ReadoutItem(
+          label: r'$D$ (m²/s)',
+          value: LatexNumberFormatter.toUnicodeSci(D, sigFigs: 3),
+        ),
+        ReadoutItem(
+          label: r'$J_{\text{drift}}$ (A/m²)',
+          value: LatexNumberFormatter.toUnicodeSci(profiles.midDrift, sigFigs: 3),
+        ),
+        ReadoutItem(
+          label: r'$J_{\text{diff}}$ (A/m²)',
+          value: LatexNumberFormatter.toUnicodeSci(profiles.midDiff, sigFigs: 3),
+        ),
+        ReadoutItem(
+          label: r'$J_{\text{total}}$ (A/m²)',
+          value: LatexNumberFormatter.toUnicodeSci(profiles.midTotal, sigFigs: 3),
+          boldValue: true,
+        ),
       ],
     );
   }
 
-  Widget _buildCharts(BuildContext context, _ProfileData data) {
-    final densityUnit = _useCmUnits ? 'cm^-3' : 'm^-3';
+  Widget _buildPointInspectorCard(_ProfileData profiles) {
+    return PointInspectorCard<FlSpot>(
+      selectedPoint: _hoverSpot,
+      onClear: () => updateChart(() {
+        _hoverSpot = null;
+        _hoverPlotId = null;
+      }),
+      builder: (spot) {
+        final densityUnit = _useCmUnits ? 'cm⁻³' : 'm⁻³';
+        final x = spot.x; // μm
+        final y = spot.y;
+
+        if (_hoverPlotId == 'density') {
+          return [
+            'x = ${x.toStringAsFixed(2)} μm',
+            'n/p = ${LatexNumberFormatter.toUnicodeSci(y, sigFigs: 3)} $densityUnit',
+            '',
+            'Hover over plots for details',
+          ];
+        } else if (_hoverPlotId == 'current') {
+          return [
+            'x = ${x.toStringAsFixed(2)} μm',
+            'J = ${LatexNumberFormatter.toUnicodeSci(y, sigFigs: 3)} A/m²',
+            '',
+            'Hover over plots for details',
+          ];
+        }
+
+        return [
+          'Hover over any plot',
+          'to inspect values',
+        ];
+      },
+    );
+  }
+
+  Widget _buildParametersCard(({double q, double kB}) constants) {
+    final D = _diffusivity(constants.kB, constants.q);
+    
+    return ParametersCard(
+      title: 'Parameters',
+      collapsible: true,
+      initiallyExpanded: true,
+      children: [
+        // Carrier mode dropdown
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Carrier Type', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+              const SizedBox(height: 4),
+              DropdownButton<CarrierMode>(
+                value: _carrierMode,
+                isExpanded: true,
+                onChanged: (v) => updateChart(() => _carrierMode = v ?? CarrierMode.electrons),
+                items: const [
+                  DropdownMenuItem(value: CarrierMode.electrons, child: Text('Electrons (n)')),
+                  DropdownMenuItem(value: CarrierMode.holes, child: Text('Holes (p)')),
+                  DropdownMenuItem(value: CarrierMode.both, child: Text('Both')),
+                ],
+              ),
+            ],
+          ),
+        ),
+        // Profile type dropdown
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Profile Type', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+              const SizedBox(height: 4),
+              DropdownButton<ProfileType>(
+                value: _profileType,
+                isExpanded: true,
+                onChanged: (v) => updateChart(() => _profileType = v ?? ProfileType.linear),
+                items: const [
+                  DropdownMenuItem(value: ProfileType.linear, child: Text('Linear gradient')),
+                  DropdownMenuItem(value: ProfileType.exponential, child: Text('Exponential gradient')),
+                ],
+              ),
+            ],
+          ),
+        ),
+        ParameterSlider(
+          label: r'$T$ (K)',
+          value: _temperature,
+          min: 200,
+          max: 500,
+          divisions: 300,
+          onChanged: (v) {
+            setState(() => _temperature = v);
+            updateChart(() {});
+          },
+        ),
+        ParameterSlider(
+          label: r'Length $L$ (μm)',
+          value: _lengthUm,
+          min: 1,
+          max: 50,
+          divisions: 98,
+          onChanged: (v) {
+            setState(() => _lengthUm = v);
+            updateChart(() {});
+          },
+        ),
+        ParameterSlider(
+          label: r'$E$ (V/m)',
+          value: _electricField,
+          min: -200000,
+          max: 200000,
+          divisions: 400,
+          onChanged: (v) {
+            setState(() => _electricField = v);
+            updateChart(() {});
+          },
+          subtitle: 'Electric field strength',
+        ),
+        ParameterSlider(
+          label: r'$n_0$ (base density)',
+          value: _n0Display,
+          min: 1e14,
+          max: 1e22,
+          onChanged: (v) {
+            setState(() => _n0Display = v);
+            updateChart(() {});
+          },
+          subtitle: _useCmUnits ? 'cm⁻³' : 'm⁻³',
+        ),
+        ParameterSlider(
+          label: r'Gradient strength',
+          value: _gradientStrength,
+          min: -2,
+          max: 2,
+          divisions: 400,
+          onChanged: (v) {
+            setState(() => _gradientStrength = v);
+            updateChart(() {});
+          },
+          subtitle: 'Controls dn/dx magnitude',
+        ),
+        ParameterSlider(
+          label: r'$\mu$ (cm²/V·s)',
+          value: _mobilityCm2,
+          min: 50,
+          max: 2000,
+          divisions: 195,
+          onChanged: (v) {
+            setState(() => _mobilityCm2 = v);
+            updateChart(() {});
+          },
+          subtitle: 'Carrier mobility',
+        ),
+        const SizedBox(height: 8),
+        ParameterSegmented<bool>(
+          label: 'Density units',
+          selected: {_useCmUnits},
+          segments: const [
+            ButtonSegment(value: true, label: Text('cm⁻³')),
+            ButtonSegment(value: false, label: Text('m⁻³')),
+          ],
+          onSelectionChanged: (s) {
+            final siDensity = _toSiDensity(_n0Display);
+            updateChart(() {
+              _useCmUnits = s.first;
+              _n0Display = _useCmUnits ? siDensity / 1e6 : siDensity;
+            });
+          },
+        ),
+        ParameterSwitch(
+          label: r'Use Einstein relation ($D = \mu kT/q$)',
+          value: _useEinstein,
+          onChanged: (v) => updateChart(() => _useEinstein = v),
+        ),
+        if (!_useEinstein)
+          ParameterSlider(
+            label: r'$D$ override (m²/s)',
+            value: _manualD,
+            min: 1e-4,
+            max: 0.05,
+            onChanged: (v) {
+              setState(() => _manualD = v);
+              updateChart(() {});
+            },
+            subtitle: 'Manual diffusion coefficient',
+          ),
+        ParameterSwitch(
+          label: 'Show drift & diffusion components',
+          value: _showComponents,
+          onChanged: (v) => updateChart(() => _showComponents = v),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Current D: ${D.toStringAsExponential(3)} m²/s',
+          style: const TextStyle(fontSize: 12, color: Colors.grey),
+        ),
+        const SizedBox(height: 12),
+        ElevatedButton.icon(
+          onPressed: _resetDefaults,
+          icon: const Icon(Icons.restart_alt, size: 18),
+          label: const Text('Reset to Defaults'),
+          style: ElevatedButton.styleFrom(
+            minimumSize: const Size(double.infinity, 36),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildKeyObservationsCard(_ProfileData profiles) {
+    final dynamicObs = _buildDynamicObservations(profiles);
+    final staticObs = _buildStaticObservations();
+
+    return KeyObservationsCard(
+      title: 'Key Observations',
+      dynamicObservations: dynamicObs,
+      staticObservations: staticObs,
+    );
+  }
+
+  List<String> _buildDynamicObservations(_ProfileData profiles) {
+    final obs = <String>[];
+    
+    final driftRatio = (profiles.midDrift / profiles.midTotal).abs();
+    final diffRatio = (profiles.midDiff / profiles.midTotal).abs();
+    
+    if (driftRatio > 0.9) {
+      obs.add('Drift dominates: \$|J_{\\text{drift}}/J_{\\text{total}}| ≈ ${(driftRatio * 100).toStringAsFixed(0)}\\%\$');
+    } else if (diffRatio > 0.9) {
+      obs.add('Diffusion dominates: \$|J_{\\text{diff}}/J_{\\text{total}}| ≈ ${(diffRatio * 100).toStringAsFixed(0)}\\%\$');
+    } else {
+      obs.add('Drift and diffusion are comparable: drift ${(driftRatio * 100).toStringAsFixed(0)}%, diff ${(diffRatio * 100).toStringAsFixed(0)}%');
+    }
+
+    if (_electricField.abs() < 1000) {
+      obs.add(r'Very low $E$-field → diffusion term more important.');
+    } else if (_electricField.abs() > 100000) {
+      obs.add(r'Large $E$-field → drift term dominates.');
+    }
+
+    if (_gradientStrength.abs() < 0.1) {
+      obs.add(r'Nearly flat profile → small $dn/dx$, minimal diffusion.');
+    } else if (_gradientStrength.abs() > 1.5) {
+      obs.add(r'Steep gradient → large $dn/dx$, strong diffusion.');
+    }
+
+    if (_profileType == ProfileType.exponential && _gradientStrength.abs() > 0.5) {
+      obs.add(r'Exponential profile creates non-constant $dn/dx$ across device.');
+    }
+
+    return obs;
+  }
+
+  List<String> _buildStaticObservations() {
+    return [
+      r'Drift current: $J_{\text{drift}} = q n \mu E$, scales with field and density.',
+      r'Diffusion current: $J_{\text{diff}} = q D \frac{dn}{dx}$, scales with gradient.',
+      r'Electron and hole diffusion have opposite signs due to charge polarity.',
+      r'Einstein relation: $D = \mu kT/q$ connects mobility and diffusivity.',
+    ];
+  }
+
+  Widget _buildChartArea(BuildContext context, _ProfileData profiles) {
+    final showDensity = _selectedPlot == 'n(x)' || _selectedPlot == 'All';
+    final showCurrent = _selectedPlot == 'J components' || _selectedPlot == 'All';
+
+    if (_selectedPlot == 'All') {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(child: _buildDensityChart(context, profiles)),
+          const SizedBox(height: 12),
+          Expanded(child: _buildCurrentChart(context, profiles)),
+        ],
+      );
+    } else if (showDensity) {
+      return _buildDensityChart(context, profiles);
+    } else {
+      return _buildCurrentChart(context, profiles);
+    }
+  }
+
+  Widget _buildDensityChart(BuildContext context, _ProfileData profiles) {
+    final densityUnit = _useCmUnits ? 'cm⁻³' : 'm⁻³';
     final colorN = Theme.of(context).colorScheme.primary;
     final colorP = Theme.of(context).colorScheme.tertiary;
     final xMax = _lengthUm;
@@ -334,7 +771,7 @@ class _DriftDiffusionGraphViewState extends State<DriftDiffusionGraphView> {
     final densityLines = <LineChartBarData>[];
     if (_carrierMode != CarrierMode.holes) {
       densityLines.add(LineChartBarData(
-        spots: data.densityN,
+        spots: profiles.densityN,
         isCurved: false,
         color: colorN,
         barWidth: 2,
@@ -343,7 +780,7 @@ class _DriftDiffusionGraphViewState extends State<DriftDiffusionGraphView> {
     }
     if (_carrierMode != CarrierMode.electrons) {
       densityLines.add(LineChartBarData(
-        spots: data.densityP,
+        spots: profiles.densityP,
         isCurved: false,
         color: colorP,
         barWidth: 2,
@@ -351,8 +788,98 @@ class _DriftDiffusionGraphViewState extends State<DriftDiffusionGraphView> {
       ));
     }
 
+    return LineChart(
+      key: ValueKey('drift-n-$chartVersion'),
+      LineChartData(
+        minX: 0,
+        maxX: xMax,
+        minY: 0,
+        maxY: profiles.maxDensity * 1.1,
+        gridData: const FlGridData(show: true, drawVerticalLine: true),
+        titlesData: FlTitlesData(
+          leftTitles: AxisTitles(
+            axisNameWidget: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const LatexText(r'n/p', scale: 1.0),
+                const SizedBox(width: 4),
+                Text('($densityUnit)', style: const TextStyle(fontSize: 12)),
+              ],
+            ),
+            axisNameSize: 50,
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: context.chartStyle.leftReservedSize,
+              getTitlesWidget: (value, meta) => Padding(
+                padding: context.chartStyle.tickPadding,
+                child: Text(
+                  LatexNumberFormatter.toUnicodeSci(value, sigFigs: 2),
+                  style: context.chartStyle.tickTextStyle,
+                ),
+              ),
+            ),
+          ),
+          bottomTitles: AxisTitles(
+            axisNameWidget: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                LatexText(r'x', scale: 1.0),
+                SizedBox(width: 4),
+                Text('(μm)', style: TextStyle(fontSize: 12)),
+              ],
+            ),
+            axisNameSize: 40,
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: context.chartStyle.bottomReservedSize,
+              getTitlesWidget: (v, meta) => Padding(
+                padding: context.chartStyle.tickPadding,
+                child: Text(
+                  v.toStringAsFixed(1),
+                  style: context.chartStyle.tickTextStyle,
+                ),
+              ),
+            ),
+          ),
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        ),
+        borderData: FlBorderData(show: true),
+        lineBarsData: densityLines,
+        lineTouchData: LineTouchData(
+          enabled: true,
+          touchCallback: (event, response) {
+            final spots = response?.lineBarSpots;
+            if (spots == null || spots.isEmpty) {
+              setState(() {
+                _hoverSpot = null;
+                _hoverPlotId = null;
+              });
+              return;
+            }
+            setState(() {
+              _hoverSpot = FlSpot(spots.first.x, spots.first.y);
+              _hoverPlotId = 'density';
+            });
+          },
+          touchTooltipData: LineTouchTooltipData(
+            getTooltipItems: (spots) => spots.map((s) {
+              return LineTooltipItem(
+                'x=${s.x.toStringAsFixed(2)} μm\nn/p=${LatexNumberFormatter.toUnicodeSci(s.y, sigFigs: 3)} $densityUnit',
+                const TextStyle(fontSize: 11),
+              );
+            }).toList(),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCurrentChart(BuildContext context, _ProfileData profiles) {
+    final xMax = _lengthUm;
+
     final componentLines = <LineChartBarData>[];
-    void addSeries(List<FlSpot> spots, Color c) {
+    void addSeries(List<FlSpot> spots, Color c, String label) {
       componentLines.add(LineChartBarData(
         spots: spots,
         isCurved: false,
@@ -368,287 +895,119 @@ class _DriftDiffusionGraphViewState extends State<DriftDiffusionGraphView> {
 
     if (_carrierMode != CarrierMode.holes) {
       if (_showComponents) {
-        addSeries(data.driftN, driftColor.withValues(alpha: 0.8));
-        addSeries(data.diffusionN, diffColor.withValues(alpha: 0.8));
+        addSeries(profiles.driftN, driftColor.withValues(alpha: 0.8), 'J_drift(n)');
+        addSeries(profiles.diffusionN, diffColor.withValues(alpha: 0.8), 'J_diff(n)');
       }
-      addSeries(data.totalN, totalColor.withValues(alpha: 0.9));
+      addSeries(profiles.totalN, totalColor.withValues(alpha: 0.9), 'J_total(n)');
     }
     if (_carrierMode != CarrierMode.electrons) {
       if (_showComponents) {
-        addSeries(data.driftP, driftColor.withValues(alpha: 0.5));
-        addSeries(data.diffusionP, diffColor.withValues(alpha: 0.5));
+        addSeries(profiles.driftP, driftColor.withValues(alpha: 0.5), 'J_drift(p)');
+        addSeries(profiles.diffusionP, diffColor.withValues(alpha: 0.5), 'J_diff(p)');
       }
-      addSeries(data.totalP, totalColor.withValues(alpha: 0.6));
+      addSeries(profiles.totalP, totalColor.withValues(alpha: 0.6), 'J_total(p)');
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: LineChart(
-            key: ValueKey('drift-density-$_chartVersion'),
-            LineChartData(
-              minX: 0,
-              maxX: xMax,
-              minY: 0,
-              maxY: data.maxDensity * 1.1,
-              gridData: const FlGridData(show: true, drawVerticalLine: true),
-              titlesData: FlTitlesData(
-                leftTitles: AxisTitles(
-                  axisNameWidget: Text('n/p ($densityUnit)', style: const TextStyle(fontSize: 12)),
-                  axisNameSize: 36,
-                  sideTitles: SideTitles(
-                    showTitles: true,
-                    reservedSize: 60,
-                    getTitlesWidget: (value, _) => Text(TextNumberFormatter.sci(value, sigFigs: 2), style: const TextStyle(fontSize: 10)),
-                  ),
-                ),
-                bottomTitles: AxisTitles(
-                  axisNameWidget: const Text('x (µm)'),
-                  axisNameSize: 32,
-                  sideTitles: SideTitles(
-                    showTitles: true,
-                    reservedSize: 26,
-                    getTitlesWidget: (v, _) => Text(v.toStringAsFixed(1), style: const TextStyle(fontSize: 10)),
-                  ),
-                ),
-                rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-              ),
-              borderData: FlBorderData(show: true),
-              lineBarsData: densityLines,
-              lineTouchData: LineTouchData(
-                handleBuiltInTouches: true,
-                touchTooltipData: LineTouchTooltipData(
-                  getTooltipItems: (spots) => spots.map((s) {
-                    return LineTooltipItem(
-                      'x=${s.x.toStringAsFixed(2)} µm\nn/p=${TextNumberFormatter.sci(s.y)} $densityUnit',
-                      const TextStyle(fontSize: 11),
-                    );
-                  }).toList(),
+    return LineChart(
+      key: ValueKey('drift-j-$chartVersion'),
+      LineChartData(
+        minX: 0,
+        maxX: xMax,
+        minY: profiles.minJ * 1.1,
+        maxY: profiles.maxJ * 1.1,
+        gridData: const FlGridData(show: true, drawVerticalLine: true),
+        titlesData: FlTitlesData(
+          leftTitles: AxisTitles(
+            axisNameWidget: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                LatexText(r'J', scale: 1.0),
+                SizedBox(width: 4),
+                Text('(A/m²)', style: TextStyle(fontSize: 12)),
+              ],
+            ),
+            axisNameSize: 40,
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: context.chartStyle.leftReservedSize,
+              getTitlesWidget: (value, meta) => Padding(
+                padding: context.chartStyle.tickPadding,
+                child: Text(
+                  LatexNumberFormatter.toUnicodeSci(value, sigFigs: 2),
+                  style: context.chartStyle.tickTextStyle,
                 ),
               ),
             ),
           ),
-        ),
-        const SizedBox(height: 12),
-        Expanded(
-          child: LineChart(
-            key: ValueKey('drift-current-$_chartVersion'),
-            LineChartData(
-              minX: 0,
-              maxX: xMax,
-              minY: data.minJ * 1.1,
-              maxY: data.maxJ * 1.1,
-              gridData: const FlGridData(show: true, drawVerticalLine: true),
-              titlesData: FlTitlesData(
-                leftTitles: AxisTitles(
-                  axisNameWidget: const Text('J (A/m²)', style: TextStyle(fontSize: 12)),
-                  axisNameSize: 32,
-                  sideTitles: SideTitles(
-                    showTitles: true,
-                    reservedSize: 60,
-                    getTitlesWidget: (value, _) => Text(TextNumberFormatter.sci(value, sigFigs: 2), style: const TextStyle(fontSize: 10)),
-                  ),
-                ),
-                bottomTitles: AxisTitles(
-                  axisNameWidget: const Text('x (µm)'),
-                  axisNameSize: 32,
-                  sideTitles: SideTitles(
-                    showTitles: true,
-                    reservedSize: 26,
-                    getTitlesWidget: (v, _) => Text(v.toStringAsFixed(1), style: const TextStyle(fontSize: 10)),
-                  ),
-                ),
-                rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-              ),
-              borderData: FlBorderData(show: true),
-              extraLinesData: ExtraLinesData(
-                verticalLines: [
-                  VerticalLine(
-                    x: _lengthUm / 2,
-                    color: Colors.grey.withValues(alpha: 0.5),
-                    strokeWidth: 1,
-                    dashArray: const [4, 4],
-                    label: VerticalLineLabel(
-                      show: true,
-                      alignment: Alignment.topRight,
-                      padding: const EdgeInsets.only(right: 4, top: 4),
-                      style: const TextStyle(fontSize: 10),
-                      labelResolver: (_) => 'x=L/2',
-                    ),
-                  ),
-                ],
-              ),
-              lineBarsData: componentLines,
-              lineTouchData: LineTouchData(
-                handleBuiltInTouches: true,
-                touchTooltipData: LineTouchTooltipData(
-                  getTooltipItems: (spots) => spots.map((s) {
-                    return LineTooltipItem(
-                      'x=${s.x.toStringAsFixed(2)} µm\nJ=${TextNumberFormatter.sci(s.y)} A/m²',
-                      const TextStyle(fontSize: 11),
-                    );
-                  }).toList(),
+          bottomTitles: AxisTitles(
+            axisNameWidget: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                LatexText(r'x', scale: 1.0),
+                SizedBox(width: 4),
+                Text('(μm)', style: TextStyle(fontSize: 12)),
+              ],
+            ),
+            axisNameSize: 40,
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: context.chartStyle.bottomReservedSize,
+              getTitlesWidget: (v, meta) => Padding(
+                padding: context.chartStyle.tickPadding,
+                child: Text(
+                  v.toStringAsFixed(1),
+                  style: context.chartStyle.tickTextStyle,
                 ),
               ),
             ),
           ),
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
         ),
-      ],
-    );
-  }
-
-  Widget _buildControls(BuildContext context, double kB, double q) {
-    final D = _diffusivity(kB, q);
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Parameters', style: Theme.of(context).textTheme.titleSmall),
-              const SizedBox(height: 12),
-              DropdownButton<CarrierMode>(
-                value: _carrierMode,
-                isExpanded: true,
-                onChanged: (v) => _updateChart(() => _carrierMode = v ?? CarrierMode.electrons),
-                items: const [
-                  DropdownMenuItem(value: CarrierMode.electrons, child: Text('Electrons')),
-                  DropdownMenuItem(value: CarrierMode.holes, child: Text('Holes')),
-                  DropdownMenuItem(value: CarrierMode.both, child: Text('Both')),
-                ],
-              ),
-              const SizedBox(height: 8),
-              DropdownButton<ProfileType>(
-                value: _profileType,
-                isExpanded: true,
-                onChanged: (v) => _updateChart(() => _profileType = v ?? ProfileType.linear),
-                items: const [
-                  DropdownMenuItem(value: ProfileType.linear, child: Text('Linear')),
-                  DropdownMenuItem(value: ProfileType.exponential, child: Text('Exponential')),
-                ],
-              ),
-              const SizedBox(height: 12),
-              _slider('T (K)', _temperature, 200, 500, (v) => _updateChart(() => _temperature = v), step: 1, labelText: '${_temperature.toStringAsFixed(0)} K'),
-              _slider('Length L (µm)', _lengthUm, 1, 50, (v) => _updateChart(() => _lengthUm = v), step: 0.5, labelText: _lengthUm.toStringAsFixed(1)),
-              _slider('E (V/m)', _electricField, -200000, 200000, (v) => _updateChart(() => _electricField = v), step: 1000, labelText: _electricField.toStringAsFixed(0)),
-              _slider('n0 (units)', _n0Display, 1e14, 1e22, (v) => _updateChart(() => _n0Display = v), step: 1e14, labelText: TextNumberFormatter.sci(_n0Display)),
-              _slider('Gradient strength', _gradientStrength, -2, 2, (v) => _updateChart(() => _gradientStrength = v), step: 0.01, labelText: _gradientStrength.toStringAsFixed(2)),
-              _slider('µ (cm²/V·s)', _mobilityCm2, 50, 2000, (v) => _updateChart(() => _mobilityCm2 = v), step: 10, labelText: _mobilityCm2.toStringAsFixed(0)),
-              const SizedBox(height: 8),
-              SegmentedButton<bool>(
-                segments: const [
-                  ButtonSegment(value: true, label: Text('cm^-3')),
-                  ButtonSegment(value: false, label: Text('m^-3')),
-                ],
-                selected: {_useCmUnits},
-                onSelectionChanged: (s) {
-                  final siDensity = _toSiDensity(_n0Display);
-                  _updateChart(() {
-                    _useCmUnits = s.first;
-                    _n0Display = _useCmUnits ? siDensity / 1e6 : siDensity;
-                  });
-                },
-              ),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Use Einstein relation (D = µkT/q)'),
-                value: _useEinstein,
-                onChanged: (v) => _updateChart(() => _useEinstein = v),
-              ),
-              if (!_useEinstein)
-                _slider('D override (m²/s)', _manualD, 1e-4, 0.05, (v) => _updateChart(() => _manualD = v), step: 1e-4, labelText: _manualD.toStringAsExponential(2)),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Show drift & diffusion components'),
-                value: _showComponents,
-                onChanged: (v) => _updateChart(() => _showComponents = v),
-              ),
-              const SizedBox(height: 4),
-              Text('D (current): ${D.toStringAsExponential(3)} m²/s', style: const TextStyle(fontSize: 12)),
-              const SizedBox(height: 12),
-              ElevatedButton.icon(
-                onPressed: _resetDefaults,
-                icon: const Icon(Icons.restart_alt),
-                label: const Text('Reset'),
-                style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 40)),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildObservations(BuildContext context) {
-    return Card(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Key Observations', style: Theme.of(context).textTheme.titleSmall),
-            const SizedBox(height: 8),
-            Expanded(
-              child: ListView(
-                children: const [
-                  _InfoBullet('Drift term follows E-field sign and carrier density.'),
-                  _InfoBullet('Diffusion term follows density slope dn/dx.'),
-                  _InfoBullet('Reversing E flips drift without changing diffusion.'),
-                ],
+        borderData: FlBorderData(show: true),
+        extraLinesData: ExtraLinesData(
+          verticalLines: [
+            VerticalLine(
+              x: _lengthUm / 2,
+              color: Colors.grey.withValues(alpha: 0.5),
+              strokeWidth: 1,
+              dashArray: const [4, 4],
+              label: VerticalLineLabel(
+                show: true,
+                alignment: Alignment.topRight,
+                padding: const EdgeInsets.only(right: 4, top: 4),
+                style: const TextStyle(fontSize: 10),
+                labelResolver: (_) => 'x=L/2',
               ),
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _slider(String label, double value, double min, double max, ValueChanged<double> onChanged,
-      {required double step, required String labelText}) {
-    final divisions = ((max - min) / step).round();
-    final int? safeDivisions = divisions > 2000 ? null : (divisions > 0 ? divisions : null);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(child: Text(label, style: const TextStyle(fontWeight: FontWeight.w600))),
-              Text(labelText, style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()])),
-            ],
+        lineBarsData: componentLines,
+        lineTouchData: LineTouchData(
+          enabled: true,
+          touchCallback: (event, response) {
+            final spots = response?.lineBarSpots;
+            if (spots == null || spots.isEmpty) {
+              setState(() {
+                _hoverSpot = null;
+                _hoverPlotId = null;
+              });
+              return;
+            }
+            setState(() {
+              _hoverSpot = FlSpot(spots.first.x, spots.first.y);
+              _hoverPlotId = 'current';
+            });
+          },
+          touchTooltipData: LineTouchTooltipData(
+            getTooltipItems: (spots) => spots.map((s) {
+              return LineTooltipItem(
+                'x=${s.x.toStringAsFixed(2)} μm\nJ=${LatexNumberFormatter.toUnicodeSci(s.y, sigFigs: 3)} A/m²',
+                const TextStyle(fontSize: 11),
+              );
+            }).toList(),
           ),
-          Slider(
-            value: value.clamp(min, max),
-            min: min,
-            max: max,
-            divisions: safeDivisions,
-            label: labelText,
-            onChanged: onChanged,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _resultChip(String label, String value) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        color: Theme.of(context).colorScheme.surfaceContainerHigh,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.w700)),
-        ],
+        ),
       ),
     );
   }
@@ -675,6 +1034,10 @@ class _ProfileData {
   final double maxJ;
   final double midTotal;
   final double midXUm;
+  final double midDrift;
+  final double midDiff;
+  final double mu;
+  final double D;
 
   _ProfileData({
     required this.densityN,
@@ -690,24 +1053,9 @@ class _ProfileData {
     required this.maxJ,
     required this.midTotal,
     required this.midXUm,
+    required this.midDrift,
+    required this.midDiff,
+    required this.mu,
+    required this.D,
   });
-}
-
-class _InfoBullet extends StatelessWidget {
-  final String text;
-  const _InfoBullet(this.text);
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('• '),
-          Expanded(child: Text(text)),
-        ],
-      ),
-    );
-  }
 }
