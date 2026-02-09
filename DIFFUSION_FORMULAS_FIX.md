@@ -426,3 +426,9 @@ This fix completes the **universal step-by-step pattern** for all formulas:
 
 **Status**: ✅ COMPLETE - Diffusion formulas now show proper Step 2 rearrangement and full Step 3 substitution with accurate constants
 
+
+
+
+
+
+

@@ -11,6 +11,8 @@ class StorageService {
   static const String _workspacesBoxName = 'workspaces';
   static const String _workspaceIdsKey = 'workspace_ids';
   static const String _themePreferenceKey = 'theme_preference';
+  static const String _animateStepsKey = 'animate_steps';
+  static const String _autoPlayVisKey = 'auto_play_visualizations';
   Box<String>? _workspacesBox;
 
   Future<void> initialize() async {
@@ -116,6 +118,32 @@ class StorageService {
   Future<String?> loadThemePreference() async {
     final box = await _ensureBox();
     return box.get(_themePreferenceKey);
+  }
+
+  /// Save step animation preference.
+  Future<void> saveAnimateStepsPreference(bool enabled) async {
+    final box = await _ensureBox();
+    await box.put(_animateStepsKey, enabled ? 'true' : 'false');
+  }
+
+  /// Load step animation preference.
+  Future<bool?> loadAnimateStepsPreference() async {
+    final box = await _ensureBox();
+    final value = box.get(_animateStepsKey);
+    if (value == null) return null;
+    return value == 'true';
+  }
+
+  Future<void> saveAutoPlayVisualizations(bool enabled) async {
+    final box = await _ensureBox();
+    await box.put(_autoPlayVisKey, enabled ? 'true' : 'false');
+  }
+
+  Future<bool?> loadAutoPlayVisualizations() async {
+    final box = await _ensureBox();
+    final value = box.get(_autoPlayVisKey);
+    if (value == null) return null;
+    return value == 'true';
   }
 
   Map<String, dynamic> _sanitizeWorkspaceJson(

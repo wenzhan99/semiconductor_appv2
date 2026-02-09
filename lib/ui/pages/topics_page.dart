@@ -469,36 +469,6 @@ class _TopicsPageState extends State<TopicsPage> {
                   ),
                 ),
                 const SizedBox(width: 16),
-                // Temperature unit selector
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Temperature Unit'),
-                      const SizedBox(height: 4),
-                      SegmentedButton<TemperatureUnit>(
-                        segments: const [
-                          ButtonSegment(
-                            value: TemperatureUnit.kelvin,
-                            label: Text('Kelvin'),
-                          ),
-                          ButtonSegment(
-                            value: TemperatureUnit.celsius,
-                            label: Text('Celsius'),
-                          ),
-                        ],
-                        selected: {workspace.temperatureUnit},
-                        onSelectionChanged: (s) {
-                          appState.updateCurrentWorkspace(
-                            workspace.copyWith(temperatureUnit: s.first),
-                          );
-                        },
-                        selectedIcon: const Icon(Icons.check, size: 0),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 16),
                 // Compute all button
                 ElevatedButton.icon(
                   onPressed: () {

@@ -30,14 +30,15 @@ class LatexSymbolMap extends Equatable {
   /// Returns LaTeX for a symbol key using the canonical mapping.
   /// If the mapping is missing, emits a debugPrint warning and returns a normalized fallback.
   String renderSymbol(String symbolKey, {bool warnOnFallback = true}) {
-    final mapped = symbols[symbolKey]?.trim();
+    final normalizedKey = symbolKey.trim();
+    final mapped = symbols[normalizedKey]?.trim();
     if (mapped != null && mapped.isNotEmpty) {
       return _normalizeLatex(mapped);
     }
     if (warnOnFallback) {
-      debugPrint('Missing LaTeX mapping for symbol: $symbolKey (source: $source)');
+      debugPrint('Missing LaTeX mapping for symbol: $normalizedKey (source: $source)');
     }
-    return _normalizeLatex(symbolKey);
+    return _normalizeLatex(normalizedKey);
   }
 
   /// Backwards-compatible wrapper used throughout the solver/rendering code.

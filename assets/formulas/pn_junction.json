@@ -272,11 +272,15 @@
       "constants_used": [],
       "solvable_for": [
         "x_n",
-        "W"
+        "W",
+        "N_A",
+        "N_D"
       ],
       "compute": {
         "x_n": "(N_A/(N_A+N_D))*W",
-        "W": "x_n*(N_A+N_D)/N_A"
+        "W": "x_n*(N_A+N_D)/N_A",
+        "N_A": "(x_n*N_D)/(W - x_n)",
+        "N_D": "((W - x_n)*N_A)/x_n"
       },
       "version": 1
     },
@@ -336,11 +340,15 @@
       "constants_used": [],
       "solvable_for": [
         "x_p",
-        "W"
+        "W",
+        "N_A",
+        "N_D"
       ],
       "compute": {
         "x_p": "(N_D/(N_A+N_D))*W",
-        "W": "x_p*(N_A+N_D)/N_D"
+        "W": "x_p*(N_A+N_D)/N_D",
+        "N_A": "((W - x_p)*N_D)/x_p",
+        "N_D": "(x_p*N_A)/(W - x_p)"
       },
       "version": 1
     },

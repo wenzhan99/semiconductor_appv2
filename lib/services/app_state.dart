@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../core/models/workspace.dart';
 import 'storage_service.dart';
@@ -10,17 +11,24 @@ class AppState extends ChangeNotifier {
 
   List<Workspace> _workspaces = [];
   Workspace? _currentWorkspace;
-  ThemeMode _themeMode = ThemeMode.system; // Default to system
+  // Default to light on web/Chrome runs; mobile/desktop still respect system unless user chooses otherwise.
+  ThemeMode _themeMode = kIsWeb ? ThemeMode.light : ThemeMode.system;
+  bool _animateSteps = false; // Default to OFF for non-disruptive experience
+  bool _autoPlayVisualizations = true;
 
   AppState(this._storageService, this._authService);
 
   List<Workspace> get workspaces => List.unmodifiable(_workspaces);
   Workspace? get currentWorkspace => _currentWorkspace;
   ThemeMode get themeMode => _themeMode;
+  bool get animateSteps => _animateSteps;
+  bool get autoPlayVisualizations => _autoPlayVisualizations;
 
   Future<void> initialize() async {
     await loadWorkspaces();
     await _loadThemePreference();
+    await _loadAnimateStepsPreference();
+    await _loadAutoPlayPreference();
   }
 
   /// Load theme preference from storage.
@@ -41,7 +49,28 @@ class AppState extends ChangeNotifier {
       }
       notifyListeners();
     }
-    // If no saved preference, keep default (ThemeMode.system)
+    // If no saved preference, keep platform default (light on web, system elsewhere).
+  }
+
+  /// Load animate steps preference from storage.
+  Future<void> _loadAnimateStepsPreference() async {
+    final saved = await _storageService.loadAnimateStepsPreference();
+    debugPrint('🎬 AppState._loadAnimateStepsPreference: saved=$saved');
+    if (saved != null) {
+      _animateSteps = saved;
+      notifyListeners();
+    }
+    debugPrint('🎬 AppState._animateSteps final value: $_animateSteps');
+    // If no saved preference, keep default (false).
+  }
+
+  Future<void> _loadAutoPlayPreference() async {
+    final saved = await _storageService.loadAutoPlayVisualizations();
+    debugPrint('🎞️ AppState._loadAutoPlayPreference: saved=$saved');
+    if (saved != null) {
+      _autoPlayVisualizations = saved;
+      notifyListeners();
+    }
   }
 
   /// Load all workspaces from storage.
@@ -114,6 +143,20 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Set animate steps preference and persist to storage.
+  Future<void> setAnimateSteps(bool enabled) async {
+    debugPrint('🎬 AppState.setAnimateSteps: $enabled');
+    _animateSteps = enabled;
+    await _storageService.saveAnimateStepsPreference(enabled);
+    notifyListeners();
+  }
+
+  Future<void> setAutoPlayVisualizations(bool enabled) async {
+    _autoPlayVisualizations = enabled;
+    await _storageService.saveAutoPlayVisualizations(enabled);
+    notifyListeners();
+  }
+
   /// Ensure a workspace exists for adding formulas.
   /// Creates a new workspace if currentWorkspace is null.
   Future<Workspace> ensureWorkspaceForFormula(String formulaId) async {
@@ -132,4 +175,3 @@ class AppState extends ChangeNotifier {
     return ws;
   }
 }
-

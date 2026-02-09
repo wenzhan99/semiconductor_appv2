@@ -151,6 +151,21 @@ class FormulaPanelController extends ChangeNotifier {
       overrides[v.key] = SymbolValue(value: value, unit: unit, source: SymbolSource.user);
     }
 
+    // Ensure unit metadata is captured even for missing (solveFor) variables that still have a selected unit.
+    for (final v in formula.variablesResolved) {
+      final supportsEnergy = v.preferredUnits.contains('eV') && v.preferredUnits.contains('J');
+      final supportsDensity = v.preferredUnits.contains('cm^-3') && v.preferredUnits.contains('m^-3');
+      final selection = unitSelections[v.key];
+      if (selection != null && selection.isNotEmpty) {
+        if (supportsEnergy && !overrides.containsKey('__meta__unit_${v.key}')) {
+          overrides['__meta__unit_${v.key}'] = SymbolValue(value: 0, unit: selection, source: SymbolSource.computed);
+        }
+        if (supportsDensity && !overrides.containsKey('__meta__unit_${v.key}')) {
+          overrides['__meta__unit_${v.key}'] = SymbolValue(value: 0, unit: selection, source: SymbolSource.computed);
+        }
+      }
+    }
+
     overrides['__meta__unit_system'] = SymbolValue(
       value: 0,
       unit: unitSystem == UnitSystem.cm ? 'cm' : 'si',
@@ -177,9 +192,21 @@ class FormulaPanelController extends ChangeNotifier {
     if (energyUnitMeta == null && firstEnergyVar != null) {
       energyUnitMeta = unitSelections[firstEnergyVar.key] ?? firstEnergyVar.preferredUnits.first;
     }
+    // Prefer target variable's selected energy unit when the target is an energy variable.
+    final targetVar = formula.variablesResolved.firstWhere(
+      (v) => v.key == solveFor,
+      orElse: () => formula.variablesResolved.first,
+    );
+    final targetIsEnergy = targetVar.preferredUnits.contains('eV') && targetVar.preferredUnits.contains('J');
+    if (targetIsEnergy) {
+      final targetSelection = unitSelections[solveFor];
+      if (targetSelection != null && targetSelection.isNotEmpty) {
+        energyUnitMeta = targetSelection;
+        overrides['__meta__unit_$solveFor'] = SymbolValue(value: 0, unit: targetSelection, source: SymbolSource.computed);
+      }
+    }
     
     // Priority: use target variable's selected unit > fallback to collected densityUnitMeta
-    final targetVar = formula.variablesResolved.firstWhere((v) => v.key == solveFor, orElse: () => formula.variablesResolved.first);
     final isDensityTarget = targetVar.preferredUnits.contains('cm^-3') && targetVar.preferredUnits.contains('m^-3');
     if (isDensityTarget) {
       final targetDensityUnit = unitSelections[solveFor] ?? densityUnitMeta ?? (unitSystem == UnitSystem.cm ? 'cm^-3' : 'm^-3');

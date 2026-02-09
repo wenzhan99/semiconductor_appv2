@@ -6,6 +6,7 @@ import 'pages/topics_page.dart';
 import 'pages/workspace_page.dart';
 import 'pages/constants_units_page.dart';
 import 'pages/settings_page.dart';
+import 'pages/graphs_page.dart';
 
 /// Main app screen with tab navigation.
 class MainApp extends StatefulWidget {
@@ -68,7 +69,7 @@ class _MainAppState extends State<MainApp> with SingleTickerProviderStateMixin {
             controller: _tabController,
             children: const [
               TopicsPage(),
-              _PlaceholderPage(title: 'Graphs', message: 'Graph visualization coming soon'),
+              GraphsPage(),
               _PlaceholderPage(title: 'History', message: 'Calculation history coming soon'),
               ConstantsUnitsPage(),
               SettingsPage(),

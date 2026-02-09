@@ -47,7 +47,7 @@ class NumberFormatter {
   /// 8.85e-12, "F/m" -> 8.85 \\times 10^{-12}\\,\\mathrm{F}\\,\\mathrm{m}^{-1}
   String formatLatexWithUnit(double value, String unit) {
     final v = formatLatex(value);
-    final u = _normalizeUnitLatex(formatLatexUnit(unit));
+    final u = formatLatexUnitNormalized(unit);
     if (u.isEmpty) return v;
     return '$v\\,$u';
   }
@@ -84,6 +84,11 @@ class NumberFormatter {
     u = u.replaceAll('*', r'\cdot ');
 
     return u;
+  }
+
+  /// Convert units into LaTeX-safe form and wrap tokens in \mathrm{}.
+  String formatLatexUnitNormalized(String unit) {
+    return _normalizeUnitLatex(formatLatexUnit(unit));
   }
 
   /// Plain text scientific notation (for logs/debug).
@@ -144,7 +149,7 @@ class NumberFormatter {
   /// Format a number to LaTeX with unit, using full precision.
   String formatLatexWithUnitFullPrecision(double value, String unit) {
     final v = formatLatexFullPrecision(value);
-    final u = _normalizeUnitLatex(formatLatexUnit(unit));
+    final u = formatLatexUnitNormalized(unit);
     if (u.isEmpty) return v;
     return '$v\\,$u';
   }
@@ -158,10 +163,19 @@ class NumberFormatter {
   /// Round a value to the requested significant figures (numeric).
   double toSigFigs(double value, {int sigFigs = 3}) => _roundToSig(value, sigFigs);
 
+  /// Force textbook scientific notation with mantissa \times 10^{exp}.
+  String formatScientificLatex(double value, {int? sigFigs}) {
+    final forcedSigFigs = sigFigs ?? significantFigures;
+    final forcedSci = NumberFormatter(
+      significantFigures: forcedSigFigs,
+      sciThresholdExp: -1000,
+    );
+    return forcedSci.formatLatex(value);
+  }
+
   /// Always return scientific notation with LaTeX \times 10^{n}.
   String sciToLatex(double value, {int sigFigs = 3}) {
-    final forcedSci = NumberFormatter(significantFigures: sigFigs, sciThresholdExp: -1000);
-    return forcedSci.formatLatex(value);
+    return formatScientificLatex(value, sigFigs: sigFigs);
   }
 
   /// Convenience helper for value + optional unit with configurable sig figs.
@@ -170,7 +184,7 @@ class NumberFormatter {
         ? NumberFormatter(significantFigures: sigFigs, sciThresholdExp: -1000)
         : withSigFigs(sigFigs);
     final v = fmt.formatLatex(value);
-    final u = _normalizeUnitLatex(fmt.formatLatexUnit(unit));
+    final u = formatLatexUnitNormalized(unit);
     if (u.isEmpty) return v;
     return '$v\\,$u';
   }

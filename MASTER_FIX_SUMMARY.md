@@ -587,3 +587,9 @@ The semiconductor calculator now provides **scientific-grade accuracy** with **t
 All P0 issues resolved. App is running in Chrome for manual verification.
 
 
+
+
+
+
+
+

@@ -514,3 +514,9 @@ Every component reads from the same source of truth (`unitSelections`), ensuring
 **Impact**: Students can now trust that "what they select is what they get" in every part of the UI, building confidence in the calculator's accuracy and transparency.
 
 
+
+
+
+
+
+

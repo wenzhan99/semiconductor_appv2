@@ -231,6 +231,17 @@ class StepLaTeXBuilder {
     String primaryEnergyUnit = 'J',
   }) {
     final conversionLines = _conversionLines(conversions);
+    
+    // Handle peak field charge form formulas
+    final peakFieldSteps = _buildPeakFieldChargeFormSteps(
+      formula: formula,
+      solveFor: solveFor,
+      context: context,
+      outputs: outputs,
+      conversionLines: conversionLines,
+    );
+    if (peakFieldSteps != null) return peakFieldSteps;
+    
     final pnSteps = _buildPnBuiltInPotentialSteps(
       formula: formula,
       solveFor: solveFor,
@@ -238,6 +249,24 @@ class StepLaTeXBuilder {
       outputs: outputs,
     );
     if (pnSteps != null) return _applyConversionLinesToWorkingItems(pnSteps, conversionLines);
+
+    final pnPartition = _buildPnDepletionPartitionSteps(
+      formula: formula,
+      solveFor: solveFor,
+      context: context,
+      outputs: outputs,
+      conversionLines: conversionLines,
+    );
+    if (pnPartition != null) return pnPartition;
+
+    final pnDepletion = _buildPnDepletionWidthSteps(
+      formula: formula,
+      solveFor: solveFor,
+      context: context,
+      outputs: outputs,
+      conversionLines: conversionLines,
+    );
+    if (pnDepletion != null) return pnDepletion;
 
     final ctFundamental = _buildCtFundamentalSteps(
       formula: formula,
@@ -1978,6 +2007,19 @@ n_i &= \sqrt{({{NC}})({{NV}})\,{{EXPX}}} = {{NI_M}} \\
     required Map<String, SymbolValue> outputs,
     required List<String> conversionLines,
   }) {
+    // Handle drift current density (ct_f3, ct_f4)
+    final isDriftCurrentElectron = formula.id == 'ct_f3_electron_drift_current_density';
+    final isDriftCurrentHole = formula.id == 'ct_f4_hole_drift_current_density';
+    if (isDriftCurrentElectron || isDriftCurrentHole) {
+      return _buildDriftCurrentDensitySteps(
+        isElectron: isDriftCurrentElectron,
+        solveFor: solveFor,
+        context: context,
+        outputs: outputs,
+        conversionLines: conversionLines,
+      );
+    }
+
     // Handle total current density (drift + diffusion)
     final isTotalElectron = formula.id == 'ct_total_electron_current_density';
     final isTotalHole = formula.id == 'ct_total_hole_current_density';
@@ -1987,6 +2029,7 @@ n_i &= \sqrt{({{NC}})({{NV}})\,{{EXPX}}} = {{NI_M}} \\
         solveFor: solveFor,
         context: context,
         outputs: outputs,
+        conversionLines: conversionLines,
       );
     }
 
@@ -2038,7 +2081,6 @@ n_i &= \sqrt{({{NC}})({{NV}})\,{{EXPX}}} = {{NI_M}} \\
     }
     
     final isElectron = isDriftElectron;
-    final isHole = isDriftHole;
 
     final vKey = isElectron ? 'v_dn' : 'v_dp';
     final muKey = isElectron ? 'mu_n' : 'mu_p';
@@ -2058,18 +2100,6 @@ n_i &= \sqrt{({{NC}})({{NV}})\,{{EXPX}}} = {{NI_M}} \\
     final muVal = context.getSymbolValue(muKey);
     final eVal = context.getSymbolValue(eKey);
 
-    final substitutionMap = <String, String>{};
-    if (vVal != null) substitutionMap[vKey] = fmt6.formatLatexWithUnit(vVal.value, vVal.unit.isNotEmpty ? vVal.unit : 'm/s');
-    if (muVal != null) substitutionMap[muKey] = fmt6.formatLatexWithUnit(muVal.value, muVal.unit.isNotEmpty ? muVal.unit : 'm^2/(V*s)');
-    if (eVal != null) substitutionMap[eKey] = fmt6.formatLatexWithUnit(eVal.value, eVal.unit.isNotEmpty ? eVal.unit : 'V/m');
-
-    final substitutionEq = buildSubstitutionEquation(
-      equationLatex: baseEq,
-      latexMap: _latexMap,
-      substitutionMap: substitutionMap,
-      wrapValuesWithParens: true,
-    );
-
     final result = outputs[solveFor];
     final targetLatex = _latexLabel(solveFor);
     final computedLine = result != null
@@ -2079,19 +2109,60 @@ n_i &= \sqrt{({{NC}})({{NV}})\,{{EXPX}}} = {{NI_M}} \\
         ? '$targetLatex = ${fmt3.formatLatexWithUnit(result.value, result.unit)}'
         : targetLatex;
 
-    final rearrangeLines = <String>[];
-    if (solveFor == muKey) {
-      rearrangeLines.add('$muSym = ${sign.isEmpty ? '' : sign}\\dfrac{${vSym}}{${eSym}}');
-    } else if (solveFor == eKey) {
-      final ratio = sign.isEmpty ? '\\dfrac{${vSym}}{${muSym}}' : '${sign}\\dfrac{${vSym}}{${muSym}}';
-      rearrangeLines.add('$eSym = $ratio');
+    String _fmt(SymbolValue? v, String key, String defaultUnit) {
+      if (v == null) return _latexLabel(key);
+      final unit = v.unit.isNotEmpty ? v.unit : defaultUnit;
+      return '(${fmt6.formatLatexWithUnit(v.value, unit)})';
     }
 
-    final substitutionLines = <String>[
-      baseEq,
-      substitutionEq,
-      if (computedLine.isNotEmpty) computedLine,
-    ];
+    // Step 2: Rearrangement based on target variable
+    final rearrangeLines = <String>[];
+    final substitutionLines = <String>[];
+    
+    if (solveFor == vKey) {
+      // Solving for v: v = ±μ E (no rearrangement needed)
+      rearrangeLines.add(baseEq);
+      
+      final substitutionMap = <String, String>{};
+      if (vVal != null) substitutionMap[vKey] = fmt6.formatLatexWithUnit(vVal.value, vVal.unit.isNotEmpty ? vVal.unit : 'm/s');
+      if (muVal != null) substitutionMap[muKey] = fmt6.formatLatexWithUnit(muVal.value, muVal.unit.isNotEmpty ? muVal.unit : 'm^2/(V*s)');
+      if (eVal != null) substitutionMap[eKey] = fmt6.formatLatexWithUnit(eVal.value, eVal.unit.isNotEmpty ? eVal.unit : 'V/m');
+      
+      final substitutionEq = buildSubstitutionEquation(
+        equationLatex: baseEq,
+        latexMap: _latexMap,
+        substitutionMap: substitutionMap,
+        wrapValuesWithParens: true,
+      );
+      
+      substitutionLines.add(baseEq);
+      substitutionLines.add(substitutionEq);
+      
+    } else if (solveFor == muKey) {
+      // Solving for μ: μ = ±v/E
+      rearrangeLines.add(baseEq);
+      final rearrangedEq = '$muSym = ${sign.isEmpty ? '' : sign}\\dfrac{$vSym}{$eSym}';
+      rearrangeLines.add(rearrangedEq);
+      
+      final numerator = _fmt(vVal, vSym, 'm/s');
+      final denominator = _fmt(eVal, eSym, 'V/m');
+      
+      substitutionLines.add(rearrangedEq);
+      substitutionLines.add('$muSym = ${sign.isEmpty ? '' : sign}\\dfrac{$numerator}{$denominator}');
+      
+    } else if (solveFor == eKey) {
+      // Solving for E: E = ±v/μ
+      rearrangeLines.add(baseEq);
+      final ratio = sign.isEmpty ? '\\dfrac{$vSym}{$muSym}' : '$sign\\dfrac{$vSym}{$muSym}';
+      final rearrangedEq = '$eSym = $ratio';
+      rearrangeLines.add(rearrangedEq);
+      
+      final numerator = _fmt(vVal, vSym, 'm/s');
+      final denominator = _fmt(muVal, muSym, 'm^2/(V*s)');
+      
+      substitutionLines.add(rearrangedEq);
+      substitutionLines.add('$eSym = ${sign.isEmpty ? '' : sign}\\dfrac{$numerator}{$denominator}');
+    }
 
     return UniversalStepTemplate.build(
       targetLabelLatex: targetLatex,
@@ -2102,6 +2173,161 @@ n_i &= \sqrt{({{NC}})({{NV}})\,{{EXPX}}} = {{NI_M}} \\
       computedValueLine: computedLine,
       roundedValueLine: roundedLine,
     );
+  }
+
+  List<StepItem>? _buildDriftCurrentDensitySteps({
+    required bool isElectron,
+    required String solveFor,
+    required SymbolContext context,
+    required Map<String, SymbolValue> outputs,
+    required List<String> conversionLines,
+  }) {
+    final jKey = isElectron ? 'J_n_drift' : 'J_p_drift';
+    final carrierKey = isElectron ? 'n' : 'p';
+    final muKey = isElectron ? 'mu_n' : 'mu_p';
+    const eKey = 'E_field';
+    const qKey = 'q';
+
+    // Only handle drift current density formula variables
+    if (solveFor != jKey && solveFor != muKey && solveFor != carrierKey && solveFor != eKey) {
+      return null;
+    }
+
+    final fmt6 = _formatter.withSigFigs(6);
+    final fmt3 = _formatter;
+
+    String _mobilityUnit(SymbolValue? v) {
+      final unit = v?.unit.trim() ?? '';
+      if (unit.isEmpty) return 'm^2/(V*s)';
+      final normalized = unit.replaceAll(' ', '').toLowerCase();
+      // Guard against density units accidentally applied to mobility.
+      if (normalized.contains('^-3')) return 'm^2/(V*s)';
+      return unit;
+    }
+
+    String _factor(
+      SymbolValue? value,
+      String symbolLatex,
+      String defaultUnit, {
+      String? forcedUnit,
+    }) {
+      final unit = forcedUnit ?? ((value != null && value.unit.isNotEmpty) ? value.unit : defaultUnit);
+      final unitLatex = _formatter.formatLatexUnitNormalized(unit);
+      if (value == null) {
+        return unitLatex.isNotEmpty ? '($symbolLatex\\,${unitLatex})' : '($symbolLatex)';
+      }
+      return '(${fmt6.formatLatexWithUnit(value.value, unit)})';
+    }
+
+    final driftSym = _latexLabel(jKey);
+    final qSym = _latexLabel(qKey);
+    final carrierSym = _latexLabel(carrierKey);
+    final muSym = _latexLabel(muKey);
+    final eSym = _latexLabel(eKey);
+
+    final qVal = context.getSymbolValue(qKey);
+    final carrierVal = context.getSymbolValue(carrierKey);
+    final muVal = context.getSymbolValue(muKey);
+    final eVal = context.getSymbolValue(eKey);
+    final jVal = context.getSymbolValue(jKey);
+
+    final result = outputs[solveFor];
+    final targetLatex = _latexLabel(solveFor);
+
+    // Step 2: Rearrangement based on target variable
+    final rearrangeLines = <String>[];
+    final substitutionLines = <String>[];
+    
+    if (solveFor == jKey) {
+      // Solving for J: J = q n μ E (no rearrangement needed)
+      final symbolicRhs = '$qSym\\,$carrierSym\\,$muSym\\,$eSym';
+      final baseEq = '$driftSym = $symbolicRhs';
+      rearrangeLines.add(baseEq);
+      
+      final substitutionRhs = [
+        _factor(qVal, qSym, 'C'),
+        _factor(carrierVal, carrierSym, 'm^{-3}'),
+        _factor(muVal, muSym, 'm^2/(V*s)', forcedUnit: _mobilityUnit(muVal)),
+        _factor(eVal, eSym, 'V/m'),
+      ].join('');
+      
+      substitutionLines.add('$driftSym = $symbolicRhs');
+      substitutionLines.add('$driftSym = $substitutionRhs');
+      
+    } else if (solveFor == muKey) {
+      // Solving for μ: μ = J / (q n E)
+      rearrangeLines.add('$driftSym = $qSym\\,$carrierSym\\,$muSym\\,$eSym');
+      rearrangeLines.add('$muSym = \\dfrac{$driftSym}{$qSym\\,$carrierSym\\,$eSym}');
+      
+      // Step 3: Substitute into rearranged form
+      final numerator = _factor(jVal, driftSym, 'A/m^2');
+      final denomParts = [
+        _factor(qVal, qSym, 'C'),
+        _factor(carrierVal, carrierSym, 'm^{-3}'),
+        _factor(eVal, eSym, 'V/m'),
+      ];
+      
+      substitutionLines.add('$muSym = \\dfrac{$driftSym}{$qSym\\,$carrierSym\\,$eSym}');
+      substitutionLines.add('$muSym = \\dfrac{$numerator}{${denomParts.join('')}}');
+      
+    } else if (solveFor == carrierKey) {
+      // Solving for n: n = J / (q μ E)
+      rearrangeLines.add('$driftSym = $qSym\\,$carrierSym\\,$muSym\\,$eSym');
+      rearrangeLines.add('$carrierSym = \\dfrac{$driftSym}{$qSym\\,$muSym\\,$eSym}');
+      
+      final numerator = _factor(jVal, driftSym, 'A/m^2');
+      final denomParts = [
+        _factor(qVal, qSym, 'C'),
+        _factor(muVal, muSym, 'm^2/(V*s)', forcedUnit: _mobilityUnit(muVal)),
+        _factor(eVal, eSym, 'V/m'),
+      ];
+      
+      substitutionLines.add('$carrierSym = \\dfrac{$driftSym}{$qSym\\,$muSym\\,$eSym}');
+      substitutionLines.add('$carrierSym = \\dfrac{$numerator}{${denomParts.join('')}}');
+      
+    } else if (solveFor == eKey) {
+      // Solving for E: E = J / (q n μ)
+      rearrangeLines.add('$driftSym = $qSym\\,$carrierSym\\,$muSym\\,$eSym');
+      rearrangeLines.add('$eSym = \\dfrac{$driftSym}{$qSym\\,$carrierSym\\,$muSym}');
+      
+      final numerator = _factor(jVal, driftSym, 'A/m^2');
+      final denomParts = [
+        _factor(qVal, qSym, 'C'),
+        _factor(carrierVal, carrierSym, 'm^{-3}'),
+        _factor(muVal, muSym, 'm^2/(V*s)', forcedUnit: _mobilityUnit(muVal)),
+      ];
+      
+      substitutionLines.add('$eSym = \\dfrac{$driftSym}{$qSym\\,$carrierSym\\,$muSym}');
+      substitutionLines.add('$eSym = \\dfrac{$numerator}{${denomParts.join('')}}');
+    }
+
+    final targetUnit = result?.unit.isNotEmpty == true ? result!.unit : _defaultUnitFor(solveFor);
+    final computedLine =
+        result != null ? '$targetLatex = ${fmt6.formatLatexWithUnit(result.value, targetUnit)}' : targetLatex;
+    final roundedLine =
+        result != null ? '$targetLatex = ${fmt3.formatLatexWithUnit(result.value, targetUnit)}' : targetLatex;
+
+    return UniversalStepTemplate.build(
+      targetLabelLatex: targetLatex,
+      unitConversionLines: conversionLines,
+      rearrangeLines: rearrangeLines,
+      substitutionLines: substitutionLines,
+      substitutionEvaluationLine: '',
+      computedValueLine: computedLine,
+      roundedValueLine: roundedLine,
+    );
+  }
+  
+  String _defaultUnitFor(String key) {
+    if (key == 'J_n_drift' || key == 'J_p_drift') return 'A/m^2';
+    if (key == 'mu_n' || key == 'mu_p') return 'm^2/(V*s)';
+    if (key == 'n' || key == 'p') return 'm^{-3}';
+    if (key == 'E_field') return 'V/m';
+    if (key == 'N_A' || key == 'N_D') return 'm^{-3}';
+    if (key == 'eps_s') return 'F/m';
+    if (key == 'V_dep') return 'V';
+    if (key == 'W') return 'm';
+    return '';
   }
 
   List<StepItem>? _buildEinsteinRelationSteps({
@@ -2202,6 +2428,7 @@ n_i &= \sqrt{({{NC}})({{NV}})\,{{EXPX}}} = {{NI_M}} \\
     required String solveFor,
     required SymbolContext context,
     required Map<String, SymbolValue> outputs,
+    required List<String> conversionLines,
   }) {
     final jKey = isElectron ? 'J_n' : 'J_p';
     final nKey = isElectron ? 'n' : 'p';
@@ -2211,6 +2438,7 @@ n_i &= \sqrt{({{NC}})({{NV}})\,{{EXPX}}} = {{NI_M}} \\
     const eKey = 'E_field';
     final sign = isElectron ? 1.0 : -1.0;
 
+    final jVal = context.getSymbolValue(jKey);
     final jSym = _latexLabel(jKey);
     final nSym = _latexLabel(nKey);
     final muSym = _latexLabel(muKey);
@@ -2252,6 +2480,9 @@ n_i &= \sqrt{({{NC}})({{NV}})\,{{EXPX}}} = {{NI_M}} \\
 
     final driftSymLabel = isElectron ? r'J_{n,\mathrm{drift}}' : r'J_{p,\mathrm{drift}}';
     final diffSymLabel = isElectron ? r'J_{n,\mathrm{diff}}' : r'J_{p,\mathrm{diff}}';
+    final baseTotalEq = isElectron
+        ? '$jSym = q\\,$nSym\\,$muSym\\,$eSym + q\\,$dSym\\,${gradSym}'
+        : '$jSym = q\\,$nSym\\,$muSym\\,$eSym - q\\,$dSym\\,${gradSym}';
 
     final driftEq = '$driftSymLabel = $qSym $nSym $muSym $eSym';
     final driftSub = '$driftSymLabel = ${fmt(qVal, 'q', 'C')} ${fmt(nVal, nKey, 'm^{-3}')} '
@@ -2276,7 +2507,307 @@ n_i &= \sqrt{({{NC}})({{NV}})\,{{EXPX}}} = {{NI_M}} \\
         ? '$jSym = ${fmt6.formatLatexWithUnit(totalValue, 'A/m^2')}'
         : '';
 
-    // Step 2 rearrangement
+    final result = outputs[solveFor];
+    final targetLatex = _latexLabel(solveFor);
+
+    // Special handling for solving gradient (dn/dx or dp/dx)
+    if (solveFor == gradKey) {
+      final steps = <StepItem>[];
+
+      // Step 1: Unit Conversion
+      steps.add(const StepItem.text('Step 1 - Unit Conversion'));
+      final conversions = conversionLines.where((line) => line.trim().isNotEmpty).toList();
+      if (conversions.isEmpty) {
+        steps.add(const StepItem.math(r'\text{No unit conversion required.}'));
+      } else {
+        steps.addAll(conversions.map((line) => StepItem.math(line)));
+      }
+
+      // Step 2: Rearrangement
+      final step2Title = r'\textbf{Step 2 - Rearrange to solve for }' + gradSym;
+      steps.add(StepItem.math(step2Title));
+      steps.add(StepItem.math(baseTotalEq));
+      
+      // Show the rearranged form
+      final signLatex = isElectron ? '+' : '-';
+      final rearrangedGradient = '$gradSym = \\dfrac{$jSym - $qSym\\,$nSym\\,$muSym\\,$eSym}{${signLatex}$qSym\\,$dSym}';
+      steps.add(StepItem.math(rearrangedGradient));
+
+      // Step 3: Substitute known values (3-part narrative)
+      steps.add(const StepItem.text('Step 3 - Substitute known values'));
+      
+      // 3.1: Compute drift component
+      steps.add(const StepItem.text('3.1 Drift component:'));
+      steps.add(StepItem.math('$driftSymLabel = $qSym\\,$nSym\\,$muSym\\,$eSym'));
+      
+      String _factorVal(SymbolValue? v, String key, String defaultUnit) {
+        if (v == null) return '(${_latexLabel(key)})';
+        final unit = v.unit.isNotEmpty ? v.unit : defaultUnit;
+        return '(${fmt6.formatLatexWithUnit(v.value, unit)})';
+      }
+      
+      final driftFactors = '${_factorVal(qVal, 'q', 'C')}${_factorVal(nVal, nKey, 'm^{-3}')}${_factorVal(muVal, muKey, 'm^2/(V*s)')}${_factorVal(eVal, eKey, 'V/m')}';
+      steps.add(StepItem.math('$driftSymLabel = $driftFactors'));
+      if (driftValue != null) {
+        steps.add(StepItem.math('$driftSymLabel = ${fmt6.formatLatexWithUnit(driftValue, 'A/m^2')}'));
+      }
+      
+      // 3.2: Compute diffusion component (critical subtraction line!)
+      steps.add(const StepItem.text('3.2 Diffusion component (from total):'));
+      steps.add(StepItem.math('$diffSymLabel = $jSym - $driftSymLabel'));
+      
+      if (jVal != null && driftValue != null) {
+        final jFormatted = fmt6.formatLatexWithUnit(jVal.value, jVal.unit.isNotEmpty ? jVal.unit : 'A/m^2');
+        final driftFormatted = fmt6.formatLatexWithUnit(driftValue, 'A/m^2');
+        steps.add(StepItem.math('$diffSymLabel = ($jFormatted) - ($driftFormatted)'));
+      }
+      
+      if (diffValue != null) {
+        steps.add(StepItem.math('$diffSymLabel = ${fmt6.formatLatexWithUnit(diffValue, 'A/m^2')}'));
+      }
+      
+      // 3.3: Solve gradient from diffusion
+      steps.add(const StepItem.text('3.3 Solve gradient:'));
+      final diffDefForGrad = isElectron 
+          ? '$diffSymLabel = +$qSym\\,$dSym\\,$gradSym'
+          : '$diffSymLabel = -$qSym\\,$dSym\\,$gradSym';
+      steps.add(StepItem.math(diffDefForGrad));
+      steps.add(StepItem.math(rearrangedGradient));
+      
+      if (diffValue != null && qVal != null && dVal != null) {
+        final numerator = fmt6.formatLatexWithUnit(diffValue, 'A/m^2');
+        final qFormatted = fmt6.formatLatexWithUnit(qVal.value, 'C');
+        final dFormatted = fmt6.formatLatexWithUnit(dVal.value, dVal.unit.isNotEmpty ? dVal.unit : 'm^2/s');
+        final denominator = '(${qFormatted})(${dFormatted})';
+        steps.add(StepItem.math('$gradSym = \\dfrac{$numerator}{${signLatex}$denominator}'));
+      }
+      
+      // Step 4: Computed value
+      steps.add(const StepItem.text('Step 4 - Computed Value'));
+      final computedLine = result != null
+          ? '$targetLatex = ${fmt6.formatLatexWithUnit(result.value, result.unit)}'
+          : targetLatex;
+      steps.add(StepItem.math(computedLine));
+      
+      // Rounding
+      steps.add(const StepItem.text('Rounded off to 3 s.f.'));
+      final roundedLine = result != null
+          ? '$targetLatex \\approx ${fmt3.formatLatexWithUnit(result.value, result.unit)}'
+          : targetLatex;
+      steps.add(StepItem.math(roundedLine));
+      
+      return steps;
+    }
+
+    if (solveFor == jKey) {
+      String factorValue(SymbolValue? value, String key, String defaultUnit) {
+        if (value == null) return '(${_latexLabel(key)})';
+        final unit = value.unit.isNotEmpty ? value.unit : defaultUnit;
+        return '(${fmt6.formatLatexWithUnit(value.value, unit)})';
+      }
+
+      final gradientWrapped = '\\left(${gradSym}\\right)';
+      final driftDisplay = driftValue != null ? fmt6.formatLatexWithUnit(driftValue, 'A/m^2') : driftSymLabel;
+      final diffDisplay = diffValue != null ? fmt6.formatLatexWithUnit(diffValue, 'A/m^2') : diffSymLabel;
+      final computedValue = result?.value ?? totalValue;
+      final computedUnit = result?.unit.isNotEmpty == true ? result!.unit : 'A/m^2';
+
+      final steps = <StepItem>[];
+
+      steps.add(const StepItem.text('Step 1 - Unit Conversion'));
+      final conversions = conversionLines.where((line) => line.trim().isNotEmpty).toList();
+      if (conversions.isEmpty) {
+        steps.add(const StepItem.math(r'\text{No unit conversion required.}'));
+      } else {
+        steps.addAll(conversions.map((line) => StepItem.math(line)));
+      }
+
+      steps.add(const StepItem.text('Step 2 - Equation and component split'));
+      steps.add(StepItem.math(baseTotalEq));
+      steps.add(const StepItem.text('Drift component:'));
+      steps.add(StepItem.math('$driftSymLabel = q\\,$nSym\\,$muSym\\,$eSym'));
+      steps.add(const StepItem.text('Diffusion component:'));
+      final diffDefLine = isElectron
+          ? '$diffSymLabel = +q\\,$dSym\\,${gradSym}'
+          : '$diffSymLabel = -q\\,$dSym\\,${gradSym}';
+      steps.add(StepItem.math(diffDefLine));
+      steps.add(const StepItem.text('Total current density:'));
+      steps.add(StepItem.math('$jSym = $driftSymLabel + $diffSymLabel'));
+
+      steps.add(const StepItem.text('Step 3 - Substitute known values'));
+      steps.add(const StepItem.text('Drift component:'));
+      steps.add(StepItem.math('$driftSymLabel = (q)($nSym)($muSym)($eSym)'));
+      steps.add(
+        StepItem.math(
+          '$driftSymLabel = ${factorValue(qVal, 'q', 'C')}${factorValue(nVal, nKey, 'm^{-3}')}${factorValue(muVal, muKey, 'm^2/(V*s)')}${factorValue(eVal, eKey, 'V/m')}',
+        ),
+      );
+      if (driftValue != null) {
+        steps.add(StepItem.math('$driftSymLabel = ${fmt6.formatLatexWithUnit(driftValue, 'A/m^2')}'));
+      }
+
+      steps.add(const StepItem.text('Diffusion component:'));
+      steps.add(
+        StepItem.math(
+          isElectron
+              ? '$diffSymLabel = +(q)($dSym)$gradientWrapped'
+              : '$diffSymLabel = -(q)($dSym)$gradientWrapped',
+        ),
+      );
+      final diffValueFactors =
+          '${factorValue(qVal, 'q', 'C')}${factorValue(dVal, dKey, 'm^2/s')}${factorValue(gradVal, gradKey, 'm^{-4}')}';
+      final diffSubLine = isElectron ? '$diffSymLabel = +$diffValueFactors' : '$diffSymLabel = -$diffValueFactors';
+      steps.add(StepItem.math(diffSubLine));
+      if (diffValue != null) {
+        steps.add(StepItem.math('$diffSymLabel = ${fmt6.formatLatexWithUnit(diffValue, 'A/m^2')}'));
+      }
+      steps.add(
+        StepItem.text(
+          isElectron
+              ? 'Diffusion term uses a positive sign: J_{n,diff} = +q D_n dn/dx.'
+              : 'Diffusion term uses a negative sign: J_{p,diff} = -q D_p dp/dx.',
+        ),
+      );
+
+      steps.add(const StepItem.text('Step 4 - Combine components'));
+      steps.add(const StepItem.text('Total current density:'));
+      steps.add(StepItem.math('$jSym = $driftSymLabel + $diffSymLabel'));
+      steps.add(StepItem.math('$jSym = (${driftDisplay}) + (${diffDisplay})'));
+      if (computedValue != null) {
+        steps.add(StepItem.math('$jSym = ${fmt6.formatLatexWithUnit(computedValue, computedUnit)}'));
+        steps.add(const StepItem.text('Rounded off to 3 s.f.'));
+        steps.add(StepItem.math('$jSym \\approx ${fmt3.formatLatexWithUnit(computedValue, computedUnit)}'));
+      } else {
+        steps.add(StepItem.math('$jSym = $jSym'));
+        steps.add(const StepItem.text('Rounded off to 3 s.f.'));
+        steps.add(StepItem.math('$jSym \\approx $jSym'));
+      }
+
+      return steps;
+    }
+
+    if (solveFor == nKey) {
+      String factorValue(SymbolValue? value, String key, String defaultUnit) {
+        if (value == null) return '(${_latexLabel(key)})';
+        final unit = value.unit.isNotEmpty ? value.unit : defaultUnit;
+        return '(${fmt6.formatLatexWithUnit(value.value, unit)})';
+      }
+
+      final numeratorOp = isElectron ? '-' : '+';
+      final gradWrapped = '\\left(${gradSym}\\right)';
+      final startEq = baseTotalEq;
+      final moveDiff = isElectron
+          ? '$jSym - q\\,$dSym\\,${gradSym} = q\\,$nSym\\,$muSym\\,$eSym'
+          : '$jSym + q\\,$dSym\\,${gradSym} = q\\,$nSym\\,$muSym\\,$eSym';
+      final divideEq =
+          '\\dfrac{$jSym ${numeratorOp} q\\,$dSym\\,${gradSym}}{q\\,$muSym\\,$eSym} = $nSym';
+      final finalEq =
+          '$nSym = \\dfrac{$jSym ${numeratorOp} q\\,$dSym\\,${gradSym}}{q\\,$muSym\\,$eSym}';
+      final finalEqWithParens =
+          '$nSym = \\dfrac{($jSym) ${numeratorOp} (q)($dSym)$gradWrapped}{(q)($muSym)($eSym)}';
+
+      final jFmt = factorValue(jVal, jKey, 'A/m^2');
+      final qFmt = factorValue(qVal, 'q', 'C');
+      final dFmt = factorValue(dVal, dKey, 'm^2/s');
+      final gradFmt = factorValue(gradVal, gradKey, 'm^{-4}');
+      final muFmt = factorValue(muVal, muKey, 'm^2/(V*s)');
+      final eFmt = factorValue(eVal, eKey, 'V/m');
+
+      String numericLine() {
+        final numerator = isElectron
+            ? '$jFmt - $qFmt$dFmt$gradFmt'
+            : '$jFmt + $qFmt$dFmt$gradFmt';
+        return '$nSym = \\dfrac{$numerator}{$qFmt$muFmt$eFmt}';
+      }
+
+      double? computedValue;
+      if (result != null) {
+        computedValue = result.value;
+      } else if (jVal != null &&
+          qVal != null &&
+          dVal != null &&
+          gradVal != null &&
+          muVal != null &&
+          eVal != null &&
+          qVal.value != 0 &&
+          muVal.value != 0 &&
+          eVal.value != 0) {
+        final numerator = isElectron
+            ? (jVal.value - qVal.value * dVal.value * gradVal.value)
+            : (jVal.value + qVal.value * dVal.value * gradVal.value);
+        final denominator = qVal.value * muVal.value * eVal.value;
+        computedValue = numerator / denominator;
+      }
+      final targetUnit = result?.unit.isNotEmpty == true ? result!.unit : 'm^{-3}';
+
+      String? gradientSignNote;
+      if (gradVal != null) {
+        final isNeg = gradVal.value < 0;
+        if (isElectron) {
+          gradientSignNote = isNeg
+              ? 'dn/dx is negative, so subtracting q D_n dn/dx increases the numerator.'
+              : 'dn/dx is positive, so subtracting q D_n dn/dx reduces the numerator.';
+        } else {
+          gradientSignNote = isNeg
+              ? 'dp/dx is negative, so adding q D_p dp/dx reduces the numerator.'
+              : 'dp/dx is positive, so adding q D_p dp/dx increases the numerator.';
+        }
+      }
+
+      final steps = <StepItem>[];
+
+      // Step 1
+      steps.add(const StepItem.text('Step 1 - Unit Conversion'));
+      final conversions = conversionLines.where((line) => line.trim().isNotEmpty).toList();
+      if (conversions.isEmpty) {
+        steps.add(const StepItem.math(r'\text{No unit conversion required.}'));
+      } else {
+        steps.addAll(conversions.map((line) => StepItem.math(line)));
+      }
+
+      // Step 2
+      steps.add(StepItem.text('Step 2 - Rearrange to solve for ${isElectron ? 'n' : 'p'}'));
+      steps.add(StepItem.math(startEq));
+      steps.add(StepItem.math(moveDiff));
+      steps.add(StepItem.math(divideEq));
+      steps.add(StepItem.math(finalEq));
+
+      // Step 3
+      steps.add(const StepItem.text('Step 3 - Substitute known values'));
+      steps.add(StepItem.math(finalEqWithParens));
+      steps.add(StepItem.math(numericLine()));
+      if (computedValue != null) {
+        steps.add(StepItem.math('$nSym = ${fmt6.formatLatexWithUnit(computedValue, targetUnit)}'));
+      }
+      if (gradientSignNote != null) {
+        steps.add(StepItem.text(gradientSignNote));
+      }
+      if (driftValue != null || diffValue != null) {
+        steps.add(const StepItem.text('Component breakdown (optional):'));
+        if (driftValue != null) {
+          steps.add(StepItem.math('$driftSymLabel = ${fmt6.formatLatexWithUnit(driftValue, 'A/m^2')}'));
+        }
+        if (diffValue != null) {
+          steps.add(StepItem.math('$diffSymLabel = ${fmt6.formatLatexWithUnit(diffValue, 'A/m^2')}'));
+        }
+      }
+
+      // Step 4 + rounding
+      steps.add(const StepItem.text('Step 4 - Computed Value'));
+      if (computedValue != null) {
+        steps.add(StepItem.math('$nSym = ${fmt6.formatLatexWithUnit(computedValue, targetUnit)}'));
+        steps.add(const StepItem.text('Rounded off to 3 s.f.'));
+        steps.add(StepItem.math('$nSym \\approx ${fmt3.formatLatexWithUnit(computedValue, targetUnit)}'));
+      } else {
+        steps.add(StepItem.math('$nSym = $nSym'));
+        steps.add(const StepItem.text('Rounded off to 3 s.f.'));
+        steps.add(StepItem.math('$nSym \\approx $nSym'));
+      }
+
+      return steps;
+    }
+
+    // Step 2 rearrangement (fallback for non-J targets)
     final rearrangeLines = <String>[];
     if (solveFor == jKey) {
       rearrangeLines.add(totalEq);
@@ -2305,8 +2836,6 @@ n_i &= \sqrt{({{NC}})({{NV}})\,{{EXPX}}} = {{NI_M}} \\
       if (totalValLine.isNotEmpty) totalValLine,
     ];
 
-    final result = outputs[solveFor];
-    final targetLatex = _latexLabel(solveFor);
     final computedLine = result != null
         ? (result.unit.isNotEmpty
             ? '$targetLatex = ${fmt6.formatLatexWithUnit(result.value, result.unit)}'
@@ -2320,7 +2849,7 @@ n_i &= \sqrt{({{NC}})({{NV}})\,{{EXPX}}} = {{NI_M}} \\
 
     return UniversalStepTemplate.build(
       targetLabelLatex: targetLatex,
-      unitConversionLines: const [],
+      unitConversionLines: conversionLines,
       rearrangeLines: rearrangeLines,
       substitutionLines: substitutionLines,
       substitutionEvaluationLine: computedLine,
@@ -2427,6 +2956,92 @@ n_i &= \sqrt{({{NC}})({{NV}})\,{{EXPX}}} = {{NI_M}} \\
     );
   }
 
+  List<StepItem>? _buildPeakFieldChargeFormSteps({
+    required FormulaDefinition formula,
+    required String solveFor,
+    required SymbolContext context,
+    required Map<String, SymbolValue> outputs,
+    required List<String> conversionLines,
+  }) {
+    final isNSide = formula.id == 'pn_peak_field_charge_form_n_side';
+    final isPSide = formula.id == 'pn_peak_field_charge_form_p_side';
+    
+    if (!isNSide && !isPSide) return null;
+    
+    final dopingKey = isNSide ? 'N_D' : 'N_A';
+    final depthKey = isNSide ? 'x_n' : 'x_p';
+    
+    final emaxSym = _latexLabel('E_max');
+    final qSym = _latexLabel('q');
+    final dopingSym = _latexLabel(dopingKey);
+    final depthSym = _latexLabel(depthKey);
+    final epsSym = _latexLabel('eps_s');
+    final fmt6 = _formatter.withSigFigs(6);
+    final fmt3 = _formatter;
+    
+    // Base equation
+    final baseEq = '$emaxSym = \\dfrac{$qSym\\,$dopingSym\\,$depthSym}{$epsSym}';
+
+    String rearranged = baseEq;
+    if (solveFor == dopingKey) {
+      rearranged = '$dopingSym = \\dfrac{$emaxSym\\,$epsSym}{$qSym\\,$depthSym}';
+    } else if (solveFor == depthKey) {
+      rearranged = '$depthSym = \\dfrac{$emaxSym\\,$epsSym}{$qSym\\,$dopingSym}';
+    } else if (solveFor == 'eps_s') {
+      rearranged = '$epsSym = \\dfrac{$qSym\\,$dopingSym\\,$depthSym}{$emaxSym}';
+    }
+
+    final substitutionMap = <String, String>{};
+    void addSub(String key, String defaultUnit) {
+      if (key == solveFor) return;
+      final v = context.getSymbolValue(key);
+      if (v == null) return;
+      final unit = v.unit.isNotEmpty ? v.unit : defaultUnit;
+      substitutionMap[key] = fmt6.formatLatexWithUnit(v.value, unit);
+    }
+
+    addSub('E_max', 'V/m');
+    addSub('q', 'C');
+    addSub(dopingKey, 'm^{-3}');
+    addSub(depthKey, 'm');
+    addSub('eps_s', 'F/m');
+
+    final substituted = buildSubstitutionEquation(
+      equationLatex: rearranged,
+      latexMap: _latexMap,
+      substitutionMap: substitutionMap,
+      wrapValuesWithParens: true,
+      debugLabel: 'pn_peak_field_charge:${isNSide ? 'n' : 'p'}:$solveFor',
+    );
+
+    final result = outputs[solveFor];
+    final targetLatex = _latexLabel(solveFor);
+    final computedLine = result != null
+        ? '$targetLatex = ${fmt6.formatLatexWithUnit(result.value, result.unit)}'
+        : targetLatex;
+    final roundedLine = result != null
+        ? '$targetLatex = ${fmt3.formatLatexWithUnit(result.value, result.unit)}'
+        : targetLatex;
+    
+    final rearrangeLines = <String>[rearranged != baseEq ? baseEq : '', rearranged]
+        .where((e) => e.trim().isNotEmpty)
+        .toList();
+    final substitutionLines = <String>[
+      rearranged,
+      substituted,
+    ];
+
+    return UniversalStepTemplate.build(
+      targetLabelLatex: targetLatex,
+      unitConversionLines: conversionLines,
+      rearrangeLines: rearrangeLines,
+      substitutionLines: substitutionLines,
+      substitutionEvaluationLine: computedLine,
+      computedValueLine: computedLine,
+      roundedValueLine: roundedLine,
+    );
+  }
+
   List<StepItem>? _buildPnBuiltInPotentialSteps({
     required FormulaDefinition formula,
     required String solveFor,
@@ -2444,7 +3059,8 @@ n_i &= \sqrt{({{NC}})({{NV}})\,{{EXPX}}} = {{NI_M}} \\
     final niSym = _latexLabel('n_i');
     final targetLatex = _latexLabel(solveFor);
 
-    final baseEq = '$vb = \\frac{$kSym $tSym}{$qSym} \\ln\\left(\\frac{$naSym $ndSym}{${niSym}^{2}}\\right)';
+    final lnTerm = '\\ln\\left(\\frac{$naSym $ndSym}{{${niSym}^{2}}}\\right)';
+    final baseEq = '$vb = \\frac{$kSym $tSym}{$qSym} $lnTerm';
 
     String rearranged;
     if (solveFor == 'V_bi') {
@@ -2456,7 +3072,7 @@ n_i &= \sqrt{({{NC}})({{NV}})\,{{EXPX}}} = {{NI_M}} \\
     } else if (solveFor == 'n_i') {
       rearranged = '$niSym = \\sqrt{$naSym $ndSym}\\,\\exp\\left(-\\frac{$qSym $vb}{2 $kSym $tSym}\\right)';
     } else if (solveFor == 'T') {
-      rearranged = '$tSym = \\frac{$vb $qSym}{$kSym \\ln\\left(\\frac{$naSym $ndSym}{{${niSym}}^{2}}\\right)}';
+      rearranged = '$tSym = \\frac{$qSym $vb}{$kSym $lnTerm}';
     } else {
       // For any unexpected target, fall back to base equation.
       rearranged = baseEq;
@@ -2472,10 +3088,12 @@ n_i &= \sqrt{({{NC}})({{NV}})\,{{EXPX}}} = {{NI_M}} \\
 
     final substitutionMap = <String, String>{};
     context.getAll().forEach((key, val) {
+      if (key == solveFor) return;
       substitutionMap[key] = _formatFull(val);
     });
     // Include outputs (if already computed) so they can appear in substitution when solving inverses.
     outputs.forEach((key, val) {
+      if (key == solveFor) return;
       substitutionMap[key] = _formatFull(val);
     });
 
@@ -2487,7 +3105,6 @@ n_i &= \sqrt{({{NC}})({{NV}})\,{{EXPX}}} = {{NI_M}} \\
       debugLabel: 'pn_built_in_potential:$solveFor',
     );
 
-    final fmt6 = _formatter.withSigFigs(6);
     final fmt3 = _formatter;
     final result = outputs[solveFor];
     final computedLine = result != null
@@ -2498,15 +3115,29 @@ n_i &= \sqrt{({{NC}})({{NV}})\,{{EXPX}}} = {{NI_M}} \\
         : targetLatex;
 
     final rearrangeLines = <String>[];
-    if (solveFor != 'V_bi') {
-      rearrangeLines.add(rearranged);
-    }
+    final substitutionLines = <String>[];
 
-    final substitutionLines = <String>[
-      baseEq,
-      rearranged,
-      substitutionEq,
-    ];
+    if (solveFor == 'T') {
+      rearrangeLines.addAll([
+        baseEq,
+        '$qSym $vb = $kSym $tSym $lnTerm',
+        '\\frac{$qSym $vb}{$kSym} = $tSym $lnTerm',
+        rearranged,
+      ]);
+      substitutionLines.addAll([
+        rearranged,
+        substitutionEq,
+      ]);
+    } else {
+      if (solveFor != 'V_bi') {
+        rearrangeLines.add(rearranged);
+      }
+      substitutionLines.addAll([
+        baseEq,
+        rearranged,
+        substitutionEq,
+      ]);
+    }
 
     return UniversalStepTemplate.build(
       targetLabelLatex: targetLatex,
@@ -2517,6 +3148,278 @@ n_i &= \sqrt{({{NC}})({{NV}})\,{{EXPX}}} = {{NI_M}} \\
       computedValueLine: computedLine,
       roundedValueLine: roundedLine,
     );
+  }
+
+  List<StepItem>? _buildPnDepletionPartitionSteps({
+    required FormulaDefinition formula,
+    required String solveFor,
+    required SymbolContext context,
+    required Map<String, SymbolValue> outputs,
+    required List<String> conversionLines,
+  }) {
+    final isNSide = formula.id == 'pn_depletion_width_xn';
+    final isPSide = formula.id == 'pn_depletion_width_xp';
+    if (!isNSide && !isPSide) return null;
+
+    final xKey = isNSide ? 'x_n' : 'x_p';
+    final xSym = _latexLabel(xKey);
+    final wSym = _latexLabel('W');
+    final naSym = _latexLabel('N_A');
+    final ndSym = _latexLabel('N_D');
+    final targetSym = _latexLabel(solveFor);
+
+    final baseEq = isNSide
+        ? '$xSym = \\frac{$naSym}{$naSym+$ndSym} $wSym'
+        : '$xSym = \\frac{$ndSym}{$naSym+$ndSym} $wSym';
+
+    String rearranged = baseEq;
+    final rearrangeLines = <String>[];
+
+    if (solveFor == 'N_A') {
+      rearranged = isNSide
+          ? '$naSym = \\frac{$xSym $ndSym}{$wSym - $xSym}'
+          : '$naSym = \\frac{($wSym - $xSym)$ndSym}{$xSym}';
+
+      if (isNSide) {
+        rearrangeLines.addAll([
+          baseEq,
+          '\\frac{$xSym}{$wSym} = \\frac{$naSym}{$naSym + $ndSym}',
+          '\\frac{$xSym}{$wSym}($naSym + $ndSym) = $naSym',
+          '\\frac{$xSym}{$wSym}$naSym + \\frac{$xSym}{$wSym}$ndSym = $naSym',
+          '$naSym\\left(1 - \\frac{$xSym}{$wSym}\\right) = \\frac{$xSym}{$wSym}$ndSym',
+          rearranged,
+        ]);
+      } else {
+        rearrangeLines.addAll([
+          baseEq,
+          '\\frac{$xSym}{$wSym} = \\frac{$ndSym}{$naSym + $ndSym}',
+          '\\frac{$xSym}{$wSym}($naSym + $ndSym) = $ndSym',
+          '\\frac{$xSym}{$wSym}$naSym + \\frac{$xSym}{$wSym}$ndSym = $ndSym',
+          '\\frac{$xSym}{$wSym}$naSym = $ndSym\\left(1 - \\frac{$xSym}{$wSym}\\right)',
+          rearranged,
+        ]);
+      }
+    } else if (solveFor == 'N_D') {
+      rearranged = isNSide
+          ? '$ndSym = \\frac{($wSym - $xSym)$naSym}{$xSym}'
+          : '$ndSym = \\frac{$xSym $naSym}{$wSym - $xSym}';
+
+      if (isNSide) {
+        rearrangeLines.addAll([
+          baseEq,
+          '\\frac{$xSym}{$wSym} = \\frac{$naSym}{$naSym + $ndSym}',
+          '\\frac{$xSym}{$wSym}($naSym + $ndSym) = $naSym',
+          '\\frac{$xSym}{$wSym}$naSym + \\frac{$xSym}{$wSym}$ndSym = $naSym',
+          '\\frac{$xSym}{$wSym}$ndSym = $naSym\\left(1 - \\frac{$xSym}{$wSym}\\right)',
+          rearranged,
+        ]);
+      } else {
+        rearrangeLines.addAll([
+          baseEq,
+          '\\frac{$xSym}{$wSym} = \\frac{$ndSym}{$naSym + $ndSym}',
+          '\\frac{$xSym}{$wSym}($naSym + $ndSym) = $ndSym',
+          '\\frac{$xSym}{$wSym}$naSym + \\frac{$xSym}{$wSym}$ndSym = $ndSym',
+          '$ndSym\\left(1 - \\frac{$xSym}{$wSym}\\right) = \\frac{$xSym}{$wSym}$naSym',
+          rearranged,
+        ]);
+      }
+    } else if (solveFor == 'W') {
+      rearranged = isNSide
+          ? '$wSym = $xSym \\left(1 + \\frac{$ndSym}{$naSym}\\right)'
+          : '$wSym = $xSym \\left(1 + \\frac{$naSym}{$ndSym}\\right)';
+
+      if (isNSide) {
+        rearrangeLines.addAll([
+          baseEq,
+          '$xSym($naSym + $ndSym) = $naSym $wSym',
+          '$xSym $naSym + $xSym $ndSym = $naSym $wSym',
+          rearranged,
+        ]);
+      } else {
+        rearrangeLines.addAll([
+          baseEq,
+          '$xSym($naSym + $ndSym) = $ndSym $wSym',
+          '$xSym $naSym + $xSym $ndSym = $ndSym $wSym',
+          rearranged,
+        ]);
+      }
+    } else {
+      rearrangeLines.add(baseEq);
+    }
+
+    String _formatFull(SymbolValue? v, {String? defaultUnit}) {
+      if (v == null) return '';
+      final unit = v.unit.isNotEmpty ? v.unit : (defaultUnit ?? '');
+      return unit.isNotEmpty
+          ? _formatter.formatLatexWithUnitFullPrecision(v.value, unit)
+          : _formatter.formatLatexFullPrecision(v.value);
+    }
+
+    final substitutionMap = <String, String>{};
+    context.getAll().forEach((key, val) {
+      if (key == solveFor) return;
+      substitutionMap[key] = _formatFull(val);
+    });
+    outputs.forEach((key, val) {
+      if (key == solveFor) return;
+      substitutionMap[key] = _formatFull(val);
+    });
+
+    final substitutionEq = buildSubstitutionEquation(
+      equationLatex: rearranged,
+      latexMap: _latexMap,
+      substitutionMap: substitutionMap,
+      wrapValuesWithParens: true,
+      debugLabel: 'pn_depletion_partition:${isNSide ? 'xn' : 'xp'}:$solveFor',
+    );
+
+    final fmt6 = _formatter.withSigFigs(6);
+    final fmt3 = _formatter;
+    final result = outputs[solveFor];
+    final computedLine = result != null
+        ? '$targetSym = ${fmt6.formatLatexWithUnit(result.value, result.unit)}'
+        : targetSym;
+    final roundedLine = result != null
+        ? '$targetSym = ${fmt3.formatLatexWithUnit(result.value, result.unit)}'
+        : targetSym;
+
+    final substitutionLines = <String>[
+      if (solveFor != xKey) rearranged else baseEq,
+      substitutionEq,
+    ];
+
+    return UniversalStepTemplate.build(
+      targetLabelLatex: targetSym,
+      unitConversionLines: conversionLines,
+      rearrangeLines: rearrangeLines.where((e) => e.trim().isNotEmpty).toList(),
+      substitutionLines: substitutionLines.where((e) => e.trim().isNotEmpty).toList(),
+      substitutionEvaluationLine: computedLine,
+      computedValueLine: computedLine,
+      roundedValueLine: roundedLine,
+    );
+  }
+
+  List<StepItem>? _buildPnDepletionWidthSteps({
+    required FormulaDefinition formula,
+    required String solveFor,
+    required SymbolContext context,
+    required Map<String, SymbolValue> outputs,
+    required List<String> conversionLines,
+  }) {
+    if (formula.id != 'pn_depletion_width') return null;
+
+    final wSym = _latexLabel('W');
+    final epsSym = _latexLabel('eps_s');
+    final qSym = _latexLabel('q');
+    final naSym = _latexLabel('N_A');
+    final ndSym = _latexLabel('N_D');
+    final vdepSym = _latexLabel('V_dep');
+    final targetSym = _latexLabel(solveFor);
+
+    SymbolValue? value(String key) => context.getSymbolValue(key);
+    String formatValue(double v, String unit, {int sigFigs = 6}) {
+      final expStr = v.toStringAsExponential(sigFigs - 1);
+      final parts = expStr.split('e');
+      final mantissa = parts[0];
+      final exp = int.tryParse(parts[1]) ?? 0;
+      final unitLatex = _formatter.formatLatexUnitNormalized(unit);
+      final core = exp == 0 ? mantissa : '$mantissa \\times 10^{${exp}}';
+      return unitLatex.isNotEmpty ? '$core\\,$unitLatex' : core;
+    }
+
+    final baseEq =
+        '$wSym = \\sqrt{\\dfrac{2\\,$epsSym}{$qSym}\\left(\\dfrac{$naSym+$ndSym}{$naSym\\,$ndSym}\\right)$vdepSym}';
+
+    String rearranged;
+    String substitutionTemplate;
+
+    if (solveFor == 'W') {
+      rearranged = baseEq;
+      substitutionTemplate = baseEq;
+    } else if (solveFor == 'eps_s') {
+      rearranged = '$epsSym = \\dfrac{{${wSym}}^{2} $qSym $naSym\\,$ndSym}{2 $vdepSym (${naSym}+${ndSym})}';
+      substitutionTemplate = rearranged;
+    } else if (solveFor == 'V_dep') {
+      rearranged = '$vdepSym = \\dfrac{{${wSym}}^{2} $qSym $naSym\\,$ndSym}{2 $epsSym (${naSym}+${ndSym})}';
+      substitutionTemplate = rearranged;
+    } else if (solveFor == 'N_A') {
+      rearranged =
+          '$naSym = \\dfrac{1}{\\left(\\dfrac{{${wSym}}^{2} $qSym}{2 $epsSym $vdepSym}\\right) - \\dfrac{1}{${ndSym}}}';
+      substitutionTemplate = rearranged;
+    } else if (solveFor == 'N_D') {
+      rearranged =
+          '$ndSym = \\dfrac{1}{\\left(\\dfrac{{${wSym}}^{2} $qSym}{2 $epsSym $vdepSym}\\right) - \\dfrac{1}{${naSym}}}';
+      substitutionTemplate = rearranged;
+    } else {
+      rearranged = baseEq;
+      substitutionTemplate = baseEq;
+    }
+
+    final substitutionMap = <String, String>{};
+    void addSub(String key, String defaultUnit) {
+      if (key == solveFor) return;
+      final sv = value(key);
+      if (sv == null) return;
+      final unit = sv.unit.isNotEmpty ? sv.unit : defaultUnit;
+      substitutionMap[key] = formatValue(sv.value, unit, sigFigs: 8);
+    }
+
+    addSub('W', 'm');
+    addSub('eps_s', 'F/m');
+    addSub('q', 'C');
+    addSub('N_A', 'm^{-3}');
+    addSub('N_D', 'm^{-3}');
+    addSub('V_dep', 'V');
+
+    final substituted = buildSubstitutionEquation(
+      equationLatex: substitutionTemplate,
+      latexMap: _latexMap,
+      substitutionMap: substitutionMap,
+      wrapValuesWithParens: true,
+      debugLabel: 'pn_depletion_width:$solveFor',
+    );
+
+    final result = outputs[solveFor];
+    final targetUnit = result?.unit.isNotEmpty == true ? result!.unit : _defaultUnitFor(solveFor);
+    final computedLine = result != null ? '$targetSym = ${formatValue(result.value, targetUnit)}' : targetSym;
+    final roundedLine =
+        result != null ? '$targetSym \\approx ${formatValue(result.value, targetUnit, sigFigs: 3)}' : targetSym;
+
+    final steps = <StepItem>[];
+
+    // Step 1
+    steps.add(const StepItem.text('Step 1 - Unit Conversion'));
+    final conversions = conversionLines.where((l) => l.trim().isNotEmpty).toList();
+    if (conversions.isEmpty) {
+      steps.add(const StepItem.math(r'\text{No unit conversion required.}'));
+    } else {
+      steps.addAll(conversions.map((l) => StepItem.math(l)));
+    }
+
+    // Step 2
+    steps.add(StepItem.math(r'\textbf{Step 2 - Rearrange to solve for }' + targetSym));
+    steps.add(StepItem.math(baseEq));
+    if (rearranged.isNotEmpty && rearranged != baseEq) {
+      steps.add(StepItem.math(rearranged));
+    }
+
+    // Step 3
+    steps.add(const StepItem.text('Step 3 - Substitute known values'));
+    steps.add(StepItem.math(substitutionTemplate));
+    steps.add(StepItem.math(substituted));
+    if (result != null) {
+      steps.add(StepItem.math('$targetSym = ${formatValue(result.value, targetUnit)}'));
+    }
+
+    // Step 4
+    steps.add(const StepItem.text('Step 4 - Computed Value'));
+    steps.add(StepItem.math(computedLine));
+
+    // Rounded
+    steps.add(const StepItem.text('Rounded off to 3 s.f.'));
+    steps.add(StepItem.math(roundedLine));
+
+    return steps;
   }
 
   List<String> _rearrangeLines(FormulaDefinition formula, String solveFor) {

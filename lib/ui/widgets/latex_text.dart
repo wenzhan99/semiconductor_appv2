@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 
+// Debug mode: set to true to see detailed LaTeX parsing errors
 const bool kShowLatexDebug = false;
 
 class LatexText extends StatelessWidget {
@@ -63,24 +64,25 @@ class LatexText extends StatelessWidget {
       mathStyle: displayMode ? MathStyle.display : MathStyle.text,
       textStyle: s,
       // Avoid showing raw LaTeX when parsing fails; show a friendly fallback instead.
-      onErrorFallback: (_) {
+      onErrorFallback: (error) {
         if (kShowLatexDebug) {
-          // Debug print the full failing latex string
-          debugPrint('MATH_TEX_FAIL: $singleLatex');
+          // Debug print the full failing latex string and error
+          debugPrint('═══════════════════════════════════════════════════════');
+          debugPrint('MATH_TEX_FAIL:');
+          debugPrint('LaTeX: $singleLatex');
+          debugPrint('Error: ${error.toString()}');
+          debugPrint('═══════════════════════════════════════════════════════');
           
-          // Create a truncated preview (first 120 chars)
-          final preview = singleLatex.length > 120 
-              ? '${singleLatex.substring(0, 120)}...' 
-              : singleLatex;
-          
-          return Text(
-            'Unable to render this math line: $preview',
+          // In debug mode, show expandable error with raw LaTeX
+          return _LatexErrorWidget(
+            latex: singleLatex,
+            error: error.toString(),
             style: s,
           );
         } else {
           return Text(
-            'Unable to render this math line',
-            style: s,
+            'Step contains unsupported formatting',
+            style: s?.copyWith(color: const Color(0xFFFF9800)), // Orange color for user-facing error
           );
         }
       },
@@ -101,6 +103,17 @@ class LatexText extends StatelessWidget {
       }
     }
 
+    // Remove any accidental internal tags/markers (e.g., '<math_...>' or similar)
+    applyIf(out.contains('<'), (s) => s.replaceAll(RegExp(r'<[^>]*>'), ''));
+
+    // Replace Unicode math characters that break LaTeX parsing
+    applyIf(out.contains('×'), (s) => s.replaceAll('×', r'\times'));
+    applyIf(out.contains('·'), (s) => s.replaceAll('·', r'\cdot'));
+    applyIf(out.contains('−'), (s) => s.replaceAll('−', '-')); // Unicode minus to ASCII hyphen
+    
+    // Replace non-breaking spaces with regular spaces
+    applyIf(out.contains('\u00A0'), (s) => s.replaceAll('\u00A0', ' '));
+    
     // Collapse accidental double escapes (\\frac -> \frac).
     applyIf(out.contains('\\\\'), (s) => s.replaceAll('\\\\', '\\'));
 
@@ -119,10 +132,115 @@ class LatexText extends StatelessWidget {
         (m) => '_{${m.group(1)}}',
       ),
     );
+    
+    // Remove stray alignment markers (&) that might be left from aligned environments
+    applyIf(out.contains('&'), (s) => s.replaceAll('&', ''));
+    
+    // Remove trailing \\\\ that might be left from aligned environments
+    applyIf(out.endsWith(r'\\'), (s) => s.substring(0, s.length - 2).trim());
 
     if (kShowLatexDebug && changed) {
       debugPrint('LATEX_SANITIZE: $raw -> $out');
     }
     return out;
+  }
+}
+
+/// Debug-only widget that displays LaTeX parsing errors with expandable raw content
+class _LatexErrorWidget extends StatefulWidget {
+  final String latex;
+  final String error;
+  final TextStyle? style;
+
+  const _LatexErrorWidget({
+    required this.latex,
+    required this.error,
+    this.style,
+  });
+
+  @override
+  State<_LatexErrorWidget> createState() => _LatexErrorWidgetState();
+}
+
+class _LatexErrorWidgetState extends State<_LatexErrorWidget> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        GestureDetector(
+          onTap: () => setState(() => _expanded = !_expanded),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                _expanded ? Icons.expand_less : Icons.expand_more,
+                size: 16,
+                color: Colors.red,
+              ),
+              const SizedBox(width: 4),
+              Flexible(
+                child: Text(
+                  'Unable to render this math line (tap to ${_expanded ? 'hide' : 'show'} details)',
+                  style: widget.style?.copyWith(color: Colors.red),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (_expanded) ...[
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.black12,
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(color: Colors.red.withOpacity(0.3)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Raw LaTeX:',
+                  style: widget.style?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 11,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                SelectableText(
+                  widget.latex,
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 10,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Error:',
+                  style: widget.style?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 11,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                SelectableText(
+                  widget.error,
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 10,
+                    color: Colors.red,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
   }
 }

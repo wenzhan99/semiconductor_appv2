@@ -38,6 +38,8 @@
     "E_v": "E_v",
     "E_field": "\\mathcal{E}",
     "E_max": "\\mathcal{E}_{max}",
+    "n": "n",
+    "p": "p",
     "n_0": "n_0",
     "p_0": "p_0",
     "n_i": "n_{i}",
@@ -80,6 +82,8 @@
     "C_j": "C_{j}",
     "Cj_per_area": "C'_{j}",
     "Q_dep_per_area": "Q'",
-    "eV": "\\mathrm{eV}"
+    "eV": "\\mathrm{eV}",
+    "cm": "\\mathrm{cm}",
+    "cm^-3": "\\mathrm{cm^{-3}}"
   }
 }

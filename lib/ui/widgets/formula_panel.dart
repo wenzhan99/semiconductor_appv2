@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/constants_repository.dart';
@@ -123,6 +124,7 @@ class _FormulaPanelState extends State<FormulaPanel> {
         ],
         if (_controller.lastSteps != null) ...[
           const SizedBox(height: 12),
+          // StepsCard is the canonical widget for ALL step-by-step rendering
           StepsCard(
             controller: _controller,
             latexMap: latexMap,
@@ -136,10 +138,27 @@ class _FormulaPanelState extends State<FormulaPanel> {
     _controller = FormulaPanelController(formula: widget.formula, panel: widget.panel);
     _controller.addListener(_handleControllerChanged);
     _controller.initControllers(context);
-    unawaited(_controller.initSolver(context));
+    // Defer solver init so any notifications don't fire during the first build.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(_controller.initSolver(context));
+    });
   }
 
   void _handleControllerChanged() {
-    if (mounted) setState(() {});
+    _safeSetState(() {});
+  }
+
+  void _safeSetState(VoidCallback fn) {
+    if (!mounted) return;
+    final phase = SchedulerBinding.instance.schedulerPhase;
+    // Avoid calling setState during build/layout phases.
+    if (phase == SchedulerPhase.persistentCallbacks || phase == SchedulerPhase.postFrameCallbacks) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(fn);
+      });
+    } else {
+      setState(fn);
+    }
   }
 }

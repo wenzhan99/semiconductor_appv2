@@ -512,3 +512,9 @@ await appState.setThemeMode(ThemeMode.dark)  // Set and persist
 **Status**: ✅ COMPLETE - Ready for testing in Chrome (terminal 4)
 
 
+
+
+
+
+
+

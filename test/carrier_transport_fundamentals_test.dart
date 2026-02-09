@@ -199,6 +199,291 @@ void main() {
       expect(step3[1].contains(r'\mu_{n}'), isFalse);
       expect(step3[2], contains(r'T ='));
     });
+
+    test('Electron drift current density: Step 3 renders without aligned environment', () {
+      final result = solver.solve(
+        formulaId: 'ct_f3_electron_drift_current_density',
+        solveFor: 'J_n_drift',
+        workspaceGlobals: const {},
+        panelOverrides: const {
+          'n': SymbolValue(value: 1e21, unit: 'm^-3', source: SymbolSource.user),
+          'mu_n': SymbolValue(value: 0.135, unit: 'm^2/(V*s)', source: SymbolSource.user),
+          'E_field': SymbolValue(value: 1e3, unit: 'V/m', source: SymbolSource.user),
+        },
+        latexMap: latexMap,
+      );
+
+      expect(result.status, PanelStatus.solved);
+      expect(result.outputs['J_n_drift']!.value, closeTo(21629.43, 1));
+
+      final step3 = _step3Math(result.stepsLatex);
+      
+      // Step 3 should have individual lines, not aligned environment
+      expect(step3.length, greaterThanOrEqualTo(2));
+      
+      // Verify no line contains \begin{aligned} or \end{aligned}
+      for (final line in step3) {
+        expect(line.contains(r'\begin{aligned}'), isFalse, 
+          reason: 'Step 3 should not contain aligned environment: $line');
+        expect(line.contains(r'\end{aligned}'), isFalse,
+          reason: 'Step 3 should not contain aligned environment: $line');
+      }
+      
+      // Verify substitution line contains all factors
+      final allStep3 = step3.join(' ');
+      expect(allStep3.contains(r'1.60218'), isTrue,
+        reason: 'Step 3 should contain elementary charge substitution');
+      expect(allStep3.contains(r'10^{21}'), isTrue,
+        reason: 'Step 3 should contain electron concentration substitution');
+      expect(allStep3.contains(r'0.135') || allStep3.contains(r'1.35000 \times 10^{-1}'), isTrue,
+        reason: 'Step 3 should contain mobility substitution');
+      expect(allStep3.contains(r'10^{3}'), isTrue,
+        reason: 'Step 3 should contain electric field substitution');
+    });
+
+    test('Solve for mobility (μ_n): Step 2 shows rearrangement, Step 3 uses rearranged form', () {
+      final result = solver.solve(
+        formulaId: 'ct_f3_electron_drift_current_density',
+        solveFor: 'mu_n',
+        workspaceGlobals: const {},
+        panelOverrides: const {
+          'J_n_drift': SymbolValue(value: 21629.43, unit: 'A/m^2', source: SymbolSource.user),
+          'n': SymbolValue(value: 1e21, unit: 'm^-3', source: SymbolSource.user),
+          'E_field': SymbolValue(value: 1e3, unit: 'V/m', source: SymbolSource.user),
+        },
+        latexMap: latexMap,
+      );
+
+      expect(result.status, PanelStatus.solved);
+      expect(result.outputs['mu_n']!.value, closeTo(0.135, 1e-6));
+
+      // Step 2: Verify rearrangement is shown
+      final step2 = _step2Math(result.stepsLatex);
+      expect(step2.length, greaterThanOrEqualTo(2),
+        reason: 'Step 2 should show rearrangement when solving for μ_n');
+      expect(step2.any((line) => line.contains(r'\dfrac') && line.contains(r'\mu')), isTrue,
+        reason: 'Step 2 should show μ = J/(q n E) rearrangement');
+
+      // Step 3: Verify substitution uses rearranged form (fraction with J in numerator)
+      final step3 = _step3Math(result.stepsLatex);
+      expect(step3.length, greaterThanOrEqualTo(2));
+      
+      // First line should be the rearranged symbolic equation
+      expect(step3[0].contains(r'\mu'), isTrue);
+      expect(step3[0].contains(r'\dfrac'), isTrue);
+      
+      // Second line should substitute values into the fraction form
+      expect(step3[1].contains(r'\mu'), isTrue);
+      expect(step3[1].contains(r'\dfrac'), isTrue);
+      expect(step3[1].contains(r'2.16') || step3[1].contains(r'21.6'), isTrue,
+        reason: 'Step 3 should substitute J value in numerator');
+    });
+
+    test('Solve for carrier concentration (n): Step 2 shows rearrangement', () {
+      final result = solver.solve(
+        formulaId: 'ct_f3_electron_drift_current_density',
+        solveFor: 'n',
+        workspaceGlobals: const {},
+        panelOverrides: const {
+          'J_n_drift': SymbolValue(value: 21629.43, unit: 'A/m^2', source: SymbolSource.user),
+          'mu_n': SymbolValue(value: 0.135, unit: 'm^2/(V*s)', source: SymbolSource.user),
+          'E_field': SymbolValue(value: 1e3, unit: 'V/m', source: SymbolSource.user),
+        },
+        latexMap: latexMap,
+      );
+
+      expect(result.status, PanelStatus.solved);
+      expect(result.outputs['n']!.value, closeTo(1e21, 1e19));
+
+      final step2 = _step2Math(result.stepsLatex);
+      expect(step2.length, greaterThanOrEqualTo(2));
+      expect(step2.any((line) => line.contains(r'\dfrac') && line.contains('n')), isTrue,
+        reason: 'Step 2 should show n = J/(q μ E) rearrangement');
+
+      final step3 = _step3Math(result.stepsLatex);
+      expect(step3.length, greaterThanOrEqualTo(2));
+      expect(step3[0].contains(r'\dfrac'), isTrue);
+      expect(step3[1].contains(r'\dfrac'), isTrue);
+    });
+
+    test('Solve for electric field (E): Step 2 shows rearrangement', () {
+      final result = solver.solve(
+        formulaId: 'ct_f3_electron_drift_current_density',
+        solveFor: 'E_field',
+        workspaceGlobals: const {},
+        panelOverrides: const {
+          'J_n_drift': SymbolValue(value: 21629.43, unit: 'A/m^2', source: SymbolSource.user),
+          'n': SymbolValue(value: 1e21, unit: 'm^-3', source: SymbolSource.user),
+          'mu_n': SymbolValue(value: 0.135, unit: 'm^2/(V*s)', source: SymbolSource.user),
+        },
+        latexMap: latexMap,
+      );
+
+      expect(result.status, PanelStatus.solved);
+      expect(result.outputs['E_field']!.value, closeTo(1e3, 1));
+
+      final step2 = _step2Math(result.stepsLatex);
+      expect(step2.length, greaterThanOrEqualTo(2));
+      expect(step2.any((line) => line.contains(r'\dfrac') && line.contains(r'\mathcal{E}')), isTrue,
+        reason: 'Step 2 should show E = J/(q n μ) rearrangement');
+
+      final step3 = _step3Math(result.stepsLatex);
+      expect(step3.length, greaterThanOrEqualTo(2));
+      expect(step3[0].contains(r'\dfrac'), isTrue);
+      expect(step3[1].contains(r'\dfrac'), isTrue);
+    });
+
+    test('Drift velocity: solve for μ_n with rearranged Step 3', () {
+      final result = solver.solve(
+        formulaId: 'ct_f1_electron_drift_velocity',
+        solveFor: 'mu_n',
+        workspaceGlobals: const {},
+        panelOverrides: const {
+          'v_dn': SymbolValue(value: -150.0, unit: 'm/s', source: SymbolSource.user),
+          'E_field': SymbolValue(value: 1000.0, unit: 'V/m', source: SymbolSource.user),
+        },
+        latexMap: latexMap,
+      );
+
+      expect(result.status, PanelStatus.solved);
+      expect(result.outputs['mu_n']!.value, closeTo(0.15, 1e-12));
+
+      // Step 2: Should show rearrangement μ_n = -v_dn/E
+      final step2 = _step2Math(result.stepsLatex);
+      expect(step2.length, greaterThanOrEqualTo(2));
+      expect(step2.any((line) => line.contains(r'\mu') && line.contains(r'\dfrac')), isTrue,
+        reason: 'Step 2 should show μ = -v/E rearrangement');
+
+      // Step 3: Should substitute into rearranged form (fraction)
+      final step3 = _step3Math(result.stepsLatex);
+      expect(step3.length, greaterThanOrEqualTo(2));
+      expect(step3[0].contains(r'\dfrac'), isTrue,
+        reason: 'Step 3 first line should be rearranged symbolic equation');
+      expect(step3[1].contains(r'\dfrac'), isTrue,
+        reason: 'Step 3 second line should substitute into fraction form');
+      expect(step3[1].contains(r'150') || step3[1].contains(r'1.50'), isTrue,
+        reason: 'Step 3 should substitute velocity value');
+    });
+
+    test('Drift velocity: solve for E_field with rearranged Step 3', () {
+      final result = solver.solve(
+        formulaId: 'ct_f1_electron_drift_velocity',
+        solveFor: 'E_field',
+        workspaceGlobals: const {},
+        panelOverrides: const {
+          'v_dn': SymbolValue(value: -150.0, unit: 'm/s', source: SymbolSource.user),
+          'mu_n': SymbolValue(value: 0.15, unit: 'm^2/(V*s)', source: SymbolSource.user),
+        },
+        latexMap: latexMap,
+      );
+
+      expect(result.status, PanelStatus.solved);
+      expect(result.outputs['E_field']!.value, closeTo(1000.0, 1e-9));
+
+      final step2 = _step2Math(result.stepsLatex);
+      expect(step2.length, greaterThanOrEqualTo(2));
+      expect(step2.any((line) => line.contains(r'\mathcal{E}') && line.contains(r'\dfrac')), isTrue);
+
+      final step3 = _step3Math(result.stepsLatex);
+      expect(step3.length, greaterThanOrEqualTo(2));
+      expect(step3[0].contains(r'\dfrac'), isTrue);
+      expect(step3[1].contains(r'\dfrac'), isTrue);
+    });
+
+    test('Hole drift velocity: solve for μ_p (no negative sign)', () {
+      final result = solver.solve(
+        formulaId: 'ct_f2_hole_drift_velocity',
+        solveFor: 'mu_p',
+        workspaceGlobals: const {},
+        panelOverrides: const {
+          'v_dp': SymbolValue(value: 50.0, unit: 'm/s', source: SymbolSource.user),
+          'E_field': SymbolValue(value: 1000.0, unit: 'V/m', source: SymbolSource.user),
+        },
+        latexMap: latexMap,
+      );
+
+      expect(result.status, PanelStatus.solved);
+      expect(result.outputs['mu_p']!.value, closeTo(0.05, 1e-12));
+
+      final step2 = _step2Math(result.stepsLatex);
+      expect(step2.any((line) => line.contains(r'\mu') && line.contains(r'\dfrac')), isTrue);
+
+      final step3 = _step3Math(result.stepsLatex);
+      expect(step3.length, greaterThanOrEqualTo(2));
+      expect(step3[0].contains(r'\dfrac'), isTrue);
+      expect(step3[1].contains(r'\dfrac'), isTrue);
+      // Hole velocity has no negative sign
+      expect(step3[0].contains('-'), isFalse);
+    });
+
+    test('Diffusion current: solve for D_n with rearranged Step 3', () {
+      final result = solver.solve(
+        formulaId: 'ct_f5_electron_diffusion_current_density',
+        solveFor: 'D_n',
+        workspaceGlobals: const {},
+        panelOverrides: const {
+          'J_n_diff': SymbolValue(value: 0.1602, unit: 'A/m^2', source: SymbolSource.user),
+          'dn_dx': SymbolValue(value: 1e20, unit: 'm^-4', source: SymbolSource.user),
+        },
+        latexMap: latexMap,
+      );
+
+      expect(result.status, PanelStatus.solved);
+      expect(result.outputs['D_n']!.value, closeTo(0.01, 1e-5));
+
+      final step2 = _step2Math(result.stepsLatex);
+      expect(step2.any((line) => line.contains('D') && line.contains(r'\dfrac')), isTrue,
+        reason: 'Step 2 should show D = J/(q * gradient) rearrangement');
+
+      final step3 = _step3Math(result.stepsLatex);
+      expect(step3.length, greaterThanOrEqualTo(2));
+      expect(step3[0].contains(r'\dfrac'), isTrue);
+      expect(step3[1].contains(r'\dfrac'), isTrue);
+    });
+
+    test('Total electron current: solve for dn/dx with clear drift/diffusion separation', () {
+      final result = solver.solve(
+        formulaId: 'ct_total_electron_current_density',
+        solveFor: 'dn_dx',
+        workspaceGlobals: const {},
+        panelOverrides: const {
+          'J_n': SymbolValue(value: 100.0, unit: 'A/m^2', source: SymbolSource.user),
+          'n': SymbolValue(value: 1e21, unit: 'm^-3', source: SymbolSource.user),
+          'mu_n': SymbolValue(value: 0.14, unit: 'm^2/(V*s)', source: SymbolSource.user),
+          'E_field': SymbolValue(value: 1000.0, unit: 'V/m', source: SymbolSource.user),
+          'D_n': SymbolValue(value: 0.0036, unit: 'm^2/s', source: SymbolSource.user),
+        },
+        latexMap: latexMap,
+      );
+
+      expect(result.status, PanelStatus.solved);
+      expect(result.outputs['dn_dx'], isNotNull);
+
+      final steps = result.stepsLatex;
+      expect(steps, isNotNull);
+
+      // Check that step structure includes the 3-part narrative
+      final allItems = steps!.workingItems;
+      final textItems = allItems.where((i) => i.type == StepItemType.text).map((i) => i.value).toList();
+      
+      // Should have section for drift component
+      expect(textItems.any((t) => t.contains('3.1') && t.contains('Drift')), isTrue,
+        reason: 'Step 3 should have "3.1 Drift component" section');
+      
+      // Should have section for diffusion component with subtraction
+      expect(textItems.any((t) => t.contains('3.2') && t.contains('Diffusion')), isTrue,
+        reason: 'Step 3 should have "3.2 Diffusion component" section');
+      
+      // Should have section for solving gradient
+      expect(textItems.any((t) => t.contains('3.3') && t.contains('gradient')), isTrue,
+        reason: 'Step 3 should have "3.3 Solve gradient" section');
+
+      final mathItems = allItems.where((i) => i.type == StepItemType.math).map((i) => i.latex).toList();
+      
+      // Should have the critical subtraction line: J_diff = J_n - J_drift
+      expect(mathItems.any((m) => m.contains(r'J_{n,\mathrm{diff}}') && m.contains(r'J_{n}') && m.contains(r'J_{n,\mathrm{drift}}') && m.contains('-')), isTrue,
+        reason: 'Step 3 should show J_diff = J_total - J_drift');
+    });
   });
 }
 

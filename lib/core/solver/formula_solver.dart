@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:equatable/equatable.dart';
+import 'package:flutter/foundation.dart';
 
 import '../constants/constants_repository.dart';
 import '../constants/formula_constants_resolver.dart';
@@ -63,6 +64,11 @@ class FormulaSolver {
     // Get formula definition
     final formula = _formulaRepo.getFormulaById(formulaId);
     if (formula == null) {
+      _logSolveFailure(
+        formulaId: formulaId,
+        solveFor: solveFor,
+        reason: 'formula_not_found',
+      );
       return SolveResult(
         status: PanelStatus.error,
         outputs: const {},
@@ -73,6 +79,12 @@ class FormulaSolver {
 
     // Check if formula can be solved for the target
     if (formula.solvableFor == null || !formula.solvableFor!.contains(solveFor)) {
+      _logSolveFailure(
+        formulaId: formulaId,
+        solveFor: solveFor,
+        reason: 'solveFor_not_supported',
+        contextKeys: panelOverrides.keys,
+      );
       return SolveResult(
         status: PanelStatus.error,
         outputs: const {},
@@ -84,6 +96,12 @@ class FormulaSolver {
     // Get compute expression
     final computeExpr = formula.compute?[solveFor];
     if (computeExpr == null) {
+      _logSolveFailure(
+        formulaId: formulaId,
+        solveFor: solveFor,
+        reason: 'compute_expr_missing',
+        contextKeys: panelOverrides.keys,
+      );
       return SolveResult(
         status: PanelStatus.error,
         outputs: const {},
@@ -118,6 +136,14 @@ class FormulaSolver {
     }
 
     if (missingVars.isNotEmpty) {
+      _logSolveFailure(
+        formulaId: formula.id,
+        solveFor: solveFor,
+        reason: 'missing_inputs',
+        requiredVars: requiredVars,
+        contextKeys: context.getAll().keys,
+        computeExpr: computeExpr,
+      );
       return SolveResult(
         status: PanelStatus.needsInputs,
         outputs: const {},
@@ -133,6 +159,14 @@ class FormulaSolver {
       context: context,
     );
     if (constraintError != null) {
+      _logSolveFailure(
+        formulaId: formula.id,
+        solveFor: solveFor,
+        reason: 'constraint_violation',
+        requiredVars: requiredVars,
+        contextKeys: context.getAll().keys,
+        computeExpr: computeExpr,
+      );
       return SolveResult(
         status: PanelStatus.error,
         outputs: const {},
@@ -148,6 +182,14 @@ class FormulaSolver {
       context: context,
     );
     if (customError != null) {
+      _logSolveFailure(
+        formulaId: formula.id,
+        solveFor: solveFor,
+        reason: 'custom_constraint_violation',
+        requiredVars: requiredVars,
+        contextKeys: context.getAll().keys,
+        computeExpr: computeExpr,
+      );
       return SolveResult(
         status: PanelStatus.error,
         outputs: const {},
@@ -177,6 +219,14 @@ class FormulaSolver {
     } else {
       final evaluationResult = _evaluator.evaluate(computeExpr, context);
       if (evaluationResult.error != null) {
+        _logSolveFailure(
+          formulaId: formula.id,
+          solveFor: solveFor,
+          reason: 'evaluation_error:${_cleanEvalError(evaluationResult.error!)}',
+          requiredVars: requiredVars,
+          contextKeys: context.getAll().keys,
+          computeExpr: computeExpr,
+        );
         return SolveResult(
           status: PanelStatus.error,
           outputs: const {},
@@ -194,6 +244,14 @@ class FormulaSolver {
       value: computedValue,
     );
     if (outputConstraintError != null) {
+      _logSolveFailure(
+        formulaId: formula.id,
+        solveFor: solveFor,
+        reason: 'output_constraint_violation',
+        requiredVars: requiredVars,
+        contextKeys: context.getAll().keys,
+        computeExpr: computeExpr,
+      );
       return SolveResult(
         status: PanelStatus.error,
         outputs: const {},
@@ -264,7 +322,8 @@ class FormulaSolver {
         conversions: conversionLog,
       );
 
-      final primaryEnergyUnit = panelOverrides['__meta__E_unit']?.unit ?? 'J';
+      final targetEnergyUnit = panelOverrides['__meta__unit_$solveFor']?.unit;
+      final primaryEnergyUnit = targetEnergyUnit ?? panelOverrides['__meta__E_unit']?.unit ?? 'J';
 
       final canonicalWorking = builder.tryBuildModuleSteps(
         formula,
@@ -506,6 +565,25 @@ class FormulaSolver {
     required String solveFor,
     required SymbolContext context,
   }) {
+    // PN depletion partition (x_n/x_p) domain: require 0 < x < W when solving for dopants
+    final isDepletionPartition =
+        formula.id == 'pn_depletion_width_xn' || formula.id == 'pn_depletion_width_xp';
+    if (isDepletionPartition && (solveFor == 'N_A' || solveFor == 'N_D')) {
+      final xKey = formula.id == 'pn_depletion_width_xn' ? 'x_n' : 'x_p';
+      final x = context.getValue(xKey);
+      final w = context.getValue('W');
+      if (x != null && w != null) {
+        final scale = [w.abs(), x.abs(), 1.0].reduce((a, b) => a > b ? a : b);
+        final tol = 1e-15 * scale;
+        if ((w - x).abs() <= tol) {
+          return 'Cannot solve: W - $xKey = 0 (division by zero). Choose W != $xKey.';
+        }
+        if (x <= 0 || x >= w) {
+          return 'No physical solution: require 0 < $xKey < W to keep N_A, N_D positive.';
+        }
+      }
+    }
+
     // Equilibrium majority carrier (p/n-type, compensated): guard against division by zero
     // and obviously non-physical negative inputs when solving for dopants.
     if ((formula.id == 'doped_p_type_majority' || formula.id == 'doped_n_type_majority') &&
@@ -628,6 +706,20 @@ class FormulaSolver {
       msg = msg.replaceFirst('StateError: ', '');
       return _CustomSolveResult(error: msg);
     }
+  }
+
+  void _logSolveFailure({
+    required String formulaId,
+    required String solveFor,
+    required String reason,
+    Iterable<String>? requiredVars,
+    Iterable<String>? contextKeys,
+    String? computeExpr,
+  }) {
+    debugPrint('[solver] formula=$formulaId target=$solveFor reason=$reason '
+        'required=[${requiredVars?.join(", ") ?? ''}] '
+        'context=[${contextKeys?.join(", ") ?? ''}] '
+        'compute="$computeExpr"');
   }
 }
 

@@ -1,6 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/constants/constants_loader.dart';
+import '../../core/constants/constants_repository.dart';
+import '../../core/formulas/formula_repository.dart';
+import '../../dev/step3_audit_runner.dart';
 import '../../services/app_state.dart';
 import '../../services/storage_service.dart';
 
@@ -33,6 +38,10 @@ class _SettingsPageState extends State<SettingsPage> {
                 // Data Management
                 _buildDataManagementCard(context),
                 const SizedBox(height: 16),
+                if (kDebugMode) ...[
+                  _buildDeveloperCard(context),
+                  const SizedBox(height: 16),
+                ],
                 // About
                 _buildAboutCard(context),
               ],
@@ -55,7 +64,6 @@ class _SettingsPageState extends State<SettingsPage> {
         themeLabel = 'Dark';
         break;
       case ThemeMode.system:
-      default:
         themeLabel = 'Auto (Follow system)';
         break;
     }
@@ -88,6 +96,23 @@ class _SettingsPageState extends State<SettingsPage> {
               onTap: () {
                 _showFontSizeDialog(context);
               },
+            ),
+            SwitchListTile(
+              secondary: const Icon(Icons.animation),
+              title: const Text('Animate step-by-step working'),
+              subtitle: const Text('Watch solutions unfold line-by-line'),
+              value: appState.animateSteps,
+              onChanged: (value) {
+                debugPrint('🎬 Settings toggle changed to: $value');
+                appState.setAnimateSteps(value);
+              },
+            ),
+            SwitchListTile(
+              secondary: const Icon(Icons.play_circle_fill),
+              title: const Text('Auto-play visualizations'),
+              subtitle: const Text('Start graph animations automatically (respects reduced motion)'),
+              value: appState.autoPlayVisualizations,
+              onChanged: (value) => appState.setAutoPlayVisualizations(value),
             ),
           ],
         ),
@@ -315,7 +340,125 @@ class _SettingsPageState extends State<SettingsPage> {
       const SnackBar(content: Text('Issue reporting coming soon')),
     );
   }
+
+  Widget _buildDeveloperCard(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Developer',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 12),
+            ListTile(
+              leading: const Icon(Icons.rule),
+              title: const Text('Audit Step 3 (PN Junction)'),
+              subtitle: const Text('Runs substitution audit across all PN formulas'),
+              trailing: const Icon(Icons.play_arrow),
+              onTap: () => _runPnAudit(context),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _runPnAudit(BuildContext context) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final formulas = FormulaRepository();
+      await formulas.preloadAll();
+      final constants = ConstantsRepository();
+      await constants.load();
+      final latexMap = await ConstantsLoader.loadLatexSymbols();
+
+      final runner = Step3AuditRunner(
+        formulas: formulas,
+        constants: constants,
+        latexMap: latexMap,
+      );
+
+      final results = await runner.runPnAudit();
+      if (!context.mounted) return;
+      Navigator.of(context).pop(); // close spinner
+      _showAuditReport(context, results);
+    } catch (e) {
+      if (!context.mounted) return;
+      Navigator.of(context).pop(); // close spinner
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Audit failed: $e')),
+      );
+    }
+  }
+
+  void _showAuditReport(BuildContext context, List<Step3AuditResult> results) {
+    final passCount = results.where((r) => r.passed).length;
+    final failCount = results.length - passCount;    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => DraggableScrollableSheet(
+        expand: false,
+        builder: (context, controller) {
+          return Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Step 3 Audit (PN Junction)',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'PASS: $passCount   FAIL: $failCount   Total: ${results.length}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: ListView.builder(
+                    controller: controller,
+                    itemCount: results.length,
+                    itemBuilder: (context, index) {
+                      final r = results[index];
+                      final color = r.passed ? Colors.green : Colors.red;
+                      return Card(
+                        margin: const EdgeInsets.symmetric(vertical: 6),
+                        child: ListTile(
+                          title: Text('${r.formulaName} • ${r.solveFor}'),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                r.passed
+                                    ? 'PASS'
+                                    : 'Missing: ${r.missingSymbols.join(", ")}',
+                                style: TextStyle(color: color),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                r.substitutionPreview,
+                                style: const TextStyle(fontFamily: 'monospace'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
 }
-
-
-

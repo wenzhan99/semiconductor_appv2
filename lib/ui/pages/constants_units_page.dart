@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../../core/constants/constants_repository.dart';
 import '../../core/constants/latex_symbols.dart';
@@ -33,13 +34,11 @@ class _ConstantsUnitsPageState extends State<ConstantsUnitsPage> {
     final constantsTable = await ConstantsLoader.loadConstants();
     final latexMap = await ConstantsLoader.loadLatexSymbols();
 
-    if (mounted) {
-      setState(() {
-        _constantsTable = constantsTable;
-        _latexMap = latexMap;
-        _isLoading = false;
-      });
-    }
+    _safeSetState(() {
+      _constantsTable = constantsTable;
+      _latexMap = latexMap;
+      _isLoading = false;
+    });
   }
 
   @override
@@ -94,15 +93,17 @@ class _ConstantsUnitsPageState extends State<ConstantsUnitsPage> {
               ['Symbol', 'Name', 'Value', 'Units', 'Note'],
               constants.map((c) {
                 final symbol = _latexMap?.latexOf(c.symbol) ?? c.symbol;
+                final valueLatex = _formatValueLatex(c.value);
+                final unitLatex = _formatUnitLatex(c.unit);
                 return [
                   symbol,
                   c.name,
-                  _formatValue(c.value),
-                  c.unit,
+                  valueLatex,
+                  unitLatex,
                   c.note ?? '—',
                 ];
               }).toList(),
-              latexColumns: const {0},
+              latexColumns: const {0, 2, 3},
             ),
           ],
         ),
@@ -271,9 +272,30 @@ class _ConstantsUnitsPageState extends State<ConstantsUnitsPage> {
     );
   }
 
+  String _formatValueLatex(double value) {
+    return _formatter.formatScientificLatex(value);
+  }
+
+  String _formatUnitLatex(String unit) {
+    return _formatter.formatLatexUnitNormalized(unit);
+  }
+
   String _formatValue(double value) {
-    // Use NumberFormatter for consistent LaTeX-style formatting
+    // Plain text fallback for contexts that do not render LaTeX
     return _formatter.formatPlainText(value);
+  }
+
+  void _safeSetState(VoidCallback fn) {
+    if (!mounted) return;
+    final phase = SchedulerBinding.instance.schedulerPhase;
+    // Avoid setState during build/layout; push to next frame if needed.
+    if (phase == SchedulerPhase.persistentCallbacks || phase == SchedulerPhase.postFrameCallbacks) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(fn);
+      });
+    } else {
+      setState(fn);
+    }
   }
 }
 
