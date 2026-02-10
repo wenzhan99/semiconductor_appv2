@@ -20,7 +20,7 @@ class ParabolicGraphPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Parabolic Band Dispersion (Eâ€“k)')),
+      appBar: AppBar(title: const Text('Parabolic Band Dispersion (E–k)')),
       body: const ParabolicGraphView(),
     );
   }
@@ -57,9 +57,20 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
   static const double _m0 = 9.1093837015e-31; // kg
   static const double _q = 1.602176634e-19; // C
 
-  _PointRef? _selected;
   final List<_PointRef> _pins = [];
   _TooltipData? _hoveredTooltip;
+  static const List<Color> _pinPalette = [
+    Color(0xFF1E88E5),
+    Color(0xFFD81B60),
+    Color(0xFF43A047),
+    Color(0xFF8E24AA),
+    Color(0xFFFB8C00),
+    Color(0xFF00897B),
+    Color(0xFF5E35B1),
+    Color(0xFF6D4C41),
+    Color(0xFF3949AB),
+    Color(0xFF546E7A),
+  ];
 
   late final Future<LatexSymbolMap> _latexSymbols;
   final NumberFormatter _latexFormatter =
@@ -277,6 +288,10 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
     final evLineColor = valenceColor.withValues(alpha: 0.35);
 
     final lineBars = <LineChartBarData>[];
+    final resolvedPins = _pins
+        .map((p) => _resolvePoint(p, ecEv))
+        .whereType<_GraphPointWithBand>()
+        .toList();
     for (final s in series) {
       final color = s.id == 'Conduction' ? conductionColor : valenceColor;
       lineBars.add(
@@ -400,53 +415,26 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                               }).toList();
                             },
                             touchCallback: (event, response) {
-                              if (response == null ||
-                                  response.lineBarSpots == null ||
-                                  response.lineBarSpots!.isEmpty) {
-                                setState(() {
-                                  _hoveredTooltip = null;
-                                });
+                              final local = event.localPosition;
+                              if (local == null) {
+                                setState(() => _hoveredTooltip = null);
                                 return;
                               }
-                              final spots = response.lineBarSpots!;
-                              final refX = spots.first.x;
-                              final refY = spots.first.y;
-                              final best = spots.reduce((a, b) {
-                                final da =
-                                    (a.x - refX).abs() + (a.y - refY).abs();
-                                final db =
-                                    (b.x - refX).abs() + (b.y - refY).abs();
-                                return da < db ? a : b;
-                              });
-                              final meta = series[best.barIndex];
-                              final nearest =
-                                  _nearestPoint(meta.points, best.x);
-                              if (nearest != null) {
-                                final hoveredPoint = _GraphPointWithBand(
-                                  band: meta.id,
-                                  k: nearest.k,
-                                  kScaled: nearest.kScaled,
-                                  deltaE: nearest.deltaE,
-                                  eAbs: nearest.eAbs,
-                                  velocity: nearest.velocity,
-                                  yDisplay: nearest.yDisplay,
-                                );
-                                WidgetsBinding.instance
-                                    .addPostFrameCallback((_) {
-                                  if (!mounted) return;
-                                  setState(() {
-                                    if (_isTapEvent(event)) {
-                                      _selected = _PointRef(
-                                          band: meta.id, k: nearest.k);
-                                    }
-                                    _hoveredTooltip = _TooltipData(
-                                      point: hoveredPoint,
-                                      position:
-                                          event.localPosition ?? Offset.zero,
-                                    );
-                                  });
-                                });
+                              final nearest = _nearestPointGlobal(
+                                  local, constraints, minY, maxY, series);
+                              if (nearest == null) {
+                                setState(() => _hoveredTooltip = null);
+                                return;
                               }
+                              WidgetsBinding.instance.addPostFrameCallback((_) {
+                                if (!mounted) return;
+                                setState(() {
+                                  _hoveredTooltip = _TooltipData(
+                                    point: nearest,
+                                    position: local,
+                                  );
+                                });
+                              });
                             },
                             touchTooltipData: LineTouchTooltipData(
                               getTooltipItems: (_) => const [],
@@ -481,6 +469,21 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                         ),
                         key: ValueKey(
                           'para-${_eg.toStringAsFixed(3)}-${_mnEff.toStringAsFixed(3)}-${_mpEff.toStringAsFixed(3)}-${_kMaxScaled.toStringAsFixed(3)}-$_plotMode-${_showConduction}-${_showValence}-$_energyReference-$_materialPreset',
+                        ),
+                      ),
+                      IgnorePointer(
+                        child: CustomPaint(
+                          painter: _MarkersPainter(
+                            pins: resolvedPins,
+                            hoveredPoint: _hoveredTooltip?.point, // FIX R3: Add hovered point
+                            minX: 0,
+                            maxX: _kMaxScaled,
+                            minY: minY,
+                            maxY: maxY,
+                            conductionColor: conductionColor,
+                            valenceColor: valenceColor,
+                            palette: _pinPalette,
+                          ),
                         ),
                       ),
                       if (_hoveredTooltip != null)
@@ -577,8 +580,7 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
   }
 
   Widget _buildPointInspector(BuildContext context, LatexSymbolMap latexMap) {
-    final ecEv = _deriveEcEv();
-    final resolved = _selected != null ? _resolvePoint(_selected!, ecEv) : null;
+    final activePoint = _hoveredTooltip?.point; // Get the actual hovered/selected band
 
     return Card(
       elevation: 1,
@@ -589,46 +591,38 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
             style: TextStyle(fontWeight: FontWeight.w700)),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         children: [
-          if (_selected == null)
-            const Text('Tap a curve to inspect k, ΔE, E, and v_g(k).')
-          else if (resolved == null)
-            const Text('Selected point is outside the current axis range.')
+          if (activePoint == null)
+            const Text(
+                'Hover or click a curve to inspect. Double-click to pin.')
           else ...[
-            Row(
-              children: [
-                Text('Band: ${resolved.band}',
-                    style: const TextStyle(fontWeight: FontWeight.w600)),
-                const Spacer(),
-                TextButton.icon(
-                  onPressed: () => setState(() {
-                    _selected = null;
-                    _hoveredTooltip = null;
-                  }),
-                  icon: const Icon(Icons.clear),
-                  label: const Text('Clear'),
-                ),
-              ],
+            // FIX R2: Header with LaTeX rendering (not Text with raw LaTeX)
+            LatexText(
+              'k = ${_formatKLatex(activePoint.k)}',
+              style: const TextStyle(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 6),
-            _detailRow(labelLatex: r'k', valueLatex: _formatKLatex(resolved.k)),
+            // FIX R4: Show ONLY the hovered/selected band (single band only)
+            Text('${activePoint.band} Band',
+                style: const TextStyle(fontWeight: FontWeight.w700)),
+            const SizedBox(height: 4),
             _detailRow(
                 labelLatex: r'k_{\text{axis}}',
-                valueLatex: _formatKAxisLatex(resolved.kScaled)),
+                valueLatex: _formatKAxisLatex(activePoint.kScaled)),
             _detailRow(
-                labelLatex: r'\Delta E(k)',
-                valueLatex: _formatEnergyLatex(resolved.deltaE)),
+                labelLatex: activePoint.band == 'Conduction' ? r'\Delta E_c(k)' : r'\Delta E_v(k)',
+                valueLatex: _formatEnergyLatex(activePoint.deltaE)),
             if (_plotMode == PlotMode.absolute)
               _detailRow(
-                  labelLatex: r'E(k)',
-                  valueLatex: _formatEnergyLatex(resolved.eAbs)),
+                  labelLatex: activePoint.band == 'Conduction' ? r'E_c(k)' : r'E_v(k)',
+                  valueLatex: _formatEnergyLatex(activePoint.eAbs)),
             _detailRow(
-                labelLatex: r'v_g(k)',
-                valueLatex: _formatVelocityLatex(resolved.velocity)),
+                labelLatex: activePoint.band == 'Conduction' ? r'v_{g,c}(k)' : r'v_{g,v}(k)',
+                valueLatex: _formatVelocityLatex(activePoint.velocity)),
             const SizedBox(height: 8),
             Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                'Click a point to select. Double-click to pin/unpin.',
+                'Double-click to pin. Pins shown below in "Insights & Pins".',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ),
@@ -781,8 +775,7 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
 
   Widget _buildInsights(BuildContext context) {
     final ecEv = _deriveEcEv();
-    final resolvedSelected =
-        _selected != null ? _resolvePoint(_selected!, ecEv) : null;
+    final resolvedSelected = null;
     final resolvedPins = _pins
         .map((p) => _resolvePoint(p, ecEv))
         .whereType<_GraphPointWithBand>()
@@ -865,6 +858,16 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                     children: [
                       Row(
                         children: [
+                          Container(
+                            width: 12,
+                            height: 12,
+                            margin: const EdgeInsets.only(right: 6),
+                            decoration: BoxDecoration(
+                              color: _pinPalette[
+                                  (p.colorIndex ?? 0) % _pinPalette.length],
+                              shape: BoxShape.circle,
+                            ),
+                          ),
                           Text('${p.band} band',
                               style:
                                   const TextStyle(fontWeight: FontWeight.w700)),
@@ -1193,15 +1196,36 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
     return (_eg / 2, -_eg / 2);
   }
 
-  _GraphPoint? _nearestPoint(List<_GraphPoint> pts, double xScaled) {
-    if (pts.isEmpty) return null;
-    _GraphPoint best = pts.first;
-    double bestDx = (pts.first.kScaled - xScaled).abs();
-    for (final p in pts) {
-      final dx = (p.kScaled - xScaled).abs();
-      if (dx < bestDx) {
-        bestDx = dx;
-        best = p;
+  _GraphPointWithBand? _nearestPointGlobal(
+      Offset local,
+      BoxConstraints constraints,
+      double minY,
+      double maxY,
+      List<_SeriesMeta> series) {
+    if (series.isEmpty) return null;
+    final dataX = (local.dx / constraints.maxWidth) * (_kMaxScaled - 0) + 0;
+    final dataY = maxY - (local.dy / constraints.maxHeight) * (maxY - minY);
+
+    _GraphPointWithBand? best;
+    double bestDist = double.infinity;
+    for (final meta in series) {
+      for (final p in meta.points) {
+        final dx = p.kScaled - dataX;
+        final dy = p.yDisplay - dataY;
+        final dist = math.sqrt(dx * dx + dy * dy);
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = _GraphPointWithBand(
+            band: meta.id,
+            k: p.k,
+            kScaled: p.kScaled,
+            deltaE: p.deltaE,
+            eAbs: p.eAbs,
+            velocity: p.velocity,
+            yDisplay: p.yDisplay,
+            colorIndex: null,
+          );
+        }
       }
     }
     return best;
@@ -1220,6 +1244,7 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
       eAbs: p.eAbs,
       velocity: p.velocity,
       yDisplay: p.yDisplay,
+      colorIndex: ref.colorIndex,
     );
   }
 
@@ -1254,7 +1279,6 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
       _points = _defaultState['points'] as double;
       _showConduction = _defaultState['showConduction'] as bool;
       _showValence = _defaultState['showValence'] as bool;
-      _selected = null;
       _hoveredTooltip = null;
       _pins.clear();
       _isAnimating = false;
@@ -1264,17 +1288,30 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
 
   void _togglePin(_PointRef ref) {
     final existing = _pins.indexWhere((p) => _samePoint(p, ref));
+    final colorIndex = ref.colorIndex ?? _nextPinColorIndex();
     setState(() {
       if (existing >= 0) {
         _pins.removeAt(existing);
       } else {
-        _pins.add(ref);
+        _pins.add(_PointRef(
+          band: ref.band,
+          k: ref.k,
+          colorIndex: colorIndex,
+        ));
       }
     });
   }
 
   bool _samePoint(_PointRef a, _PointRef b) {
     return a.band == b.band && (a.k - b.k).abs() < 1e6;
+  }
+
+  int _nextPinColorIndex() {
+    final used = _pins.map((p) => p.colorIndex ?? -1).toSet();
+    for (var i = 0; i < _pinPalette.length; i++) {
+      if (!used.contains(i)) return i;
+    }
+    return 0;
   }
 
   // --- Animation ---
@@ -1288,13 +1325,13 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
   }
 
   void _handleDoubleTap() {
-    if (_selected != null) {
-      _togglePin(_selected!);
+    final hovered = _hoveredTooltip?.point;
+    if (hovered != null) {
+      _togglePin(_PointRef(
+          band: hovered.band,
+          k: hovered.k,
+          colorIndex: hovered.colorIndex ?? _nextPinColorIndex()));
     }
-  }
-
-  bool _isTapEvent(FlTouchEvent event) {
-    return event is FlTapUpEvent || event is FlLongPressEnd;
   }
 
   void _startAnimation() {
@@ -1308,9 +1345,6 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                 Text('Animation disabled due to reduced motion preference')),
       );
       return;
-    }
-    if (!_holdSelectedK) {
-      _selected = null;
     }
     setState(() {
       _isAnimating = true;
@@ -1467,9 +1501,6 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
           value: value,
           onChanged: (v) {
             onChanged(v);
-            if (!v && _selected != null && _selected!.band == label) {
-              setState(() => _selected = null);
-            }
           },
         ),
         const SizedBox(width: 4),
@@ -1670,6 +1701,7 @@ class _GraphPoint {
 
 class _GraphPointWithBand extends _GraphPoint {
   final String band;
+  final int? colorIndex;
   _GraphPointWithBand({
     required this.band,
     required super.k,
@@ -1678,6 +1710,7 @@ class _GraphPointWithBand extends _GraphPoint {
     required super.eAbs,
     required super.velocity,
     required super.yDisplay,
+    this.colorIndex,
   });
 }
 
@@ -1697,7 +1730,8 @@ class _SeriesMeta {
 class _PointRef {
   final String band;
   final double k;
-  const _PointRef({required this.band, required this.k});
+  final int? colorIndex;
+  const _PointRef({required this.band, required this.k, this.colorIndex});
 }
 
 class _InlinePiece {
@@ -1706,4 +1740,81 @@ class _InlinePiece {
   const _InlinePiece(this.text, this.latex);
   const _InlinePiece.text(this.text) : latex = false;
   const _InlinePiece.latex(this.text) : latex = true;
+}
+
+class _MarkersPainter extends CustomPainter {
+  final List<_GraphPointWithBand> pins;
+  final _GraphPointWithBand? hoveredPoint; // FIX R3: Add hovered point
+  final double minX;
+  final double maxX;
+  final double minY;
+  final double maxY;
+  final Color conductionColor;
+  final Color valenceColor;
+  final List<Color> palette;
+
+  const _MarkersPainter({
+    required this.pins,
+    this.hoveredPoint, // FIX R3
+    required this.minX,
+    required this.maxX,
+    required this.minY,
+    required this.maxY,
+    required this.conductionColor,
+    required this.valenceColor,
+    required this.palette,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final dx = (maxX - minX).abs();
+    final dy = (maxY - minY).abs();
+    if (dx == 0 || dy == 0) return;
+
+    void drawMarker(_GraphPointWithBand p,
+        {required Color ringColor, double radius = 7}) {
+      final tx = ((p.kScaled - minX) / dx).clamp(0.0, 1.0);
+      final ty = (1 - ((p.yDisplay - minY) / dy)).clamp(0.0, 1.0);
+      final pos = Offset(tx * size.width, ty * size.height);
+      final fill = p.band == 'Conduction' ? conductionColor : valenceColor;
+      final ringPaint = Paint()
+        ..color = ringColor
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3;
+      final fillPaint = Paint()
+        ..color = fill
+        ..style = PaintingStyle.fill;
+      canvas.drawCircle(pos, radius, ringPaint);
+      canvas.drawCircle(pos, radius - 3, fillPaint);
+    }
+
+    // Draw pinned points
+    for (final p in pins) {
+      final ringColor = palette[(p.colorIndex ?? 0) % palette.length];
+      drawMarker(p, ringColor: ringColor, radius: 7);
+    }
+    
+    // FIX R3: Draw hovered/selected point marker (if not already pinned)
+    if (hoveredPoint != null) {
+      final isAlreadyPinned = pins.any((pin) =>
+          pin.band == hoveredPoint!.band &&
+          (pin.k - hoveredPoint!.k).abs() < 1e6);
+      
+      if (!isAlreadyPinned) {
+        // Draw hollow ring for hovered point
+        final ringColor = hoveredPoint!.band == 'Conduction' ? conductionColor : valenceColor;
+        drawMarker(hoveredPoint!, ringColor: ringColor.withOpacity(0.8), radius: 8);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _MarkersPainter oldDelegate) {
+    return oldDelegate.pins != pins ||
+        oldDelegate.hoveredPoint != hoveredPoint ||
+        oldDelegate.minX != minX ||
+        oldDelegate.maxX != maxX ||
+        oldDelegate.minY != minY ||
+        oldDelegate.maxY != maxY;
+  }
 }
