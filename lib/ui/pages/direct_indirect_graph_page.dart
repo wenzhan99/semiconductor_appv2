@@ -11,6 +11,7 @@ import '../widgets/latex_text.dart';
 import '../graphs/common/graph_controller.dart';
 import '../graphs/common/readouts_card.dart';
 import '../graphs/common/point_inspector_card.dart';
+import '../graphs/common/enhanced_animation_panel.dart';
 import '../graphs/common/parameters_card.dart';
 import '../graphs/common/key_observations_card.dart';
 import '../graphs/common/chart_toolbar.dart';
@@ -20,13 +21,193 @@ class DirectIndirectGraphPage extends StatefulWidget {
   const DirectIndirectGraphPage({super.key});
 
   @override
-  State<DirectIndirectGraphPage> createState() => _DirectIndirectGraphPageState();
+  State<DirectIndirectGraphPage> createState() =>
+      _DirectIndirectGraphPageState();
+}
+
+class _DirectIndirectAnimationController
+    implements EnhancedAnimationController<AnimateParam> {
+  final _DirectIndirectGraphPageState state;
+
+  _DirectIndirectAnimationController(this.state);
+
+  void _update(VoidCallback fn) {
+    // ignore: invalid_use_of_protected_member
+    state.setState(fn);
+  }
+
+  @override
+  List<AnimateParam> get parameters => AnimateParam.values;
+
+  @override
+  AnimateParam get selectedParam => state._animateParam;
+
+  @override
+  void selectParam(AnimateParam param) {
+    _update(() {
+      state._animateParam = param;
+      state._updateAnimationRangeDefaults();
+    });
+  }
+
+  String _descriptor(AnimateParam p) {
+    switch (p) {
+      case AnimateParam.k0:
+        return 'CBM position';
+      case AnimateParam.eg:
+        return 'bandgap';
+      case AnimateParam.mnStar:
+        return 'electron mass';
+      case AnimateParam.mpStar:
+        return 'hole mass';
+    }
+  }
+
+  String _latex(AnimateParam p) {
+    switch (p) {
+      case AnimateParam.k0:
+        return r'k_0';
+      case AnimateParam.eg:
+        return r'E_g';
+      case AnimateParam.mnStar:
+        return r'm_n^{*}';
+      case AnimateParam.mpStar:
+        return r'm_p^{*}';
+    }
+  }
+
+  @override
+  String dropdownLabel(AnimateParam param) =>
+      '${_latex(param)} (${_descriptor(param)})';
+
+  @override
+  String valueLabel(AnimateParam param) => _latex(param);
+
+  @override
+  String unitLabel(AnimateParam param) {
+    switch (param) {
+      case AnimateParam.k0:
+        return r'10^{10}\,\mathrm{m^{-1}}';
+      case AnimateParam.eg:
+        return r'eV';
+      case AnimateParam.mnStar:
+      case AnimateParam.mpStar:
+        return r'm_0';
+    }
+  }
+
+  @override
+  String physicsNote(AnimateParam param) {
+    switch (param) {
+      case AnimateParam.k0:
+        return 'Moves the CBM along k; valence band stays at k≈0.';
+      case AnimateParam.eg:
+        return 'Band edges shift together; curvature unchanged.';
+      case AnimateParam.mnStar:
+        return 'Curvature of conduction band changes; edges fixed.';
+      case AnimateParam.mpStar:
+        return 'Curvature of valence band changes; edges fixed.';
+    }
+  }
+
+  @override
+  double get currentValue => state._getCurrentParamValue(state._animateParam);
+
+  @override
+  void setCurrentValue(double value) {
+    if (state._isAnimating) state._stopAnimation();
+    state._setCurrentParamValue(state._animateParam, value);
+  }
+
+  @override
+  double get rangeMin => state._animateRangeMin;
+
+  @override
+  double get rangeMax => state._animateRangeMax;
+
+  @override
+  double get absoluteMin => state._getAbsoluteMin(state._animateParam);
+
+  @override
+  double get absoluteMax => state._getAbsoluteMax(state._animateParam);
+
+  @override
+  void setRangeMin(double value) =>
+      _update(() => state._animateRangeMin = value);
+
+  @override
+  void setRangeMax(double value) =>
+      _update(() => state._animateRangeMax = value);
+
+  @override
+  void resetRangeToDefault() {
+    _update(() {
+      state._updateAnimationRangeDefaults();
+    });
+  }
+
+  @override
+  double get speed => state._animateSpeed;
+
+  @override
+  void setSpeed(double multiplier) =>
+      _update(() => state._animateSpeed = multiplier);
+
+  @override
+  LoopMode get loopMode => state._loopMode;
+
+  @override
+  void setLoopMode(LoopMode mode) => _update(() => state._loopMode = mode);
+
+  @override
+  bool get reverseDirection => state._reverseDirection;
+
+  @override
+  void setReverseDirection(bool value) =>
+      _update(() => state._reverseDirection = value);
+
+  @override
+  bool get holdSelectedK => state._holdSelectedK;
+
+  @override
+  void setHoldSelectedK(bool value) =>
+      _update(() => state._holdSelectedK = value);
+
+  @override
+  bool get lockYAxis => state._lockYAxis;
+
+  @override
+  void setLockYAxis(bool value) =>
+      _update(() => state._lockYAxis = value);
+
+  @override
+  bool get overlayPreviousCurve => state._overlayPreviousCurve;
+
+  @override
+  void setOverlayPreviousCurve(bool value) =>
+      _update(() => state._overlayPreviousCurve = value);
+
+  @override
+  bool get isAnimating => state._isAnimating;
+
+  @override
+  double? get progress => state._animationProgress;
+
+  @override
+  void play() => state._startAnimation();
+
+  @override
+  void pause() => state._stopAnimation();
+
+  @override
+  void restart() => state._restartAnimation();
 }
 
 enum GapType { direct, indirect }
+
 enum EnergyReference { midgap, evZero, ecZero }
+
 enum AnimateParam { k0, eg, mnStar, mpStar }
-enum LoopMode { off, loop, pingPong }
 
 class _SelectedPoint {
   final String band;
@@ -70,11 +251,11 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
   LoopMode _loopMode = LoopMode.loop;
   bool _reverseDirection = false;
   bool _holdSelectedK = false;
-  
+
   // Animation range controls (customizable min/max)
   double _animateRangeMin = 0.05;
   double _animateRangeMax = 1.0;
-  
+
   // Plot controls for animation
   bool _lockYAxis = false;
   bool _overlayPreviousCurve = true;
@@ -173,8 +354,10 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
                 const SizedBox(height: 12),
                 Expanded(
                   child: isWide
-                      ? _buildWideLayout(context, egDirect, egIndirect, kCbmScaled, ec, ev, kVbm, kCbm, evAtVbm, ecAtGamma)
-                      : _buildNarrowLayout(context, egDirect, egIndirect, kCbmScaled, ec, ev, kVbm, kCbm, evAtVbm, ecAtGamma),
+                      ? _buildWideLayout(context, egDirect, egIndirect,
+                          kCbmScaled, ec, ev, kVbm, kCbm, evAtVbm, ecAtGamma)
+                      : _buildNarrowLayout(context, egDirect, egIndirect,
+                          kCbmScaled, ec, ev, kVbm, kCbm, evAtVbm, ecAtGamma),
                 ),
               ],
             ),
@@ -236,7 +419,11 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('About', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+            Text('About',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleSmall
+                    ?.copyWith(fontWeight: FontWeight.w700)),
             const SizedBox(height: 6),
             Text(
               'Shows parabolic conduction and valence bands. Effective mass (m*) controls curvature: smaller m* → steeper parabola. Band edges (Ec, Ev) remain fixed at band extrema; only curvature changes with m*.',
@@ -256,17 +443,29 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
         initiallyExpanded: false,
         title: Text(
           'What you should observe',
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+          style: Theme.of(context)
+              .textTheme
+              .titleSmall
+              ?.copyWith(fontWeight: FontWeight.w700),
         ),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         children: [
-          _bullet('Direct bandgap: CBM and VBM at same k → vertical photon transition.'),
-          _bullet(r'Indirect: CBM shifted to $k_0 \neq 0$ → phonon needed for momentum.'),
-          _bullet(r'Animating $m^*$: Band edges stay fixed, only curvature changes.'),
-          _bullet(r'Smaller $m^*$ → steeper parabola (energy grows faster with k).'),
+          _bullet(
+              'Direct bandgap: CBM and VBM at same k → vertical photon transition.'),
+          _bullet(
+              r'Indirect: CBM shifted to $k_0 \neq 0$ → phonon needed for momentum.'),
+          _bullet(
+              r'Animating $m^*$: Band edges stay fixed, only curvature changes.'),
+          _bullet(
+              r'Smaller $m^*$ → steeper parabola (energy grows faster with k).'),
           const SizedBox(height: 8),
-          Text('Try this:', style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
-          _bullet(r'Animate $m_n^*$ with overlay ON to see curvature change clearly.'),
+          Text('Try this:',
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(fontWeight: FontWeight.w700)),
+          _bullet(
+              r'Animate $m_n^*$ with overlay ON to see curvature change clearly.'),
           _bullet('Use PingPong mode to see effect in both directions.'),
           _bullet('Lock y-axis to prevent apparent vertical shifting.'),
           _bullet(r'Set custom range to focus on specific $m^*$ values.'),
@@ -299,7 +498,8 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
         if (buffer.isNotEmpty) {
           parts.add(inLatex
               ? LatexText(buffer.toString(), scale: 1.0)
-              : Text(buffer.toString(), style: Theme.of(context).textTheme.bodyMedium));
+              : Text(buffer.toString(),
+                  style: Theme.of(context).textTheme.bodyMedium));
           buffer.clear();
         }
         inLatex = !inLatex;
@@ -310,18 +510,30 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
     if (buffer.isNotEmpty) {
       parts.add(inLatex
           ? LatexText(buffer.toString(), scale: 1.0)
-          : Text(buffer.toString(), style: Theme.of(context).textTheme.bodyMedium));
+          : Text(buffer.toString(),
+              style: Theme.of(context).textTheme.bodyMedium));
     }
     return Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: parts);
   }
 
-  Widget _buildWideLayout(BuildContext context, double egDirect, double egIndirect, double kCbmScaled, double ec, double ev, double kVbm, double kCbm, double evAtVbm, double ecAtGamma) {
+  Widget _buildWideLayout(
+      BuildContext context,
+      double egDirect,
+      double egIndirect,
+      double kCbmScaled,
+      double ec,
+      double ev,
+      double kVbm,
+      double kCbm,
+      double evAtVbm,
+      double ecAtGamma) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
           flex: 2,
-          child: _buildChartCard(context, ec, ev, kVbm, kCbm, kCbmScaled, evAtVbm, ecAtGamma, egDirect, egIndirect),
+          child: _buildChartCard(context, ec, ev, kVbm, kCbm, kCbmScaled,
+              evAtVbm, ecAtGamma, egDirect, egIndirect),
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -345,13 +557,24 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
     );
   }
 
-  Widget _buildNarrowLayout(BuildContext context, double egDirect, double egIndirect, double kCbmScaled, double ec, double ev, double kVbm, double kCbm, double evAtVbm, double ecAtGamma) {
+  Widget _buildNarrowLayout(
+      BuildContext context,
+      double egDirect,
+      double egIndirect,
+      double kCbmScaled,
+      double ec,
+      double ev,
+      double kVbm,
+      double kCbm,
+      double evAtVbm,
+      double ecAtGamma) {
     return SingleChildScrollView(
       child: Column(
         children: [
           ConstrainedBox(
             constraints: const BoxConstraints(minHeight: 300, maxHeight: 450),
-            child: _buildChartCard(context, ec, ev, kVbm, kCbm, kCbmScaled, evAtVbm, ecAtGamma, egDirect, egIndirect),
+            child: _buildChartCard(context, ec, ev, kVbm, kCbm, kCbmScaled,
+                evAtVbm, ecAtGamma, egDirect, egIndirect),
           ),
           const SizedBox(height: 12),
           _buildReadoutsCard(egDirect, egIndirect, kCbmScaled, ec, ev),
@@ -368,7 +591,8 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
     );
   }
 
-  Widget _buildReadoutsCard(double egDirect, double egIndirect, double kCbmScaled, double ec, double ev) {
+  Widget _buildReadoutsCard(double egDirect, double egIndirect,
+      double kCbmScaled, double ec, double ev) {
     return ReadoutsCard(
       title: 'Gap Readouts',
       readouts: [
@@ -425,227 +649,8 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
   }
 
   Widget _buildEnhancedAnimationCard() {
-    final paramName = _getParamName(_animateParam);
-    final paramValue = _getCurrentParamValue(_animateParam);
-
-    return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: ExpansionTile(
-        initiallyExpanded: false,
-        title: const Text('Animation', style: TextStyle(fontWeight: FontWeight.w700)),
-        childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-        children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Parameter selector
-              ParameterDropdown<AnimateParam>(
-                label: 'Animate parameter',
-                value: _animateParam,
-                items: const [
-                  DropdownMenuItem(value: AnimateParam.k0, child: Text('k₀ (CBM position)')),
-                  DropdownMenuItem(value: AnimateParam.eg, child: Text('Eg (bandgap)')),
-                  DropdownMenuItem(value: AnimateParam.mnStar, child: Text('mn* (electron mass)')),
-                  DropdownMenuItem(value: AnimateParam.mpStar, child: Text('mp* (hole mass)')),
-                ],
-                onChanged: (v) {
-                  setState(() {
-                    _animateParam = v!;
-                    _updateAnimationRangeDefaults();
-                  });
-                },
-              ),
-              
-              const SizedBox(height: 12),
-              const Text('Current value:', style: TextStyle(fontWeight: FontWeight.w600)),
-              const SizedBox(height: 4),
-              _parseLatex('$paramName = ${paramValue.toStringAsFixed(3)}'),
-              
-              const SizedBox(height: 12),
-              
-              // MANUAL SLIDER (always visible)
-              Text('Manual control:', style: Theme.of(context).textTheme.labelMedium),
-              Slider(
-                value: paramValue,
-                min: _animateRangeMin,
-                max: _animateRangeMax,
-                divisions: 100,
-                label: paramValue.toStringAsFixed(3),
-                onChanged: (v) {
-                  // Pause animation if user manually adjusts
-                  if (_isAnimating) _stopAnimation();
-                  _setCurrentParamValue(_animateParam, v);
-                },
-              ),
-              
-              const SizedBox(height: 12),
-              
-              // Animation range controls
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Range Min', style: Theme.of(context).textTheme.labelSmall),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Slider(
-                                value: _animateRangeMin,
-                                min: _getAbsoluteMin(_animateParam),
-                                max: _animateRangeMax,
-                                divisions: 50,
-                                label: _animateRangeMin.toStringAsFixed(3),
-                                onChanged: (v) => setState(() => _animateRangeMin = v),
-                              ),
-                            ),
-                            SizedBox(
-                              width: 50,
-                              child: Text(_animateRangeMin.toStringAsFixed(2), style: const TextStyle(fontSize: 11)),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Range Max', style: Theme.of(context).textTheme.labelSmall),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Slider(
-                                value: _animateRangeMax,
-                                min: _animateRangeMin,
-                                max: _getAbsoluteMax(_animateParam),
-                                divisions: 50,
-                                label: _animateRangeMax.toStringAsFixed(3),
-                                onChanged: (v) => setState(() => _animateRangeMax = v),
-                              ),
-                            ),
-                            SizedBox(
-                              width: 50,
-                              child: Text(_animateRangeMax.toStringAsFixed(2), style: const TextStyle(fontSize: 11)),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              
-              const SizedBox(height: 12),
-              
-              // Speed control
-              ParameterSlider(
-                label: 'Speed',
-                value: _animateSpeed,
-                min: 0.25,
-                max: 3.0,
-                divisions: 11,
-                onChanged: (v) => setState(() => _animateSpeed = v),
-                valueFormatter: (v) => '${v.toStringAsFixed(2)}×',
-              ),
-              
-              // Loop mode
-              ParameterSegmented<LoopMode>(
-                label: 'Loop mode',
-                selected: {_loopMode},
-                segments: const [
-                  ButtonSegment(value: LoopMode.off, label: Text('Off')),
-                  ButtonSegment(value: LoopMode.loop, label: Text('Loop')),
-                  ButtonSegment(value: LoopMode.pingPong, label: Text('PingPong')),
-                ],
-                onSelectionChanged: (s) => setState(() => _loopMode = s.first),
-              ),
-              
-              // Direction and overlay toggles
-              ParameterSwitch(
-                label: 'Reverse direction',
-                value: _reverseDirection,
-                onChanged: (v) => setState(() => _reverseDirection = v),
-              ),
-              ParameterSwitch(
-                label: 'Hold selected k',
-                value: _holdSelectedK,
-                onChanged: (v) => setState(() => _holdSelectedK = v),
-              ),
-              ParameterSwitch(
-                label: 'Lock y-axis (no auto-scale)',
-                value: _lockYAxis,
-                onChanged: (v) => setState(() => _lockYAxis = v),
-              ),
-              ParameterSwitch(
-                label: 'Overlay previous curve',
-                value: _overlayPreviousCurve,
-                onChanged: (v) => setState(() => _overlayPreviousCurve = v),
-              ),
-              
-              const SizedBox(height: 12),
-              
-              // Play controls
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  ElevatedButton.icon(
-                    onPressed: _isAnimating ? _stopAnimation : _startAnimation,
-                    icon: Icon(_isAnimating ? Icons.pause : Icons.play_arrow),
-                    label: Text(_isAnimating ? 'Pause' : 'Play'),
-                  ),
-                  ElevatedButton.icon(
-                    onPressed: _restartAnimation,
-                    icon: const Icon(Icons.restart_alt),
-                    label: const Text('Restart'),
-                  ),
-                  ElevatedButton.icon(
-                    onPressed: () => setState(() {
-                      _updateAnimationRangeDefaults();
-                    }),
-                    icon: const Icon(Icons.settings_backup_restore),
-                    label: const Text('Reset Range'),
-                  ),
-                ],
-              ),
-              
-              if (_isAnimating) ...[
-                const SizedBox(height: 8),
-                LinearProgressIndicator(value: _animationProgress),
-              ],
-              
-              // Physics note for m* animation
-              if (_animateParam == AnimateParam.mnStar || _animateParam == AnimateParam.mpStar) ...[
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: Colors.blue.withOpacity(0.3)),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.info_outline, size: 16, color: Colors.blue[700]),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Physics note: Band edges stay fixed; only curvature changes with m*.',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ],
-      ),
+    return EnhancedAnimationPanel<AnimateParam>(
+      controller: _DirectIndirectAnimationController(this),
     );
   }
 
@@ -743,8 +748,10 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
           label: 'Material preset',
           value: _preset,
           items: const [
-            DropdownMenuItem(value: 'GaAs (Direct)', child: Text('GaAs (Direct)')),
-            DropdownMenuItem(value: 'Si (Indirect)', child: Text('Si (Indirect)')),
+            DropdownMenuItem(
+                value: 'GaAs (Direct)', child: Text('GaAs (Direct)')),
+            DropdownMenuItem(
+                value: 'Si (Indirect)', child: Text('Si (Indirect)')),
             DropdownMenuItem(value: 'Custom', child: Text('Custom')),
           ],
           onChanged: (v) => updateChart(() {
@@ -756,9 +763,12 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
           label: 'Energy reference',
           value: _energyReference,
           items: const [
-            DropdownMenuItem(value: EnergyReference.midgap, child: Text('Midgap = 0')),
-            DropdownMenuItem(value: EnergyReference.evZero, child: Text('Ev = 0')),
-            DropdownMenuItem(value: EnergyReference.ecZero, child: Text('Ec = 0')),
+            DropdownMenuItem(
+                value: EnergyReference.midgap, child: Text('Midgap = 0')),
+            DropdownMenuItem(
+                value: EnergyReference.evZero, child: Text('Ev = 0')),
+            DropdownMenuItem(
+                value: EnergyReference.ecZero, child: Text('Ec = 0')),
           ],
           onChanged: (v) => updateChart(() {
             _energyReference = v!;
@@ -771,7 +781,8 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
           min: 0.2,
           max: 2.5,
           divisions: 230,
-          onChanged: (v) => _updateCustom(() => _eg = double.parse(v.toStringAsFixed(3))),
+          onChanged: (v) =>
+              _updateCustom(() => _eg = double.parse(v.toStringAsFixed(3))),
         ),
         ParameterSlider(
           label: r'$m_n^*$ (×$m_0$)',
@@ -779,7 +790,8 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
           min: 0.05,
           max: 2.0,
           divisions: 195,
-          onChanged: (v) => _updateCustom(() => _mnEff = double.parse(v.toStringAsFixed(3))),
+          onChanged: (v) =>
+              _updateCustom(() => _mnEff = double.parse(v.toStringAsFixed(3))),
           subtitle: 'Affects conduction band curvature only',
         ),
         ParameterSlider(
@@ -788,7 +800,8 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
           min: 0.05,
           max: 2.0,
           divisions: 195,
-          onChanged: (v) => _updateCustom(() => _mpEff = double.parse(v.toStringAsFixed(3))),
+          onChanged: (v) =>
+              _updateCustom(() => _mpEff = double.parse(v.toStringAsFixed(3))),
           subtitle: 'Affects valence band curvature only',
         ),
         ParameterSlider(
@@ -798,7 +811,8 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
           max: 1.5,
           divisions: 150,
           onChanged: _gapType == GapType.indirect
-              ? (v) => _updateCustom(() => _k0Scaled = double.parse(v.toStringAsFixed(3)))
+              ? (v) => _updateCustom(
+                  () => _k0Scaled = double.parse(v.toStringAsFixed(3)))
               : null,
         ),
         ParameterSlider(
@@ -807,7 +821,8 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
           min: 0.5,
           max: 2.0,
           divisions: 150,
-          onChanged: (v) => _updateCustom(() => _kMaxScaled = double.parse(v.toStringAsFixed(2))),
+          onChanged: (v) => _updateCustom(
+              () => _kMaxScaled = double.parse(v.toStringAsFixed(2))),
         ),
         ParameterSwitch(
           label: 'Show transitions',
@@ -824,14 +839,17 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
           onPressed: _resetDemo,
           icon: const Icon(Icons.restart_alt, size: 18),
           label: const Text('Reset Demo'),
-          style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 36)),
+          style: ElevatedButton.styleFrom(
+              minimumSize: const Size(double.infinity, 36)),
         ),
       ],
     );
   }
 
-  Widget _buildKeyObservationsCard(double egDirect, double egIndirect, double kCbmScaled) {
-    final dynamicObs = _buildDynamicObservations(egDirect, egIndirect, kCbmScaled);
+  Widget _buildKeyObservationsCard(
+      double egDirect, double egIndirect, double kCbmScaled) {
+    final dynamicObs =
+        _buildDynamicObservations(egDirect, egIndirect, kCbmScaled);
     final staticObs = _buildStaticObservations();
 
     return KeyObservationsCard(
@@ -842,26 +860,32 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
     );
   }
 
-  List<String> _buildDynamicObservations(double egDirect, double egIndirect, double kCbmScaled) {
+  List<String> _buildDynamicObservations(
+      double egDirect, double egIndirect, double kCbmScaled) {
     final obs = <String>[];
 
     if (_gapType == GapType.direct) {
-      obs.add('Direct gap: CBM and VBM at k≈0 → vertical photon transition. \$E_{g,\\text{dir}} = ${egDirect.toStringAsFixed(3)}\$ eV.');
+      obs.add(
+          'Direct gap: CBM and VBM at k≈0 → vertical photon transition. \$E_{g,\\text{dir}} = ${egDirect.toStringAsFixed(3)}\$ eV.');
     } else {
-      obs.add('Indirect gap: CBM at \$k_0 = ${kCbmScaled.toStringAsFixed(3)} \\times 10^{10}\$ m⁻¹ → phonon needed. \$E_{g,\\text{ind}} = ${egIndirect.toStringAsFixed(3)}\$ eV.');
+      obs.add(
+          'Indirect gap: CBM at \$k_0 = ${kCbmScaled.toStringAsFixed(3)} \\times 10^{10}\$ m⁻¹ → phonon needed. \$E_{g,\\text{ind}} = ${egIndirect.toStringAsFixed(3)}\$ eV.');
       final deltaK = kCbmScaled.abs();
-      obs.add('CBM shift: \$\\Delta k = ${deltaK.toStringAsFixed(3)} \\times 10^{10}\$ m⁻¹ from Γ.');
+      obs.add(
+          'CBM shift: \$\\Delta k = ${deltaK.toStringAsFixed(3)} \\times 10^{10}\$ m⁻¹ from Γ.');
     }
 
     // Curvature analysis
     final probeK = _kMaxScaled * 0.5 * _kDisplayScale;
     final deltaEc = _bandEnergyTerm(probeK, _mnEff);
     final deltaEv = _bandEnergyTerm(probeK, _mpEff);
-    obs.add('Curvature: \$m_n^* = ${_mnEff.toStringAsFixed(3)}\$, \$m_p^* = ${_mpEff.toStringAsFixed(3)}\$. Smaller \$m^*\$ → steeper bands.');
+    obs.add(
+        'Curvature: \$m_n^* = ${_mnEff.toStringAsFixed(3)}\$, \$m_p^* = ${_mpEff.toStringAsFixed(3)}\$. Smaller \$m^*\$ → steeper bands.');
 
     if (_selectedPoint != null) {
       final sp = _selectedPoint!;
-      obs.add('Selected: k=${sp.kScaled.toStringAsFixed(3)} ×10¹⁰ m⁻¹, E=${sp.energy.toStringAsFixed(3)} eV.');
+      obs.add(
+          'Selected: k=${sp.kScaled.toStringAsFixed(3)} ×10¹⁰ m⁻¹, E=${sp.energy.toStringAsFixed(3)} eV.');
     }
 
     return obs;
@@ -876,7 +900,17 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
     ];
   }
 
-  Widget _buildChartCard(BuildContext context, double ec, double ev, double kVbm, double kCbm, double kCbmScaled, double evAtVbm, double ecAtGamma, double egDirect, double egIndirect) {
+  Widget _buildChartCard(
+      BuildContext context,
+      double ec,
+      double ev,
+      double kVbm,
+      double kCbm,
+      double kCbmScaled,
+      double evAtVbm,
+      double ecAtGamma,
+      double egDirect,
+      double egIndirect) {
     final bandColors = (
       conduction: Theme.of(context).colorScheme.primary,
       valence: Theme.of(context).colorScheme.tertiary,
@@ -905,7 +939,10 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
                 _gapType == GapType.direct
                     ? 'Direct: CBM and VBM at same k (vertical transition)'
                     : 'Indirect: CBM shifted to k₀ ≠ 0 (phonon needed)',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+                style: Theme.of(context)
+                    .textTheme
+                    .titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w600),
               ),
             ),
             const SizedBox(height: 8),
@@ -918,9 +955,12 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
                     children: [
                       _legendSwatch(bandColors.conduction, 'Conduction'),
                       _legendSwatch(bandColors.valence, 'Valence'),
-                      if (_overlayPreviousCurve && (_baselineCurveConduction != null || _baselineCurveValence != null))
+                      if (_overlayPreviousCurve &&
+                          (_baselineCurveConduction != null ||
+                              _baselineCurveValence != null))
                         _legendSwatch(Colors.grey.withOpacity(0.4), 'Baseline'),
-                      if (_showTransitions) _legendDash(transitionColors.photon, 'Photon'),
+                      if (_showTransitions)
+                        _legendDash(transitionColors.photon, 'Photon'),
                       if (_showTransitions && _gapType == GapType.indirect)
                         _legendDash(transitionColors.phonon, 'Phonon'),
                     ],
@@ -938,12 +978,14 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
             Expanded(
               child: Listener(
                 onPointerSignal: (event) {
-                  if (event is PointerScrollEvent && HardwareKeyboard.instance.isControlPressed) {
+                  if (event is PointerScrollEvent &&
+                      HardwareKeyboard.instance.isControlPressed) {
                     final delta = event.scrollDelta.dy;
                     updateChart(() => _viewport.zoom(delta > 0 ? -0.1 : 0.1));
                   }
                 },
-                child: _buildChart(context, bandColors, transitionColors, kVbm, kCbm, kCbmScaled, evAtVbm, ecAtGamma),
+                child: _buildChart(context, bandColors, transitionColors, kVbm,
+                    kCbm, kCbmScaled, evAtVbm, ecAtGamma),
               ),
             ),
           ],
@@ -952,12 +994,20 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
     );
   }
 
-  Widget _buildChart(BuildContext context, ({Color conduction, Color valence}) bandColors, ({Color photon, Color phonon}) transitionColors, double kVbm, double kCbm, double kCbmScaled, double evAtVbm, double ecAtGamma) {
+  Widget _buildChart(
+      BuildContext context,
+      ({Color conduction, Color valence}) bandColors,
+      ({Color photon, Color phonon}) transitionColors,
+      double kVbm,
+      double kCbm,
+      double kCbmScaled,
+      double evAtVbm,
+      double ecAtGamma) {
     final viewRange = _currentViewXRange();
     final data = _buildData(viewRange.$1, viewRange.$2);
 
     double minY, maxY;
-    
+
     if (_lockYAxis && _lockedMinY != null && _lockedMaxY != null) {
       // Use locked values during animation
       minY = _lockedMinY!;
@@ -973,7 +1023,7 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
       final pad = (maxY - minY).abs() * 0.15 + 0.1;
       minY -= pad;
       maxY += pad;
-      
+
       // If animation just started and lock is enabled, capture these values
       if (_lockYAxis && _isAnimating && _lockedMinY == null) {
         _lockedMinY = minY;
@@ -986,12 +1036,16 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
     final zoomedMinY = centerY - rangeY / 2;
     final zoomedMaxY = centerY + rangeY / 2;
 
-    final lineWidth = _scaleLineWidthWithZoom ? 2 * math.sqrt(_viewport.zoomScale.clamp(0.5, 5.0)) : 2.0;
+    final lineWidth = _scaleLineWidthWithZoom
+        ? 2 * math.sqrt(_viewport.zoomScale.clamp(0.5, 5.0))
+        : 2.0;
 
     final lineBars = <LineChartBarData>[];
-    
+
     // Baseline (previous) curves (if overlay enabled)
-    if (_overlayPreviousCurve && _baselineCurveConduction != null && _baselineCurveValence != null) {
+    if (_overlayPreviousCurve &&
+        _baselineCurveConduction != null &&
+        _baselineCurveValence != null) {
       lineBars.add(LineChartBarData(
         spots: _baselineCurveConduction!,
         isCurved: false,
@@ -1007,7 +1061,7 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
         dotData: const FlDotData(show: false),
       ));
     }
-    
+
     // Active curves
     lineBars.add(LineChartBarData(
       spots: data.conduction.map((p) => FlSpot(p.kScaled, p.energy)).toList(),
@@ -1026,7 +1080,10 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
 
     if (_showTransitions) {
       lineBars.add(LineChartBarData(
-        spots: [FlSpot(kVbm / _kDisplayScale, evAtVbm), FlSpot(kVbm / _kDisplayScale, ecAtGamma)],
+        spots: [
+          FlSpot(kVbm / _kDisplayScale, evAtVbm),
+          FlSpot(kVbm / _kDisplayScale, ecAtGamma)
+        ],
         isCurved: false,
         color: transitionColors.photon,
         barWidth: 2,
@@ -1044,7 +1101,10 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
 
       if (_gapType == GapType.indirect) {
         lineBars.add(LineChartBarData(
-          spots: [FlSpot(kVbm / _kDisplayScale, evAtVbm), FlSpot(kCbmScaled, _conductionEnergy(k: kCbm))],
+          spots: [
+            FlSpot(kVbm / _kDisplayScale, evAtVbm),
+            FlSpot(kCbmScaled, _conductionEnergy(k: kCbm))
+          ],
           isCurved: false,
           color: transitionColors.phonon,
           barWidth: 2,
@@ -1072,17 +1132,28 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
         extraLinesData: _showBandEdges
             ? ExtraLinesData(
                 horizontalLines: [
-                  HorizontalLine(y: _bandEdges().ec, color: bandColors.conduction.withOpacity(0.35), strokeWidth: 1, dashArray: [4, 4]),
-                  HorizontalLine(y: _bandEdges().ev, color: bandColors.valence.withOpacity(0.35), strokeWidth: 1, dashArray: [4, 4]),
+                  HorizontalLine(
+                      y: _bandEdges().ec,
+                      color: bandColors.conduction.withOpacity(0.35),
+                      strokeWidth: 1,
+                      dashArray: [4, 4]),
+                  HorizontalLine(
+                      y: _bandEdges().ev,
+                      color: bandColors.valence.withOpacity(0.35),
+                      strokeWidth: 1,
+                      dashArray: [4, 4]),
                 ],
               )
             : null,
         lineTouchData: LineTouchData(
           enabled: true,
           touchCallback: (event, response) {
-            if (event is FlTapUpEvent && response?.lineBarSpots != null && response!.lineBarSpots!.isNotEmpty) {
+            if (event is FlTapUpEvent &&
+                response?.lineBarSpots != null &&
+                response!.lineBarSpots!.isNotEmpty) {
               final spot = response.lineBarSpots!.first;
-              final series = spot.barIndex == 0 ? data.conduction : data.valence;
+              final series =
+                  spot.barIndex == 0 ? data.conduction : data.valence;
               final nearest = _nearestPoint(series, spot.x);
               if (nearest != null) {
                 setState(() {
@@ -1097,7 +1168,8 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
             }
           },
           touchTooltipData: LineTouchTooltipData(
-            getTooltipItems: (spots) => List<LineTooltipItem?>.filled(spots.length, null),
+            getTooltipItems: (spots) =>
+                List<LineTooltipItem?>.filled(spots.length, null),
           ),
         ),
         gridData: FlGridData(show: true),
@@ -1110,24 +1182,30 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
               reservedSize: context.chartStyle.leftReservedSize,
               getTitlesWidget: (v, _) => Padding(
                 padding: context.chartStyle.tickPadding,
-                child: Text(v.toStringAsFixed(1), style: context.chartStyle.tickTextStyle),
+                child: Text(v.toStringAsFixed(1),
+                    style: context.chartStyle.tickTextStyle),
               ),
             ),
           ),
           bottomTitles: AxisTitles(
-            axisNameWidget: const LatexText(r'k\ (\times 10^{10}\ \mathrm{m^{-1}})', scale: 0.95),
+            axisNameWidget: const LatexText(
+                r'k\ (\times 10^{10}\ \mathrm{m^{-1}})',
+                scale: 0.95),
             axisNameSize: 40,
             sideTitles: SideTitles(
               showTitles: true,
               reservedSize: context.chartStyle.bottomReservedSize,
               getTitlesWidget: (v, _) => Padding(
                 padding: context.chartStyle.tickPadding,
-                child: Text(v.toStringAsFixed(1), style: context.chartStyle.tickTextStyle),
+                child: Text(v.toStringAsFixed(1),
+                    style: context.chartStyle.tickTextStyle),
               ),
             ),
           ),
-          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles:
+              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles:
+              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
         ),
         borderData: FlBorderData(show: true),
         lineBarsData: lineBars,
@@ -1212,7 +1290,8 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
 
   _GraphPoint? _nearestPoint(List<_GraphPoint> pts, double xScaled) {
     if (pts.isEmpty) return null;
-    return pts.reduce((a, b) => (a.kScaled - xScaled).abs() < (b.kScaled - xScaled).abs() ? a : b);
+    return pts.reduce((a, b) =>
+        (a.kScaled - xScaled).abs() < (b.kScaled - xScaled).abs() ? a : b);
   }
 
   void _applyPreset(String preset) {
@@ -1275,7 +1354,11 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(height: 10, width: 18, decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(6))),
+        Container(
+            height: 10,
+            width: 18,
+            decoration: BoxDecoration(
+                color: color, borderRadius: BorderRadius.circular(6))),
         const SizedBox(width: 6),
         Text(label, style: const TextStyle(fontSize: 12)),
       ],
@@ -1287,10 +1370,12 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
       mainAxisSize: MainAxisSize.min,
       children: [
         Row(
-          children: List.generate(3, (_) => Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 1.5),
-            child: Container(width: 6, height: 2, color: color),
-          )),
+          children: List.generate(
+              3,
+              (_) => Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 1.5),
+                    child: Container(width: 6, height: 2, color: color),
+                  )),
         ),
         const SizedBox(width: 6),
         Text(label, style: const TextStyle(fontSize: 12)),
@@ -1299,18 +1384,21 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
   }
 
   // === Enhanced Animation Methods ===
-  
+
   void _startAnimation() {
     if (_isAnimating) return;
-    
+
     // Capture baseline curves for overlay
     if (_overlayPreviousCurve) {
       final viewRange = _currentViewXRange();
       final baselineData = _buildData(viewRange.$1, viewRange.$2);
-      _baselineCurveConduction = baselineData.conduction.map((p) => FlSpot(p.kScaled, p.energy)).toList();
-      _baselineCurveValence = baselineData.valence.map((p) => FlSpot(p.kScaled, p.energy)).toList();
+      _baselineCurveConduction = baselineData.conduction
+          .map((p) => FlSpot(p.kScaled, p.energy))
+          .toList();
+      _baselineCurveValence =
+          baselineData.valence.map((p) => FlSpot(p.kScaled, p.energy)).toList();
     }
-    
+
     // Lock y-axis if enabled
     if (_lockYAxis) {
       final viewRange = _currentViewXRange();
@@ -1325,7 +1413,7 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
       _lockedMinY = minY - pad;
       _lockedMaxY = maxY + pad;
     }
-    
+
     setState(() {
       _isAnimating = true;
       _animationProgress = 0.0;
@@ -1333,7 +1421,8 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
 
     final duration = Duration(milliseconds: (2500 / _animateSpeed).round());
     const steps = 60;
-    final stepDuration = Duration(milliseconds: duration.inMilliseconds ~/ steps);
+    final stepDuration =
+        Duration(milliseconds: duration.inMilliseconds ~/ steps);
 
     _animationTimer = Timer.periodic(stepDuration, (timer) {
       if (!mounted) {
@@ -1343,7 +1432,7 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
 
       setState(() {
         _animationProgress += (1.0 / steps) * (_reverseDirection ? -1 : 1);
-        
+
         // Handle loop modes
         if (_animationProgress >= 1.0) {
           switch (_loopMode) {
@@ -1381,8 +1470,9 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
 
         // Update parameter value
         final t = _animationProgress.clamp(0.0, 1.0);
-        final value = _animateRangeMin + (_animateRangeMax - _animateRangeMin) * t;
-        
+        final value =
+            _animateRangeMin + (_animateRangeMax - _animateRangeMin) * t;
+
         switch (_animateParam) {
           case AnimateParam.k0:
             _k0Scaled = value;
@@ -1397,7 +1487,7 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
             _mpEff = value;
             break;
         }
-        
+
         bumpChart();
       });
     });

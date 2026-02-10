@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../../core/constants/constants_loader.dart';
 import '../../core/constants/latex_symbols.dart';
 import '../../core/solver/number_formatter.dart';
+import '../graphs/common/enhanced_animation_panel.dart';
 import '../graphs/common/latex_readout.dart';
 import '../widgets/latex_text.dart';
 
@@ -20,7 +21,7 @@ class ParabolicGraphPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Parabolic Band Dispersion (E–k)')),
+      appBar: AppBar(title: const Text('Parabolic Band Dispersion (E\u2013k)')),
       body: const ParabolicGraphView(),
     );
   }
@@ -49,6 +50,28 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
   double _mpEff = 0.39; // x m0
   double _kMaxScaled = 0.5; // x1e10 m^-1
   double _points = 400;
+  static const double _inlineLatexScale = 1.15;
+  static const double _inlineLatexScaleSmall = 1.08;
+  bool _isAnimating = false;
+  double _animSpeed = 1.0;
+  double _animProgress = 0.0;
+  _AnimTarget _animTarget = _AnimTarget.eg;
+  LoopMode _loopMode = LoopMode.loop;
+  bool _holdSelectedK = false;
+  bool _reverseDirection = false;
+  bool _lockYAxis = false;
+  double? _lockedMinY;
+  double? _lockedMaxY;
+  bool _overlayPrevious = false;
+  double _animDirection = 1.0;
+  final Map<_AnimTarget, RangeValues> _animRanges = {
+    _AnimTarget.eg: const RangeValues(0.6, 1.6),
+    _AnimTarget.mn: const RangeValues(0.1, 1.2),
+    _AnimTarget.mp: const RangeValues(0.1, 1.2),
+    _AnimTarget.kmax: const RangeValues(0.2, 1.0),
+  };
+  Timer? _animTimer;
+  List<_SeriesMeta> _overlaySeries = [];
 
   // Constants
   static const double _kMin = 0.0;
@@ -56,6 +79,22 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
   static const double _hbar = 1.054571817e-34; // J*s
   static const double _m0 = 9.1093837015e-31; // kg
   static const double _q = 1.602176634e-19; // C
+  static const EdgeInsets _chartPadding =
+      EdgeInsets.fromLTRB(52, 12, 12, 32); // align with chart axes/titles
+  static const Map<String, String> _uiLatexLabels = {
+    'Eg': r'E_g',
+    'Ec': r'E_c',
+    'Ev': r'E_v',
+    'mn': r'm_n^{*}',
+    'mp': r'm_p^{*}',
+    'kmax': r'k_{\max}',
+  };
+  static const Map<_AnimTarget, String> _animLabelKeyMap = {
+    _AnimTarget.eg: 'Eg',
+    _AnimTarget.mn: 'mn',
+    _AnimTarget.mp: 'mp',
+    _AnimTarget.kmax: 'kmax',
+  };
 
   final List<_PointRef> _pins = [];
   _TooltipData? _hoveredTooltip;
@@ -75,21 +114,6 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
   late final Future<LatexSymbolMap> _latexSymbols;
   final NumberFormatter _latexFormatter =
       const NumberFormatter(significantFigures: 3);
-
-  // Animation
-  bool _isAnimating = false;
-  bool _loopAnimation = true;
-  bool _holdSelectedK = true;
-  double _animSpeed = 1.0; // 0.25xâ€“4x
-  double _animProgress = 0.0;
-  _AnimTarget _animTarget = _AnimTarget.eg;
-  final Map<_AnimTarget, RangeValues> _animRanges = {
-    _AnimTarget.eg: const RangeValues(0.6, 1.6),
-    _AnimTarget.mn: const RangeValues(0.1, 1.2),
-    _AnimTarget.mp: const RangeValues(0.1, 1.5),
-    _AnimTarget.kmax: const RangeValues(0.2, 2.0),
-  };
-  Timer? _animTimer;
 
   static const _defaultState = {
     'plotMode': PlotMode.absolute,
@@ -179,7 +203,7 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Parabolic Band Dispersion (E–k)',
+          'Parabolic Band Dispersion (E\u2013k)',
           style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 6),
@@ -219,7 +243,7 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
             const _InlinePiece.text(
                 'Curvature comes from effective mass: smaller'),
             const _InlinePiece.latex(r'm^{*}'),
-            const _InlinePiece.text('? steeper parabola.'),
+            const _InlinePiece.text(' -> steeper parabola.'),
           ]),
           _infoBulletSegments([
             const _InlinePiece.text('Group velocity:'),
@@ -281,6 +305,15 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
         maxY += 0.5;
       }
     }
+    if (_lockYAxis) {
+      _lockedMinY ??= minY;
+      _lockedMaxY ??= maxY;
+      minY = _lockedMinY!;
+      maxY = _lockedMaxY!;
+    } else {
+      _lockedMinY = null;
+      _lockedMaxY = null;
+    }
 
     final conductionColor = Theme.of(context).colorScheme.primary;
     final valenceColor = Theme.of(context).colorScheme.tertiary;
@@ -288,6 +321,20 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
     final evLineColor = valenceColor.withValues(alpha: 0.35);
 
     final lineBars = <LineChartBarData>[];
+    if (_overlayPrevious && _overlaySeries.isNotEmpty) {
+      for (final meta in _overlaySeries) {
+        final color = meta.id == 'Conduction'
+            ? conductionColor.withValues(alpha: 0.25)
+            : valenceColor.withValues(alpha: 0.25);
+        lineBars.add(LineChartBarData(
+          spots: meta.points.map((p) => FlSpot(p.kScaled, p.yDisplay)).toList(),
+          color: color,
+          barWidth: 2,
+          isCurved: true,
+          dotData: const FlDotData(show: false),
+        ));
+      }
+    }
     final resolvedPins = _pins
         .map((p) => _resolvePoint(p, ecEv))
         .whereType<_GraphPointWithBand>()
@@ -475,7 +522,6 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                         child: CustomPaint(
                           painter: _MarkersPainter(
                             pins: resolvedPins,
-                            hoveredPoint: _hoveredTooltip?.point, // FIX R3: Add hovered point
                             minX: 0,
                             maxX: _kMaxScaled,
                             minY: minY,
@@ -483,6 +529,7 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                             conductionColor: conductionColor,
                             valenceColor: valenceColor,
                             palette: _pinPalette,
+                            padding: _chartPadding,
                           ),
                         ),
                       ),
@@ -568,7 +615,7 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
           children: [
             _buildPointInspector(context, latexMap),
             const SizedBox(height: 12),
-            _buildAnimationControls(context),
+            _buildAnimationPanel(),
             const SizedBox(height: 12),
             _buildInsights(context),
             const SizedBox(height: 12),
@@ -580,7 +627,8 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
   }
 
   Widget _buildPointInspector(BuildContext context, LatexSymbolMap latexMap) {
-    final activePoint = _hoveredTooltip?.point; // Get the actual hovered/selected band
+    final activePoint =
+        _hoveredTooltip?.point; // Get the actual hovered/selected band
 
     return Card(
       elevation: 1,
@@ -593,36 +641,36 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
         children: [
           if (activePoint == null)
             const Text(
-                'Hover or click a curve to inspect. Double-click to pin.')
+                'Hover a curve to inspect. Double-click to pin or unpin a point.')
           else ...[
-            // FIX R2: Header with LaTeX rendering (not Text with raw LaTeX)
-            LatexText(
-              'k = ${_formatKLatex(activePoint.k)}',
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 6),
-            // FIX R4: Show ONLY the hovered/selected band (single band only)
-            Text('${activePoint.band} Band',
+            Text('${activePoint.band} band',
                 style: const TextStyle(fontWeight: FontWeight.w700)),
-            const SizedBox(height: 4),
+            const SizedBox(height: 6),
             _detailRow(
-                labelLatex: r'k_{\text{axis}}',
+                labelLatex: r'k', valueLatex: _formatKLatex(activePoint.k)),
+            _detailRow(
+                labelLatex: r'k_{\mathrm{axis}}',
                 valueLatex: _formatKAxisLatex(activePoint.kScaled)),
             _detailRow(
-                labelLatex: activePoint.band == 'Conduction' ? r'\Delta E_c(k)' : r'\Delta E_v(k)',
+                labelLatex: activePoint.band == 'Conduction'
+                    ? r'\Delta E_c(k)'
+                    : r'\Delta E_v(k)',
                 valueLatex: _formatEnergyLatex(activePoint.deltaE)),
             if (_plotMode == PlotMode.absolute)
               _detailRow(
-                  labelLatex: activePoint.band == 'Conduction' ? r'E_c(k)' : r'E_v(k)',
+                  labelLatex:
+                      activePoint.band == 'Conduction' ? r'E_c(k)' : r'E_v(k)',
                   valueLatex: _formatEnergyLatex(activePoint.eAbs)),
             _detailRow(
-                labelLatex: activePoint.band == 'Conduction' ? r'v_{g,c}(k)' : r'v_{g,v}(k)',
+                labelLatex: activePoint.band == 'Conduction'
+                    ? r'v_{g,c}(k)'
+                    : r'v_{g,v}(k)',
                 valueLatex: _formatVelocityLatex(activePoint.velocity)),
             const SizedBox(height: 8),
             Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                'Double-click to pin. Pins shown below in "Insights & Pins".',
+                'Hover follows the nearest curve. Double-click pins that point.',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ),
@@ -632,154 +680,38 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
     );
   }
 
-  Widget _buildAnimationControls(BuildContext context) {
-    final range = _animRanges[_animTarget]!;
-    final statusLatex = _animationStatusLatex();
-
-    return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: ExpansionTile(
-        initiallyExpanded: true,
-        title: const Text('Animation',
-            style: TextStyle(fontWeight: FontWeight.w700)),
-        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-        children: [
-          Wrap(
-            spacing: 12,
-            runSpacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              SizedBox(
-                width: 220,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Animate parameter',
-                        style: TextStyle(fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 4),
-                    DropdownButton<_AnimTarget>(
-                      value: _animTarget,
-                      isExpanded: true,
-                      onChanged: (v) {
-                        if (v == null) return;
-                        setState(() {
-                          _animTarget = v;
-                          _animProgress = 0;
-                        });
-                      },
-                      items: const [
-                        DropdownMenuItem(
-                            value: _AnimTarget.eg, child: Text('E_g')),
-                        DropdownMenuItem(
-                            value: _AnimTarget.mn, child: Text('m_n^*')),
-                        DropdownMenuItem(
-                            value: _AnimTarget.mp, child: Text('m_p^*')),
-                        DropdownMenuItem(
-                            value: _AnimTarget.kmax, child: Text('k_max')),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Range',
-                      style: TextStyle(fontWeight: FontWeight.w600)),
-                  SizedBox(
-                    width: 280,
-                    child: RangeSlider(
-                      values: range,
-                      min: _rangeBounds(_animTarget).$1,
-                      max: _rangeBounds(_animTarget).$2,
-                      divisions: 120,
-                      labels: RangeLabels(range.start.toStringAsFixed(2),
-                          range.end.toStringAsFixed(2)),
-                      onChanged: (v) =>
-                          setState(() => _animRanges[_animTarget] = v),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Wrap(
-            spacing: 12,
-            runSpacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              SizedBox(
-                width: 240,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Speed (0.25x–4x)',
-                        style: TextStyle(fontWeight: FontWeight.w600)),
-                    Slider(
-                      min: 0.25,
-                      max: 4,
-                      divisions: 15,
-                      value: _animSpeed,
-                      label: '${_animSpeed.toStringAsFixed(2)}x',
-                      onChanged: (v) => setState(() =>
-                          _animSpeed = double.parse(v.toStringAsFixed(2))),
-                    ),
-                  ],
-                ),
-              ),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Switch(
-                    value: _loopAnimation,
-                    onChanged: (v) => setState(() => _loopAnimation = v),
-                  ),
-                  const Text('Loop'),
-                  const SizedBox(width: 16),
-                  Switch(
-                    value: _holdSelectedK,
-                    onChanged: (v) => setState(() => _holdSelectedK = v),
-                  ),
-                  const Text('Hold selected k'),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              FilledButton.icon(
-                onPressed: _toggleAnimation,
-                icon: Icon(_isAnimating ? Icons.pause : Icons.play_arrow),
-                label: Text(_isAnimating ? 'Pause' : 'Play'),
-              ),
-              const SizedBox(width: 12),
-              OutlinedButton.icon(
-                onPressed: _restartAnimation,
-                icon: const Icon(Icons.restart_alt),
-                label: const Text('Restart'),
-              ),
-              const Spacer(),
-              LatexText(
-                statusLatex,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
-          ),
-        ],
-      ),
+  Widget _buildAnimationPanel() {
+    return EnhancedAnimationPanel<_AnimTarget>(
+      controller: _ParabolicAnimationController(this),
     );
   }
 
   Widget _buildInsights(BuildContext context) {
     final ecEv = _deriveEcEv();
-    final resolvedSelected = null;
+    final hovered = _hoveredTooltip?.point;
+    final resolvedActive = hovered == null
+        ? null
+        : _resolvePoint(
+            _PointRef(
+                band: hovered.band,
+                k: hovered.k,
+                colorIndex: hovered.colorIndex),
+            ecEv);
     final resolvedPins = _pins
         .map((p) => _resolvePoint(p, ecEv))
         .whereType<_GraphPointWithBand>()
         .toList();
+    final kRatio = resolvedActive != null && _kMaxScaled > 0
+        ? (resolvedActive.kScaled / _kMaxScaled).clamp(0.0, double.infinity)
+        : 0.0;
+    final ratioPieces = <_InlinePiece>[
+      _InlinePiece.latex(
+          r'\frac{k}{k_{\max}} \approx ' + _latexFormatter.formatLatex(kRatio)),
+    ];
+    if (resolvedActive != null && kRatio > 0.7) {
+      ratioPieces.add(const _InlinePiece.text(
+          '(near the k range limit; parabolic model accuracy drops)'));
+    }
 
     return Card(
       elevation: 1,
@@ -798,8 +730,14 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                 Text('Dynamic insight',
                     style: Theme.of(context).textTheme.titleSmall),
                 const SizedBox(height: 6),
-                if (resolvedSelected == null)
-                  const Text('Select a point to see ΔE and v_g at that k.')
+                if (resolvedActive == null)
+                  _infoBulletSegments(const [
+                    _InlinePiece.text('Hover a curve to see '),
+                    _InlinePiece.latex(r'\Delta E'),
+                    _InlinePiece.text(' and '),
+                    _InlinePiece.latex(r'v_g'),
+                    _InlinePiece.text('. Double-click to pin.'),
+                  ], latexScale: _inlineLatexScale)
                 else ...[
                   const LatexText(
                     r'\Delta E = \frac{\hbar^{2}k^{2}}{2 m^{*}},\quad v_g = \frac{\hbar k}{m^{*}}',
@@ -808,16 +746,27 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                   ),
                   const SizedBox(height: 4),
                   LatexText(
-                    r'\Delta E \approx ' +
-                        _sciPlaceholder('deltaE', resolvedSelected.deltaE) +
-                        r'\,\text{eV},\quad v_g \approx ' +
-                        _sciPlaceholder('vg', resolvedSelected.velocity) +
-                        r'\,\text{m}\,\text{s}^{-1}',
+                    'k = ${_formatKLatex(resolvedActive.k)},\\quad \\Delta E = ${_formatEnergyLatex(resolvedActive.deltaE)},\\quad v_g = ${_formatVelocityLatex(resolvedActive.velocity)}',
+                    scale: _inlineLatexScaleSmall,
                   ),
-                  const SizedBox(height: 4),
-                  const LatexText(
-                    r'\text{Smaller }m^{*}\text{ } \Rightarrow \text{ steeper curvature and larger }\Delta E\text{ at the same }k.',
-                  ),
+                  const SizedBox(height: 6),
+                  _infoBulletSegments([
+                    const _InlinePiece.text('Curvature set by'),
+                    const _InlinePiece.latex(r'm^{*}'),
+                    const _InlinePiece.text(': smaller'),
+                    const _InlinePiece.latex(r'm^{*}'),
+                    const _InlinePiece.text(' -> larger'),
+                    const _InlinePiece.latex(r'|v_g|'),
+                    const _InlinePiece.text(' and ΔE at this k.'),
+                  ]),
+                  _infoBulletSegments(ratioPieces,
+                      latexScale: _inlineLatexScale),
+                  _infoBulletSegments([
+                    const _InlinePiece.text('Energy relative to band edge:'),
+                    _InlinePiece.latex(resolvedActive.band == 'Conduction'
+                        ? r'E_c + \Delta E'
+                        : r'E_v - \Delta E'),
+                  ], latexScale: _inlineLatexScale),
                 ],
               ],
             ),
@@ -837,8 +786,13 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
             ],
           ),
           if (_pins.isEmpty)
-            const Text(
-                'Pin multiple points to compare ΔE, E, and v_g across bands.')
+            _infoBulletSegments(const [
+              _InlinePiece.text('Pin multiple points to compare '),
+              _InlinePiece.latex(r'\Delta E'),
+              _InlinePiece.text(', E, and '),
+              _InlinePiece.latex(r'v_g'),
+              _InlinePiece.text(' across bands.'),
+            ], latexScale: _inlineLatexScale)
           else
             Column(
               children: resolvedPins.map((p) {
@@ -886,23 +840,35 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                         runSpacing: 6,
                         crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
-                          LatexText(LatexReadoutFormatter.equation(
-                            labelLatex: r'k',
-                            valueLatex: _formatKLatex(p.k),
-                          )),
-                          LatexText(LatexReadoutFormatter.equation(
-                            labelLatex: r'\Delta E(k)',
-                            valueLatex: _formatEnergyLatex(p.deltaE),
-                          )),
+                          LatexText(
+                            LatexReadoutFormatter.equation(
+                              labelLatex: r'k',
+                              valueLatex: _formatKLatex(p.k),
+                            ),
+                            scale: _inlineLatexScaleSmall,
+                          ),
+                          LatexText(
+                            LatexReadoutFormatter.equation(
+                              labelLatex: r'\Delta E(k)',
+                              valueLatex: _formatEnergyLatex(p.deltaE),
+                            ),
+                            scale: _inlineLatexScaleSmall,
+                          ),
                           if (_plotMode == PlotMode.absolute)
-                            LatexText(LatexReadoutFormatter.equation(
-                              labelLatex: r'E(k)',
-                              valueLatex: _formatEnergyLatex(p.eAbs),
-                            )),
-                          LatexText(LatexReadoutFormatter.equation(
-                            labelLatex: r'v_g(k)',
-                            valueLatex: _formatVelocityLatex(p.velocity),
-                          )),
+                            LatexText(
+                              LatexReadoutFormatter.equation(
+                                labelLatex: r'E(k)',
+                                valueLatex: _formatEnergyLatex(p.eAbs),
+                              ),
+                              scale: _inlineLatexScaleSmall,
+                            ),
+                          LatexText(
+                            LatexReadoutFormatter.equation(
+                              labelLatex: r'v_g(k)',
+                              valueLatex: _formatVelocityLatex(p.velocity),
+                            ),
+                            scale: _inlineLatexScaleSmall,
+                          ),
                         ],
                       ),
                     ],
@@ -1049,7 +1015,7 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                     width: sliderWidth,
                   ),
                   _slider(
-                    labelLatex: r'\text{Points}',
+                    labelLatex: r'\mathrm{Points}',
                     value: _points,
                     min: 100,
                     max: 1000,
@@ -1068,15 +1034,17 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
             spacing: 16,
             runSpacing: 4,
             crossAxisAlignment: WrapCrossAlignment.center,
-            children: const [
-              LatexText(r'k\ \text{axis: } k \times 10^{10}\ \mathrm{m^{-1}}'),
-              LatexText(
-                  r'E\ \text{axis in eV; } \Delta E\ \text{if relative mode is selected}'),
+            children: [
+              const LatexText(
+                r'k\text{-axis: } k\times 10^{10}\ \mathrm{m^{-1}}',
+                scale: _inlineLatexScaleSmall,
+              ),
+              const Text('E axis in eV; ΔE if relative mode is selected'),
             ],
           ),
           const SizedBox(height: 4),
           Text(
-            'Parabolic approximation is best near k ˜ 0; very large k may be unrealistic.',
+            'Parabolic approximation is best near k ~ 0; very large k may be unrealistic.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
@@ -1203,18 +1171,32 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
       double maxY,
       List<_SeriesMeta> series) {
     if (series.isEmpty) return null;
-    final dataX = (local.dx / constraints.maxWidth) * (_kMaxScaled - 0) + 0;
-    final dataY = maxY - (local.dy / constraints.maxHeight) * (maxY - minY);
+    const minX = 0.0;
+    final xRange = _kMaxScaled - minX;
+    final yRange = maxY - minY;
+    if (xRange == 0 || yRange == 0) return null;
+    final innerWidth = constraints.maxWidth - _chartPadding.horizontal;
+    final innerHeight = constraints.maxHeight - _chartPadding.vertical;
+    if (innerWidth <= 0 || innerHeight <= 0) return null;
+
+    // Clamp pointer into the plot rect to avoid negative distances when hovering labels.
+    final px = (local.dx - _chartPadding.left).clamp(0.0, innerWidth);
+    final py = (local.dy - _chartPadding.top).clamp(0.0, innerHeight);
 
     _GraphPointWithBand? best;
     double bestDist = double.infinity;
     for (final meta in series) {
       for (final p in meta.points) {
-        final dx = p.kScaled - dataX;
-        final dy = p.yDisplay - dataY;
-        final dist = math.sqrt(dx * dx + dy * dy);
-        if (dist < bestDist) {
-          bestDist = dist;
+        final tx = ((p.kScaled - minX) / xRange)
+            .clamp(0.0, 1.0); // normalized x in plot space
+        final ty = (1 - ((p.yDisplay - minY) / yRange)).clamp(0.0, 1.0);
+        final screenX = _chartPadding.left + tx * innerWidth;
+        final screenY = _chartPadding.top + ty * innerHeight;
+        final dx = screenX - (_chartPadding.left + px);
+        final dy = screenY - (_chartPadding.top + py);
+        final dist2 = dx * dx + dy * dy;
+        if (dist2 < bestDist) {
+          bestDist = dist2;
           best = _GraphPointWithBand(
             band: meta.id,
             k: p.k,
@@ -1320,6 +1302,7 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
     if (_isAnimating) {
       _stopAnimation();
     } else {
+      _animDirection = _reverseDirection ? -1.0 : 1.0;
       _startAnimation();
     }
   }
@@ -1374,13 +1357,20 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
 
   void _stepAnimation() {
     setState(() {
-      _animProgress += 0.01 * _animSpeed;
-      if (_animProgress > 1.0) {
-        if (_loopAnimation) {
-          _animProgress = 0.0;
-        } else {
-          _animProgress = 1.0;
-          _stopAnimation();
+      _animProgress += 0.01 * _animSpeed * _animDirection;
+      if (_animProgress > 1.0 || _animProgress < 0.0) {
+        switch (_loopMode) {
+          case LoopMode.off:
+            _animProgress = _animProgress.clamp(0.0, 1.0);
+            _stopAnimation();
+            break;
+          case LoopMode.loop:
+            _animProgress = _animProgress < 0 ? 1.0 : 0.0;
+            break;
+          case LoopMode.pingPong:
+            _animDirection *= -1;
+            _animProgress = _animProgress < 0 ? 0.0 : 1.0;
+            break;
         }
       }
       _applyAnimatedValue();
@@ -1388,6 +1378,7 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
   }
 
   void _applyAnimatedValue() {
+    _captureOverlaySeries();
     final range = _animRanges[_animTarget]!;
     final value = _lerp(range.start, range.end, _animProgress.clamp(0.0, 1.0));
     switch (_animTarget) {
@@ -1406,6 +1397,20 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
     }
   }
 
+  void _captureOverlaySeries() {
+    if (!_overlayPrevious) return;
+    final ecEv = _deriveEcEv();
+    final data = _buildData(ecEv);
+    final list = <_SeriesMeta>[];
+    if (_showConduction) {
+      list.add(_SeriesMeta(id: 'Conduction', points: data.conduction));
+    }
+    if (_showValence) {
+      list.add(_SeriesMeta(id: 'Valence', points: data.valence));
+    }
+    _overlaySeries = list;
+  }
+
   (double, double) _rangeBounds(_AnimTarget target) {
     switch (target) {
       case _AnimTarget.eg:
@@ -1419,41 +1424,25 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
     }
   }
 
-  String _animationStatusLatex() {
-    switch (_animTarget) {
+  RangeValues _defaultRangeFor(_AnimTarget target) {
+    switch (target) {
       case _AnimTarget.eg:
-        return r'E_g: ' +
-            _latexFormatter.formatLatex(_eg) +
-            r'\ \mathrm{eV}\quad [' +
-            _latexFormatter.formatLatex(_animRanges[_AnimTarget.eg]!.start) +
-            r'\to' +
-            _latexFormatter.formatLatex(_animRanges[_AnimTarget.eg]!.end) +
-            r']';
+        return const RangeValues(0.6, 1.6);
       case _AnimTarget.mn:
-        return r'\frac{m_n^{*}}{m_0}: ' +
-            _latexFormatter.formatLatex(_mnEff) +
-            r'\quad [' +
-            _latexFormatter.formatLatex(_animRanges[_AnimTarget.mn]!.start) +
-            r'\to' +
-            _latexFormatter.formatLatex(_animRanges[_AnimTarget.mn]!.end) +
-            r']';
+        return const RangeValues(0.1, 1.2);
       case _AnimTarget.mp:
-        return r'\frac{m_p^{*}}{m_0}: ' +
-            _latexFormatter.formatLatex(_mpEff) +
-            r'\quad [' +
-            _latexFormatter.formatLatex(_animRanges[_AnimTarget.mp]!.start) +
-            r'\to' +
-            _latexFormatter.formatLatex(_animRanges[_AnimTarget.mp]!.end) +
-            r']';
+        return const RangeValues(0.1, 1.2);
       case _AnimTarget.kmax:
-        return r'k_{\max}: ' +
-            _latexFormatter.formatLatex(_kMaxScaled) +
-            r'\times 10^{10}\,\mathrm{m^{-1}}\quad [' +
-            _latexFormatter.formatLatex(_animRanges[_AnimTarget.kmax]!.start) +
-            r'\to' +
-            _latexFormatter.formatLatex(_animRanges[_AnimTarget.kmax]!.end) +
-            r']';
+        return const RangeValues(0.2, 1.0);
     }
+  }
+
+  String _animLabelLatex(_AnimTarget target) {
+    final key = _animLabelKeyMap[target];
+    if (key != null && _uiLatexLabels.containsKey(key)) {
+      return _uiLatexLabels[key]!;
+    }
+    return r'E_g';
   }
 
   // --- UI helpers ---
@@ -1559,20 +1548,23 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
     );
   }
 
-  Widget _infoBulletSegments(List<_InlinePiece> parts) {
+  Widget _infoBulletSegments(List<_InlinePiece> parts,
+      {double latexScale = 1.0}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('• '),
+          const Text('- '),
           Expanded(
             child: Wrap(
               spacing: 6,
               runSpacing: 4,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: parts
-                  .map((p) => p.latex ? LatexText(p.text) : Text(p.text))
+                  .map((p) => p.latex
+                      ? LatexText(p.text, scale: latexScale)
+                      : Text(p.text))
                   .toList(),
             ),
           ),
@@ -1615,12 +1607,21 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
               r')} \approx ' +
               (ratio.isFinite
                   ? _latexFormatter.formatLatex(ratio)
-                  : r'\text{n/a}'),
+                  : r'\mathrm{n/a}'),
+          scale: _inlineLatexScaleSmall,
         ),
         const SizedBox(height: 2),
-        const LatexText(
-          r'\text{Smaller }m^{*}\text{ gives larger } \Delta E \text{ and } |v_g| \text{ at the same } k.',
-        ),
+        _infoBulletSegments(const [
+          _InlinePiece.text('Smaller '),
+          _InlinePiece.latex(r'm^{*}'),
+          _InlinePiece.text(' gives larger '),
+          _InlinePiece.latex(r'\Delta E'),
+          _InlinePiece.text(' and '),
+          _InlinePiece.latex(r'|v_g|'),
+          _InlinePiece.text(' at the same '),
+          _InlinePiece.latex(r'k'),
+          _InlinePiece.text('.'),
+        ]),
       ],
     );
   }
@@ -1639,7 +1640,7 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
     return [
       _bandHeader(p.band),
       'k = ${_formatKLatex(p.k)}',
-      'k_{\\text{axis}} = ${_formatKAxisLatex(p.kScaled)}',
+      'k_{\\mathrm{axis}} = ${_formatKAxisLatex(p.kScaled)}',
       '$energyLabel = $energyValue',
       complementary,
       'v_g(k) = ${_formatVelocityLatex(p.velocity)}',
@@ -1658,7 +1659,7 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
   String _formatVelocityLatex(double v) =>
       LatexReadoutFormatter.valueWithUnitText(v, unit: r'm\,s^{-1}');
 
-  String _bandHeader(String band) => r'\textbf{' + band + r'}';
+  String _bandHeader(String band) => r'\mathbf{' + band + r'}';
 
   double _lerp(double a, double b, double t) => a + (b - a) * t;
 
@@ -1667,11 +1668,204 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
     if (mapped.isNotEmpty) return mapped;
     return fallback ?? key;
   }
+}
 
-  static String _sciPlaceholder(String id, double value) {
-    final fmt = NumberFormatter(significantFigures: 3, sciThresholdExp: -1000);
-    return fmt.formatScientificLatex(value);
+class _ParabolicAnimationController
+    implements EnhancedAnimationController<_AnimTarget> {
+  final _ParabolicGraphViewState state;
+  _ParabolicAnimationController(this.state);
+
+  void _update(VoidCallback fn) {
+    // ignore: invalid_use_of_protected_member
+    state.setState(fn);
   }
+
+  @override
+  List<_AnimTarget> get parameters => _AnimTarget.values;
+
+  @override
+  _AnimTarget get selectedParam => state._animTarget;
+
+  @override
+  void selectParam(_AnimTarget param) {
+    _update(() {
+      state._animTarget = param;
+      state._animProgress = 0;
+    });
+  }
+
+  String _descriptor(_AnimTarget t) {
+    switch (t) {
+      case _AnimTarget.eg:
+        return 'bandgap';
+      case _AnimTarget.mn:
+        return 'electron mass';
+      case _AnimTarget.mp:
+        return 'hole mass';
+      case _AnimTarget.kmax:
+        return 'k range';
+    }
+  }
+
+  @override
+  String dropdownLabel(_AnimTarget param) =>
+      '${state._animLabelLatex(param)} (${_descriptor(param)})';
+
+  @override
+  String valueLabel(_AnimTarget param) => state._animLabelLatex(param);
+
+  @override
+  String unitLabel(_AnimTarget param) {
+    switch (param) {
+      case _AnimTarget.eg:
+        return 'eV';
+      case _AnimTarget.mn:
+      case _AnimTarget.mp:
+        return 'm_0';
+      case _AnimTarget.kmax:
+        return r'10^{10}\,\mathrm{m^{-1}}';
+    }
+  }
+
+  @override
+  String physicsNote(_AnimTarget param) {
+    switch (param) {
+      case _AnimTarget.eg:
+        return 'Band edges shift; curvature unchanged (midgap fixed).';
+      case _AnimTarget.mn:
+        return 'Conduction curvature changes: smaller m_n* -> steeper.';
+      case _AnimTarget.mp:
+        return 'Valence curvature changes: smaller m_p* -> steeper.';
+      case _AnimTarget.kmax:
+        return 'Changes plotted k-domain extent only.';
+    }
+  }
+
+  @override
+  double get currentValue {
+    switch (state._animTarget) {
+      case _AnimTarget.eg:
+        return state._eg;
+      case _AnimTarget.mn:
+        return state._mnEff;
+      case _AnimTarget.mp:
+        return state._mpEff;
+      case _AnimTarget.kmax:
+        return state._kMaxScaled;
+    }
+  }
+
+  @override
+  void setCurrentValue(double value) {
+    if (state._isAnimating) state._stopAnimation();
+    _update(() {
+      switch (state._animTarget) {
+        case _AnimTarget.eg:
+          state._eg = value;
+          break;
+        case _AnimTarget.mn:
+          state._mnEff = value;
+          break;
+        case _AnimTarget.mp:
+          state._mpEff = value;
+          break;
+        case _AnimTarget.kmax:
+          state._kMaxScaled = value;
+          break;
+      }
+    });
+  }
+
+  @override
+  double get rangeMin => state._animRanges[state._animTarget]!.start;
+
+  @override
+  double get rangeMax => state._animRanges[state._animTarget]!.end;
+
+  (double, double) _boundsFor(_AnimTarget t) => state._rangeBounds(t);
+
+  @override
+  double get absoluteMin => _boundsFor(state._animTarget).$1;
+
+  @override
+  double get absoluteMax => _boundsFor(state._animTarget).$2;
+
+  @override
+  void setRangeMin(double value) => _update(() {
+        final current = state._animRanges[state._animTarget]!;
+        state._animRanges[state._animTarget] =
+            RangeValues(value, current.end.clamp(value, absoluteMax));
+      });
+
+  @override
+  void setRangeMax(double value) => _update(() {
+        final current = state._animRanges[state._animTarget]!;
+        state._animRanges[state._animTarget] =
+            RangeValues(current.start.clamp(absoluteMin, value), value);
+      });
+
+  @override
+  void resetRangeToDefault() => _update(() {
+        state._animRanges[state._animTarget] =
+            state._defaultRangeFor(state._animTarget);
+      });
+
+  @override
+  double get speed => state._animSpeed;
+
+  @override
+  void setSpeed(double multiplier) =>
+      _update(() => state._animSpeed = multiplier);
+
+  @override
+  LoopMode get loopMode => state._loopMode;
+
+  @override
+  void setLoopMode(LoopMode mode) =>
+      _update(() => state._loopMode = mode);
+
+  @override
+  bool get reverseDirection => state._reverseDirection;
+
+  @override
+  void setReverseDirection(bool value) =>
+      _update(() => state._reverseDirection = value);
+
+  @override
+  bool get holdSelectedK => state._holdSelectedK;
+
+  @override
+  void setHoldSelectedK(bool value) =>
+      _update(() => state._holdSelectedK = value);
+
+  @override
+  bool get lockYAxis => state._lockYAxis;
+
+  @override
+  void setLockYAxis(bool value) =>
+      _update(() => state._lockYAxis = value);
+
+  @override
+  bool get overlayPreviousCurve => state._overlayPrevious;
+
+  @override
+  void setOverlayPreviousCurve(bool value) =>
+      _update(() => state._overlayPrevious = value);
+
+  @override
+  bool get isAnimating => state._isAnimating;
+
+  @override
+  double? get progress => state._isAnimating ? state._animProgress : null;
+
+  @override
+  void play() => state._toggleAnimation();
+
+  @override
+  void pause() => state._stopAnimation();
+
+  @override
+  void restart() => state._restartAnimation();
 }
 
 class _GraphData {
@@ -1744,7 +1938,6 @@ class _InlinePiece {
 
 class _MarkersPainter extends CustomPainter {
   final List<_GraphPointWithBand> pins;
-  final _GraphPointWithBand? hoveredPoint; // FIX R3: Add hovered point
   final double minX;
   final double maxX;
   final double minY;
@@ -1752,10 +1945,10 @@ class _MarkersPainter extends CustomPainter {
   final Color conductionColor;
   final Color valenceColor;
   final List<Color> palette;
+  final EdgeInsets padding;
 
   const _MarkersPainter({
     required this.pins,
-    this.hoveredPoint, // FIX R3
     required this.minX,
     required this.maxX,
     required this.minY,
@@ -1763,19 +1956,23 @@ class _MarkersPainter extends CustomPainter {
     required this.conductionColor,
     required this.valenceColor,
     required this.palette,
+    required this.padding,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
     final dx = (maxX - minX).abs();
     final dy = (maxY - minY).abs();
-    if (dx == 0 || dy == 0) return;
+    final innerWidth = size.width - padding.horizontal;
+    final innerHeight = size.height - padding.vertical;
+    if (dx == 0 || dy == 0 || innerWidth <= 0 || innerHeight <= 0) return;
 
     void drawMarker(_GraphPointWithBand p,
         {required Color ringColor, double radius = 7}) {
       final tx = ((p.kScaled - minX) / dx).clamp(0.0, 1.0);
       final ty = (1 - ((p.yDisplay - minY) / dy)).clamp(0.0, 1.0);
-      final pos = Offset(tx * size.width, ty * size.height);
+      final pos = Offset(
+          padding.left + tx * innerWidth, padding.top + ty * innerHeight);
       final fill = p.band == 'Conduction' ? conductionColor : valenceColor;
       final ringPaint = Paint()
         ..color = ringColor
@@ -1793,28 +1990,18 @@ class _MarkersPainter extends CustomPainter {
       final ringColor = palette[(p.colorIndex ?? 0) % palette.length];
       drawMarker(p, ringColor: ringColor, radius: 7);
     }
-    
-    // FIX R3: Draw hovered/selected point marker (if not already pinned)
-    if (hoveredPoint != null) {
-      final isAlreadyPinned = pins.any((pin) =>
-          pin.band == hoveredPoint!.band &&
-          (pin.k - hoveredPoint!.k).abs() < 1e6);
-      
-      if (!isAlreadyPinned) {
-        // Draw hollow ring for hovered point
-        final ringColor = hoveredPoint!.band == 'Conduction' ? conductionColor : valenceColor;
-        drawMarker(hoveredPoint!, ringColor: ringColor.withOpacity(0.8), radius: 8);
-      }
-    }
   }
 
   @override
   bool shouldRepaint(covariant _MarkersPainter oldDelegate) {
     return oldDelegate.pins != pins ||
-        oldDelegate.hoveredPoint != hoveredPoint ||
         oldDelegate.minX != minX ||
         oldDelegate.maxX != maxX ||
         oldDelegate.minY != minY ||
-        oldDelegate.maxY != maxY;
+        oldDelegate.maxY != maxY ||
+        oldDelegate.padding != padding ||
+        oldDelegate.conductionColor != conductionColor ||
+        oldDelegate.valenceColor != valenceColor ||
+        oldDelegate.palette != palette;
   }
 }
