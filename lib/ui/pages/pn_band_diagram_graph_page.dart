@@ -6,11 +6,24 @@ import 'package:flutter/material.dart';
 import '../theme/chart_style.dart';
 import '../widgets/latex_text.dart';
 
+// New architecture imports
+import '../graphs/core/standard_graph_page_scaffold.dart';
+import '../graphs/core/graph_config.dart';
+import '../graphs/core/animation_engine.dart';
+
+// Standardized components
+import '../graphs/common/enhanced_animation_panel.dart';
+import '../graphs/utils/latex_number_formatter.dart';
+
+// Typography standards
+typedef _Typo = GraphPanelTextStyles;
+
 class PnBandDiagramGraphPage extends StatelessWidget {
   const PnBandDiagramGraphPage({super.key});
 
   @override
   Widget build(BuildContext context) {
+    debugPrint('✅ PN Band Diagram: USING STANDARD SCAFFOLD');
     return Scaffold(
       appBar: AppBar(title: const Text('PN Junction Band Diagram (E vs x)')),
       body: const PnBandDiagramView(),
@@ -33,6 +46,18 @@ class _PnBandDiagramViewState extends State<PnBandDiagramView> {
   double _bias = 0.0; // V (positive forward)
   double _epsRel = 11.7; // silicon default
 
+  // Animation state
+  late AnimationEngine _animationEngine;
+  bool _biasAnimEnabled = false;
+  bool _naAnimEnabled = false;
+  bool _ndAnimEnabled = false;
+  double _biasAnimMin = -1.0;
+  double _biasAnimMax = 0.8;
+  double _naAnimMin = 1e14;
+  double _naAnimMax = 1e19;
+  double _ndAnimMin = 1e14;
+  double _ndAnimMax = 1e19;
+
   static const double _ni = 1e10; // cm^-3 (schematic, room temp)
   static const double _eps0 = 8.8541878128e-12; // F/m
   static const double _q = 1.602176634e-19; // C
@@ -41,66 +66,330 @@ class _PnBandDiagramViewState extends State<PnBandDiagramView> {
   static const int _samples = 180;
 
   @override
+  void initState() {
+    super.initState();
+    _animationEngine = AnimationEngine(
+      getParameters: _getAnimatableParameters,
+      onUpdate: () => setState(() {}),
+    );
+  }
+
+  @override
+  void dispose() {
+    _animationEngine.dispose();
+    super.dispose();
+  }
+
+  List<AnimatableParameter> _getAnimatableParameters() {
+    // Default / normalized ranges
+    final biasRange = _normalizeBiasRange(_biasAnimMin, _biasAnimMax);
+    _biasAnimMin = biasRange.$1;
+    _biasAnimMax = biasRange.$2;
+
+    final naRange = _normalizeDopingRange(_na, _naAnimMin, _naAnimMax);
+    _naAnimMin = naRange.$1;
+    _naAnimMax = naRange.$2;
+
+    final ndRange = _normalizeDopingRange(_nd, _ndAnimMin, _ndAnimMax);
+    _ndAnimMin = ndRange.$1;
+    _ndAnimMax = ndRange.$2;
+
+    return [
+      AnimatableParameter(
+        id: 'bias',
+        label: r'V_A (Applied Bias)',
+        symbol: r'V_A',
+        unit: 'V',
+        currentValue: _bias,
+        rangeMin: _biasAnimMin,
+        rangeMax: _biasAnimMax,
+        absoluteMin: -2.0,
+        absoluteMax: 1.5,
+        enabled: _biasAnimEnabled,
+        onEnabledChanged: (enabled) => setState(() => _biasAnimEnabled = enabled),
+        onValueChanged: (value) => setState(() => _bias = value),
+        onRangeChanged: (min, max) => setState(() {
+          final normalized = _normalizeBiasRange(min, max);
+          _biasAnimMin = normalized.$1;
+          _biasAnimMax = normalized.$2;
+        }),
+        physicsNote: 'Forward bias flattens bands; reverse bias increases band bending.',
+      ),
+      AnimatableParameter(
+        id: 'na',
+        label: r'N_A (Acceptor Concentration)',
+        symbol: r'N_A',
+        unit: 'cm^{-3}',
+        currentValue: _na,
+        rangeMin: _naAnimMin,
+        rangeMax: _naAnimMax,
+        absoluteMin: 1e12,
+        absoluteMax: 1e21,
+        enabled: _naAnimEnabled,
+        onEnabledChanged: (enabled) => setState(() => _naAnimEnabled = enabled),
+        onValueChanged: (value) => setState(() => _na = value),
+        onRangeChanged: (min, max) => setState(() {
+          final normalized = _normalizeDopingRange(_na, min, max);
+          _naAnimMin = normalized.$1;
+          _naAnimMax = normalized.$2;
+        }),
+        physicsNote: 'Higher NA increases built-in potential and steepens band bending.',
+      ),
+      AnimatableParameter(
+        id: 'nd',
+        label: r'N_D (Donor Concentration)',
+        symbol: r'N_D',
+        unit: 'cm^{-3}',
+        currentValue: _nd,
+        rangeMin: _ndAnimMin,
+        rangeMax: _ndAnimMax,
+        absoluteMin: 1e12,
+        absoluteMax: 1e21,
+        enabled: _ndAnimEnabled,
+        onEnabledChanged: (enabled) => setState(() => _ndAnimEnabled = enabled),
+        onValueChanged: (value) => setState(() => _nd = value),
+        onRangeChanged: (min, max) => setState(() {
+          final normalized = _normalizeDopingRange(_nd, min, max);
+          _ndAnimMin = normalized.$1;
+          _ndAnimMax = normalized.$2;
+        }),
+        physicsNote: 'Higher ND increases built-in potential and steepens band bending.',
+      ),
+    ];
+  }
+
+  (double, double) _normalizeDopingRange(double n0, double minIn, double maxIn) {
+    const boundsMin = 1e14;
+    const boundsMax = 1e19;
+    double min = minIn;
+    double max = maxIn;
+
+    if (min <= 0 || max <= 0 || min >= max || (min == boundsMin && max >= boundsMax * 0.99)) {
+      min = n0 / 10;
+      max = n0 * 10;
+    }
+
+    min = min.clamp(boundsMin, boundsMax);
+    max = max.clamp(boundsMin, boundsMax);
+
+    if (min >= max) {
+      min = boundsMin;
+      max = math.min(boundsMax, min * 10);
+    }
+
+    return (min, max);
+  }
+
+  (double, double) _normalizeBiasRange(double minIn, double maxIn) {
+    const defaultMin = -1.0;
+    const defaultMax = 0.8;
+    double min = minIn;
+    double max = maxIn;
+
+    if (min >= max || (min == 0 && max == 0)) {
+      min = defaultMin;
+      max = defaultMax;
+    }
+
+    min = min.clamp(-2.0, 1.5);
+    max = max.clamp(-2.0, 1.5);
+
+    if (min >= max) {
+      min = defaultMin;
+      max = defaultMax;
+    }
+
+    return (min, max);
+  }
+
+  @override
   Widget build(BuildContext context) {
     final profile = _buildBandProfile();
+    final config = _buildGraphConfig(profile);
 
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildHeader(context),
-          const SizedBox(height: 12),
-          _buildInfoPanel(),
-          const SizedBox(height: 12),
-          Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  flex: 2,
-                  child: Card(
-                    elevation: 1,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: _buildChart(context, profile),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: ListView(
-                    children: [
-                      _buildReadout(profile),
-                      const SizedBox(height: 12),
-                      _buildControls(),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+    return StandardGraphPageScaffold(
+      config: config,
+      chartBuilder: (context) => _buildChart(context, profile),
+      showDebugBadge: true,
+      debugBadgeText: 'PN USING STANDARD SCAFFOLD',
+      headerWidgets: [
+        _buildInfoPanel(),
+      ],
+    );
+  }
+
+  GraphConfig _buildGraphConfig(_BandProfile profile) {
+    return GraphConfig(
+      title: 'PN Junction Band Diagram (E vs x)',
+      subtitle: 'Shows Ec(x), Ev(x), Ei(x) and quasi-Fermi levels under bias',
+      animation: AnimationConfig(
+        parameters: _getAnimatableParameters(),
+        selectedParameterId: 'bias',
+        onParameterSelected: (id) => setState(() {}),
+        state: AnimationState(
+          isPlaying: _animationEngine.isPlaying,
+          speed: _animationEngine.speed,
+          reverse: _animationEngine.reverse,
+          loop: _animationEngine.loop,
+        ),
+        callbacks: AnimationCallbacks(
+          onPlay: () => _animationEngine.play(),
+          onPause: () => _animationEngine.pause(),
+          onRestart: () => _animationEngine.restart(),
+          onSpeedChanged: (speed) => _animationEngine.setSpeed(speed),
+          onReverseChanged: (reverse) => _animationEngine.setReverse(reverse),
+          onLoopChanged: (loop) => _animationEngine.setLoop(loop),
+        ),
+      ),
+      insights: InsightsConfig(
+        dynamicObservations: _buildDynamicObservations(profile),
+        staticObservations: _buildStaticObservations(),
+      ),
+      readouts: _buildReadouts(profile),
+      controls: ControlsConfig(
+        children: _buildControlsChildren(profile),
+        collapsible: true,
+        initiallyExpanded: true,
       ),
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'PN Junction Band Diagram (E vs x)',
-          style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+  List<String> _buildDynamicObservations(_BandProfile profile) {
+    final obs = <String>[];
+    
+    if (_bias > 0.1) {
+      obs.add(r'Forward bias: bands flatten, quasi-Fermi splitting increases carrier injection.');
+    } else if (_bias < -0.1) {
+      obs.add(r'Reverse bias: bands steepen, depletion widens, minimal carrier flow.');
+    } else {
+      obs.add(r'Zero bias: equilibrium band bending determined by $V_{bi}$.');
+    }
+    
+    final ratio = _na / _nd;
+    if (ratio > 5) {
+      obs.add(r'$N_A \gg N_D$: depletion extends mostly into n-side.');
+    } else if (ratio < 0.2) {
+      obs.add(r'$N_D \gg N_A$: depletion extends mostly into p-side.');
+    }
+    
+    return obs;
+  }
+
+  List<String> _buildStaticObservations() {
+    return [
+      r'Built-in potential $V_{bi} = V_T \ln(N_A N_D / n_i^2)$ sets equilibrium band bending.',
+      r'Quasi-Fermi levels split under bias: $E_{Fn} - E_{Fp} = q V_A$.',
+      r'Band edges $E_c$, $E_v$ are continuous; intrinsic level $E_i$ follows mid-gap.',
+    ];
+  }
+
+  List<ReadoutItem> _buildReadouts(_BandProfile profile) {
+    const voltageUnit = r'\mathrm{V}';
+    const lengthUnit = r'\mu\mathrm{m}';
+
+    return [
+      ReadoutItem(
+        label: r'\(V_{bi}\) (built-in)',
+        value: LatexNumberFormatter.valueWithUnit(profile.vbi, unitLatex: voltageUnit, sigFigs: 3),
+        boldValue: true,
+      ),
+      ReadoutItem(
+        label: r'\(V_A\) (applied)',
+        value: LatexNumberFormatter.valueWithUnit(_bias, unitLatex: voltageUnit, sigFigs: 3),
+      ),
+      ReadoutItem(
+        label: r'Barrier $V_{bi} - V_A$',
+        value: LatexNumberFormatter.valueWithUnit(profile.barrier, unitLatex: voltageUnit, sigFigs: 3),
+      ),
+      ReadoutItem(
+        label: r'Depletion width $W$',
+        value: LatexNumberFormatter.valueWithUnit(profile.totalWidthUm, unitLatex: lengthUnit, sigFigs: 3),
+      ),
+    ];
+  }
+
+  List<Widget> _buildControlsChildren(_BandProfile profile) {
+    const dopingUnit = r'\mathrm{cm^{-3}}';
+    const tempLabel = r'\(T\,(\mathrm{K})\)';
+    const naLabel = r'\(N_A\,(' + dopingUnit + r')\)';
+    const ndLabel = r'\(N_D\,(' + dopingUnit + r')\)';
+    const egLabel = r'\(E_g\,(\mathrm{eV})\)';
+    const biasLabel = r'\(V_A\,(\mathrm{V})\)';
+    const epsLabel = r'\(\varepsilon_r\)';
+    
+    return [
+      Text(
+        'Parameters',
+        style: TextStyle(
+          fontSize: _Typo.title,
+          fontWeight: FontWeight.w700,
         ),
-        const SizedBox(height: 4),
-        Text(
-          'Shows E_c(x), E_v(x), E_i(x) and quasi-Fermi levels under bias.',
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+      ),
+      const SizedBox(height: 12),
+      _logSlider(
+        label: naLabel,
+        value: _na,
+        min: 1e14,
+        max: 1e19,
+        onChanged: (v) => setState(() => _na = v),
+      ),
+      _logSlider(
+        label: ndLabel,
+        value: _nd,
+        min: 1e14,
+        max: 1e19,
+        onChanged: (v) => setState(() => _nd = v),
+      ),
+      _slider(
+        label: tempLabel,
+        value: _temperature,
+        min: 200,
+        max: 450,
+        divisions: 250,
+        onChanged: (v) => setState(() => _temperature = v),
+      ),
+      _slider(
+        label: egLabel,
+        value: _eg,
+        min: 0.7,
+        max: 1.6,
+        divisions: 180,
+        onChanged: (v) => setState(() => _eg = double.parse(v.toStringAsFixed(3))),
+      ),
+      _slider(
+        label: biasLabel,
+        value: _bias,
+        min: -1.0,
+        max: 0.8,
+        divisions: 90,
+        onChanged: (v) => setState(() => _bias = double.parse(v.toStringAsFixed(3))),
+      ),
+      _slider(
+        label: epsLabel,
+        value: _epsRel,
+        min: 8,
+        max: 15,
+        divisions: 70,
+        onChanged: (v) => setState(() => _epsRel = double.parse(v.toStringAsFixed(2))),
+      ),
+      const SizedBox(height: 12),
+      ElevatedButton.icon(
+        onPressed: () => setState(() {
+          _na = 1e16;
+          _nd = 1e16;
+          _temperature = 300;
+          _eg = 1.12;
+          _bias = 0.0;
+          _epsRel = 11.7;
+          _animationEngine.pause();
+        }),
+        icon: const Icon(Icons.restart_alt, size: 18),
+        label: const Text('Reset to Defaults'),
+        style: ElevatedButton.styleFrom(
+          minimumSize: const Size(double.infinity, 36),
         ),
-      ],
-    );
+      ),
+    ];
   }
 
   Widget _buildInfoPanel() {
@@ -109,7 +398,9 @@ class _PnBandDiagramViewState extends State<PnBandDiagramView> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ExpansionTile(
         initiallyExpanded: true,
-        title: const Text('What you should observe', style: TextStyle(fontWeight: FontWeight.w700)),
+        title: Text('What you should observe',
+            style:
+                TextStyle(fontSize: _Typo.title, fontWeight: FontWeight.w700)),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         children: const [
           _Bullet(r'E_c, E_v bend through the depletion region; forward bias flattens the bands.'),
@@ -133,7 +424,8 @@ class _PnBandDiagramViewState extends State<PnBandDiagramView> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const LatexText(r'E_c, E_v, E_i, E_{Fn}, E_{Fp}\ \text{(eV)}'),
+        LatexText(r'E_c, E_v, E_i, E_{Fn}, E_{Fp}\ \text{(eV)}',
+            style: TextStyle(fontSize: _Typo.sectionLabel)),
         const SizedBox(height: 8),
         Expanded(
           child: LineChart(
@@ -144,7 +436,10 @@ class _PnBandDiagramViewState extends State<PnBandDiagramView> {
               maxY: maxY,
               titlesData: FlTitlesData(
                 leftTitles: AxisTitles(
-                  axisNameWidget: Text('Energy (eV)', style: context.chartStyle.axisTitleTextStyle),
+                  axisNameWidget: Text('Energy (eV)',
+                      style: TextStyle(
+                          fontSize: _Typo.sectionLabel,
+                          fontWeight: FontWeight.w600)),
                   axisNameSize: 44,
                   sideTitles: SideTitles(
                     showTitles: true,
@@ -154,14 +449,17 @@ class _PnBandDiagramViewState extends State<PnBandDiagramView> {
                         padding: context.chartStyle.tickPadding,
                         child: Text(
                           value.toStringAsFixed(1),
-                          style: context.chartStyle.tickTextStyle,
+                          style: TextStyle(fontSize: _Typo.hint),
                         ),
                       );
                     },
                   ),
                 ),
                 bottomTitles: AxisTitles(
-                  axisNameWidget: Text('Position (µm)', style: context.chartStyle.axisTitleTextStyle),
+                  axisNameWidget: Text('Position (µm)',
+                      style: TextStyle(
+                          fontSize: _Typo.sectionLabel,
+                          fontWeight: FontWeight.w600)),
                   axisNameSize: 40,
                   sideTitles: SideTitles(
                     showTitles: true,
@@ -171,7 +469,7 @@ class _PnBandDiagramViewState extends State<PnBandDiagramView> {
                         padding: context.chartStyle.tickPadding,
                         child: Text(
                           value.toStringAsFixed(2),
-                          style: context.chartStyle.tickTextStyle,
+                          style: TextStyle(fontSize: _Typo.hint),
                         ),
                       );
                     },
@@ -190,7 +488,11 @@ class _PnBandDiagramViewState extends State<PnBandDiagramView> {
                         .map(
                           (s) => LineTooltipItem(
                             'x=${s.x.toStringAsFixed(3)} µm\nE=${s.y.toStringAsFixed(3)} eV',
-                            context.chartStyle.tooltipTextStyle,
+                            TextStyle(
+                              fontSize: _Typo.hint,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
                         )
                         .toList();
@@ -223,91 +525,6 @@ class _PnBandDiagramViewState extends State<PnBandDiagramView> {
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildReadout(_BandProfile profile) {
-    final format = (double v) => v.toStringAsPrecision(3);
-    return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Key values', style: TextStyle(fontWeight: FontWeight.w700)),
-            const SizedBox(height: 6),
-            Text('Built-in potential V_bi ≈ ${format(profile.vbi)} V'),
-            Text('Applied bias V_A = ${format(_bias)} V'),
-            Text('Barrier height V_bi - V_A ≈ ${format(profile.barrier)} V'),
-            Text('Depletion width ≈ ${format(profile.totalWidthUm)} µm'),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildControls() {
-    return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Parameters', style: TextStyle(fontWeight: FontWeight.w700)),
-            const SizedBox(height: 10),
-            _logSlider(
-              label: 'N_A (cm⁻³)',
-              value: _na,
-              min: 1e14,
-              max: 1e19,
-              onChanged: (v) => setState(() => _na = v),
-            ),
-            _logSlider(
-              label: 'N_D (cm⁻³)',
-              value: _nd,
-              min: 1e14,
-              max: 1e19,
-              onChanged: (v) => setState(() => _nd = v),
-            ),
-            _slider(
-              label: 'Temperature (K)',
-              value: _temperature,
-              min: 200,
-              max: 450,
-              divisions: 250,
-              onChanged: (v) => setState(() => _temperature = v),
-            ),
-            _slider(
-              label: 'Bandgap E_g (eV)',
-              value: _eg,
-              min: 0.7,
-              max: 1.6,
-              divisions: 180,
-              onChanged: (v) => setState(() => _eg = double.parse(v.toStringAsFixed(3))),
-            ),
-            _slider(
-              label: 'Applied bias V_A (V)',
-              value: _bias,
-              min: -1.0,
-              max: 0.8,
-              divisions: 90,
-              onChanged: (v) => setState(() => _bias = double.parse(v.toStringAsFixed(3))),
-            ),
-            _slider(
-              label: 'Permittivity ε_r',
-              value: _epsRel,
-              min: 8,
-              max: 15,
-              divisions: 70,
-              onChanged: (v) => setState(() => _epsRel = double.parse(v.toStringAsFixed(2))),
-            ),
-          ],
-        ),
-      ),
     );
   }
 
@@ -389,8 +606,12 @@ class _PnBandDiagramViewState extends State<PnBandDiagramView> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
-              Text(value.toStringAsPrecision(4)),
+              LatexText(label,
+                  style: TextStyle(
+                      fontSize: _Typo.sectionLabel,
+                      fontWeight: FontWeight.w600)),
+              Text(value.toStringAsPrecision(4),
+                  style: TextStyle(fontSize: _Typo.value)),
             ],
           ),
           Slider(value: value, min: min, max: max, divisions: divisions, onChanged: onChanged),
@@ -417,8 +638,12 @@ class _PnBandDiagramViewState extends State<PnBandDiagramView> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
-              Text(value.toStringAsPrecision(3)),
+              LatexText(label,
+                  style: TextStyle(
+                      fontSize: _Typo.sectionLabel,
+                      fontWeight: FontWeight.w600)),
+              Text(value.toStringAsPrecision(3),
+                  style: TextStyle(fontSize: _Typo.value)),
             ],
           ),
           Slider(
@@ -473,8 +698,10 @@ class _Bullet extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('• '),
-          Expanded(child: LatexText(latex)),
+          Text('• ', style: TextStyle(fontSize: _Typo.body)),
+          Expanded(
+              child: LatexText(latex,
+                  style: TextStyle(fontSize: _Typo.body))),
         ],
       ),
     );

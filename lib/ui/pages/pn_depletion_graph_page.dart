@@ -9,20 +9,27 @@ import '../../core/constants/latex_symbols.dart';
 import '../graphs/utils/semiconductor_models.dart';
 import '../widgets/latex_text.dart';
 
+// New architecture imports
+import '../graphs/core/standard_graph_page_scaffold.dart';
+import '../graphs/core/graph_config.dart';
+import '../graphs/core/animation_engine.dart';
+
 // Standardized components
 import '../graphs/common/graph_controller.dart';
-import '../graphs/common/readouts_card.dart';
-import '../graphs/common/point_inspector_card.dart';
 import '../graphs/common/parameters_card.dart';
-import '../graphs/common/key_observations_card.dart';
 import '../graphs/common/plot_selector.dart';
 import '../graphs/utils/latex_number_formatter.dart';
+import '../graphs/common/enhanced_animation_panel.dart';
+
+// Typography standards
+typedef _Typo = GraphPanelTextStyles;
 
 class PnDepletionGraphPage extends StatelessWidget {
   const PnDepletionGraphPage({super.key});
 
   @override
   Widget build(BuildContext context) {
+    debugPrint('✅ PN Depletion Profiles: USING STANDARD SCAFFOLD');
     return Scaffold(
       appBar: AppBar(title: const Text('PN Junction Depletion Profiles')),
       body: const _PnDepletionGraphView(),
@@ -55,6 +62,18 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
   // Interactive
   FlSpot? _selectedPoint;
 
+  // Animation state
+  late AnimationEngine _animationEngine;
+  bool _vaAnimEnabled = false;
+  bool _naAnimEnabled = false;
+  bool _ndAnimEnabled = false;
+  double _vaAnimMin = -5.0;
+  double _vaAnimMax = 1.0;
+  double _naAnimMin = 1e14;
+  double _naAnimMax = 1e20;
+  double _ndAnimMin = 1e14;
+  double _ndAnimMax = 1e20;
+
   static const double _bandgap = 1.12; // eV for Si
   static const double _mnStar = 1.08;
   static const double _mpStar = 0.56;
@@ -66,6 +85,16 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
   void initState() {
     super.initState();
     _constants = _loadConstants();
+    _animationEngine = AnimationEngine(
+      getParameters: _getAnimatableParameters,
+      onUpdate: () => setState(() {}),
+    );
+  }
+
+  @override
+  void dispose() {
+    _animationEngine.dispose();
+    super.dispose();
   }
 
   Future<_Constants> _loadConstants() async {
@@ -97,7 +126,141 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
       _showOutside = true;
       _selectedPlot = 'ρ(x)';
       _selectedPoint = null;
+      _animationEngine.pause();
     });
+  }
+
+  List<AnimatableParameter> _getAnimatableParameters() {
+    final dopingUnit = _useCmUnits ? 'cm^{-3}' : 'm^{-3}';
+    // Ensure ranges are valid and non-degenerate before building parameter specs
+    final vaRange = _normalizeVaRange(_vaAnimMin, _vaAnimMax);
+    _vaAnimMin = vaRange.$1;
+    _vaAnimMax = vaRange.$2;
+
+    final naRange = _normalizeDopingRange(_naDisplay, _naAnimMin, _naAnimMax);
+    _naAnimMin = naRange.$1;
+    _naAnimMax = naRange.$2;
+
+    final ndRange = _normalizeDopingRange(_ndDisplay, _ndAnimMin, _ndAnimMax);
+    _ndAnimMin = ndRange.$1;
+    _ndAnimMax = ndRange.$2;
+
+    return [
+      AnimatableParameter(
+        id: 'va',
+        label: r'V_a (Applied Voltage)',
+        symbol: r'V_a',
+        unit: 'V',
+        currentValue: _va,
+        rangeMin: _vaAnimMin,
+        rangeMax: _vaAnimMax,
+        absoluteMin: -10.0,
+        absoluteMax: 2.0,
+        enabled: _vaAnimEnabled,
+        onEnabledChanged: (enabled) => setState(() => _vaAnimEnabled = enabled),
+        onValueChanged: (value) => setState(() => _va = value),
+        onRangeChanged: (min, max) => setState(() {
+          final clamped = _normalizeVaRange(min, max);
+          _vaAnimMin = clamped.$1;
+          _vaAnimMax = clamped.$2;
+        }),
+        physicsNote: 'Forward bias (Va > 0) shrinks depletion width; reverse bias (Va < 0) widens it.',
+      ),
+      AnimatableParameter(
+        id: 'na',
+        label: r'N_A (Acceptor Concentration)',
+        symbol: r'N_A',
+        unit: dopingUnit,
+        currentValue: _naDisplay,
+        rangeMin: _naAnimMin,
+        rangeMax: _naAnimMax,
+        absoluteMin: 1e12,
+        absoluteMax: 1e22,
+        enabled: _naAnimEnabled,
+        onEnabledChanged: (enabled) => setState(() => _naAnimEnabled = enabled),
+        onValueChanged: (value) => setState(() => _naDisplay = value),
+        onRangeChanged: (min, max) => setState(() {
+          final normalized = _normalizeDopingRange(_naDisplay, min, max);
+          _naAnimMin = normalized.$1;
+          _naAnimMax = normalized.$2;
+        }),
+        physicsNote: 'Higher NA narrows depletion on p-side, shifts junction.',
+      ),
+      AnimatableParameter(
+        id: 'nd',
+        label: r'N_D (Donor Concentration)',
+        symbol: r'N_D',
+        unit: dopingUnit,
+        currentValue: _ndDisplay,
+        rangeMin: _ndAnimMin,
+        rangeMax: _ndAnimMax,
+        absoluteMin: 1e12,
+        absoluteMax: 1e22,
+        enabled: _ndAnimEnabled,
+        onEnabledChanged: (enabled) => setState(() => _ndAnimEnabled = enabled),
+        onValueChanged: (value) => setState(() => _ndDisplay = value),
+        onRangeChanged: (min, max) => setState(() {
+          final normalized = _normalizeDopingRange(_ndDisplay, min, max);
+          _ndAnimMin = normalized.$1;
+          _ndAnimMax = normalized.$2;
+        }),
+        physicsNote: 'Higher ND narrows depletion on n-side, shifts junction.',
+      ),
+    ];
+  }
+
+  /// Option 3 around-current sweep with clamping to safe bounds.
+  (double, double) _normalizeDopingRange(double n0Display, double minIn, double maxIn) {
+    final boundsMin = _useCmUnits ? 1e14 : 1e20;
+    final boundsMax = _useCmUnits ? 1e19 : 1e25;
+
+    double min = minIn;
+    double max = maxIn;
+
+    // If degenerate or uninitialized, derive from current value.
+    if (min <= 0 || max <= 0 || min >= max || (min == boundsMin && max >= boundsMax * 0.99)) {
+      min = n0Display / 10;
+      max = n0Display * 10;
+    }
+
+    // Clamp to absolute bounds
+    min = min.clamp(boundsMin, boundsMax);
+    max = max.clamp(boundsMin, boundsMax);
+
+    if (min >= max) {
+      // force a small spread inside bounds
+      min = boundsMin;
+      max = math.min(boundsMax, min * 10);
+      if (min >= max) {
+        max = min * 1.1;
+      }
+    }
+
+    return (min, max);
+  }
+
+  (double, double) _normalizeVaRange(double minIn, double maxIn) {
+    const defaultMin = -1.0;
+    const defaultMax = 0.8;
+    double min = minIn;
+    double max = maxIn;
+
+    // Replace legacy defaults with the desired teaching range.
+    if ((min == -5.0 && max == 1.0) || (min >= max) || (min == 0 && max == 0)) {
+      min = defaultMin;
+      max = defaultMax;
+    }
+
+    // clamp to absolute safety bounds from AnimatableParameter
+    min = min.clamp(-10.0, 2.0);
+    max = max.clamp(-10.0, 2.0);
+
+    if (min >= max) {
+      min = defaultMin;
+      max = defaultMax;
+    }
+
+    return (min, max);
   }
 
   _PnCurves _buildCurves(_Constants c) {
@@ -176,7 +339,6 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
       }
     }
 
-    // Padding for nicer axes
     final rhoPad = (maxRho - minRho).abs() * 0.1 + 1e-3;
     final ePad = (maxE - minE).abs() * 0.1 + 1e3;
     final vPad = (maxV - minV).abs() * 0.08 + 0.05;
@@ -213,72 +375,293 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
         }
         final constants = snapshot.data!;
         final curves = _buildCurves(constants);
+        
+        final config = _buildGraphConfig(curves);
 
-        return LayoutBuilder(
-          builder: (context, constraints) {
-            final isWide = constraints.maxWidth >= 1100;
-            return Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildHeader(context),
-                  const SizedBox(height: 12),
-                  _buildAboutCard(context),
-                  const SizedBox(height: 12),
-                  _buildObserveCard(context),
-                  const SizedBox(height: 12),
-                  Expanded(
-                    child: isWide
-                        ? _buildWideLayout(context, curves)
-                        : _buildNarrowLayout(context, curves),
-                  ),
-                ],
-              ),
-            );
-          },
+        return StandardGraphPageScaffold(
+          config: config,
+          chartBuilder: (context) => _buildChartArea(context, curves),
+          showDebugBadge: true,
+          debugBadgeText: 'PN USING STANDARD SCAFFOLD',
+          headerWidgets: [
+            _buildAboutCard(context),
+            _buildObserveCard(context),
+          ],
         );
       },
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'PN Junction Depletion Profiles',
-          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
+  GraphConfig _buildGraphConfig(_PnCurves curves) {
+    return GraphConfig(
+      title: 'PN Junction Depletion Profiles',
+      subtitle: 'PN Junction',
+      mainEquation: r'W = \sqrt{\frac{2 \varepsilon_s}{q}\left(\frac{1}{N_A} + \frac{1}{N_D}\right)(V_{bi}-V_a)}',
+      pointInspector: PointInspectorConfig(
+        enabled: true,
+        builder: _selectedPoint != null ? () => _buildPointInspectorLines(curves) : null,
+        onClear: () => updateChart(() => _selectedPoint = null),
+        isPinned: _selectedPoint != null,
+      ),
+      animation: AnimationConfig(
+        parameters: _getAnimatableParameters(),
+        selectedParameterId: 'va',
+        onParameterSelected: (id) => setState(() {}),
+        state: AnimationState(
+          isPlaying: _animationEngine.isPlaying,
+          speed: _animationEngine.speed,
+          reverse: _animationEngine.reverse,
+          loop: _animationEngine.loop,
         ),
-        const SizedBox(height: 6),
-        Text(
-          'PN Junction',
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
+        callbacks: AnimationCallbacks(
+          onPlay: () => _animationEngine.play(),
+          onPause: () => _animationEngine.pause(),
+          onRestart: () => _animationEngine.restart(),
+          onSpeedChanged: (speed) => _animationEngine.setSpeed(speed),
+          onReverseChanged: (reverse) => _animationEngine.setReverse(reverse),
+          onLoopChanged: (loop) => _animationEngine.setLoop(loop),
         ),
-        const SizedBox(height: 12),
-        Center(
-          child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primary.withOpacity(0.05),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: Theme.of(context).colorScheme.primary.withOpacity(0.2),
-              ),
-            ),
-            child: const LatexText(
-              r'W = \sqrt{\frac{2 \varepsilon_s}{q}\left(\frac{1}{N_A} + \frac{1}{N_D}\right)(V_{bi}-V_a)}',
-              displayMode: true,
-              scale: 1.1,
-            ),
-          ),
-        ),
-      ],
+      ),
+      insights: InsightsConfig(
+        dynamicObservations: _buildDynamicObservations(curves),
+        staticObservations: _buildStaticObservations(),
+        dynamicTitle: 'Current Configuration',
+      ),
+      readouts: _buildReadouts(curves),
+      controls: ControlsConfig(
+        children: _buildControlsChildren(curves),
+        collapsible: true,
+        initiallyExpanded: true,
+      ),
     );
+  }
+
+  List<String> _buildPointInspectorLines(_PnCurves curves) {
+    if (_selectedPoint == null) return [];
+    
+    final x = _selectedPoint!.x; // in micrometers
+    final y = _selectedPoint!.y;
+    
+    final xLine = r'\(x = ' + x.toStringAsFixed(3) + r'\,\mu\mathrm{m}\)';
+    
+    String yLine;
+    if (_selectedPlot == 'ρ(x)') {
+      final val = LatexNumberFormatter.valueWithUnit(y, unitLatex: r'\mathrm{C/m^{3}}', sigFigs: 3);
+      yLine = r'\(\rho(x) = ' + val + r'\)';
+    } else if (_selectedPlot == 'E(x)') {
+      final val = LatexNumberFormatter.valueWithUnit(y, unitLatex: r'\mathrm{V/m}', sigFigs: 3);
+      yLine = r'\(E(x) = ' + val + r'\)';
+    } else {
+      yLine = r'\(V(x) = ' + LatexNumberFormatter.valueWithUnit(y, unitLatex: r'\mathrm{V}', sigFigs: 3) + r'\)';
+    }
+
+    return [
+      'Plot: $_selectedPlot',
+      xLine,
+      yLine,
+    ];
+  }
+
+  List<String> _buildDynamicObservations(_PnCurves curves) {
+    final obs = <String>[];
+
+    // Bias regime
+    if (_va < -0.1) {
+      obs.add(
+          r'Reverse bias ($V_a < 0$): depletion width increases, peak field rises.');
+    } else if (_va > 0.1 && _va < curves.vbi) {
+      obs.add(
+          r'Forward bias ($V_a > 0$): depletion width shrinks, field decreases.');
+    } else if (_va >= curves.vbi) {
+      obs.add(
+          r'Warning: $V_a \geq V_{bi}$ violates depletion approximation (diffusion dominates).');
+    } else {
+      obs.add(r'Zero bias ($V_a \approx 0$): equilibrium depletion width.');
+    }
+
+    // Doping asymmetry
+    final naSi = _dopingToSi(_naDisplay);
+    final ndSi = _dopingToSi(_ndDisplay);
+    final ratio = naSi / ndSi;
+    if (ratio > 10) {
+      obs.add(
+          r'Highly asymmetric doping: $N_A \gg N_D$ → depletion extends mostly into n-side ($x_n \gg x_p$).');
+    } else if (ratio < 0.1) {
+      obs.add(
+          r'Highly asymmetric doping: $N_D \gg N_A$ → depletion extends mostly into p-side ($x_p \gg x_n$).');
+    } else {
+      obs.add(r'Moderate doping asymmetry: depletion regions fairly balanced.');
+    }
+
+    return obs;
+  }
+
+  List<String> _buildStaticObservations() {
+    return [
+      r'Depletion width $W \propto \sqrt{V_{bi} - V_a}$; sensitive to bias.',
+      r'Peak field $E_{max} = -q N_A x_p / \varepsilon_s = q N_D x_n / \varepsilon_s$ at junction.',
+      r'Charge neutrality: $N_A x_p = N_D x_n$ (equal charge on both sides).',
+      r'Higher doping → narrower depletion on that side (one-sided junction approximation).',
+    ];
+  }
+
+  List<ReadoutItem> _buildReadouts(_PnCurves curves) {
+    const lengthUnit = r'\mu\mathrm{m}';
+    const voltageUnit = r'\mathrm{V}';
+    const eFieldUnit = r'\mathrm{V/m}';
+
+    return [
+      ReadoutItem(
+        label: r'\(W\) (depletion width)',
+        value: LatexNumberFormatter.valueWithUnit(curves.wUm, unitLatex: lengthUnit, sigFigs: 3),
+        boldValue: true,
+      ),
+      ReadoutItem(
+        label: r'\(x_p\) (p-side)',
+        value: LatexNumberFormatter.valueWithUnit(curves.xpUm, unitLatex: lengthUnit, sigFigs: 3),
+      ),
+      ReadoutItem(
+        label: r'\(x_n\) (n-side)',
+        value: LatexNumberFormatter.valueWithUnit(curves.xnUm, unitLatex: lengthUnit, sigFigs: 3),
+      ),
+      ReadoutItem(
+        label: r'\(E_{\\max}\) (peak field)',
+        value: LatexNumberFormatter.valueWithUnit(curves.eMax.abs(), unitLatex: eFieldUnit, sigFigs: 3),
+      ),
+      ReadoutItem(
+        label: r'\(V_{bi}\) (built-in)',
+        value: LatexNumberFormatter.valueWithUnit(curves.vbi, unitLatex: voltageUnit, sigFigs: 3),
+      ),
+    ];
+  }
+
+  List<Widget> _buildControlsChildren(_PnCurves curves) {
+    final dopingUnit = _useCmUnits ? r'\mathrm{cm^{-3}}' : r'\mathrm{m^{-3}}';
+    final naLabel = r'\(N_A\,(' + dopingUnit + r')\)';
+    final ndLabel = r'\(N_D\,(' + dopingUnit + r')\)';
+
+    return [
+      Text(
+        'Parameters',
+        style: TextStyle(
+          fontSize: _Typo.title,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      const SizedBox(height: 12),
+      ParameterSlider(
+        label: r'\(T\,(\mathrm{K})\)',
+        value: _temperature,
+        min: 200,
+        max: 500,
+        divisions: 300,
+        onChanged: (v) {
+          setState(() => _temperature = v);
+          bumpChart();
+        },
+      ),
+      ParameterSlider(
+        label: naLabel,
+        value: _naDisplay,
+        min: 1e14,
+        max: 1e20,
+        divisions: null,
+        onChanged: (v) {
+          setState(() => _naDisplay = v);
+          bumpChart();
+        },
+        subtitle: LatexNumberFormatter.toUnicodeSci(_naDisplay, sigFigs: 3),
+      ),
+      ParameterSlider(
+        label: ndLabel,
+        value: _ndDisplay,
+        min: 1e14,
+        max: 1e20,
+        divisions: null,
+        onChanged: (v) {
+          setState(() => _ndDisplay = v);
+          bumpChart();
+        },
+        subtitle: LatexNumberFormatter.toUnicodeSci(_ndDisplay, sigFigs: 3),
+      ),
+      ParameterSlider(
+        label: r'\(V_a\,(\mathrm{V})\)',
+        value: _va,
+        min: -5.0,
+        max: 1.0,
+        divisions: 600,
+        onChanged: (v) {
+          setState(() => _va = double.parse(v.toStringAsFixed(2)));
+          bumpChart();
+        },
+        subtitle: 'Applied bias',
+      ),
+      ParameterSlider(
+        label: r'\(\varepsilon_r\)',
+        value: _epsR,
+        min: 1.0,
+        max: 15.0,
+        divisions: 140,
+        onChanged: (v) {
+          setState(() => _epsR = double.parse(v.toStringAsFixed(2)));
+          bumpChart();
+        },
+        subtitle: 'Relative permittivity',
+      ),
+      const SizedBox(height: 8),
+      ParameterSegmented<bool>(
+        label: 'Doping units',
+        selected: {_useCmUnits},
+        segments: [
+          ButtonSegment(
+              value: true,
+              label: LatexText(r'cm^{-3}', style: TextStyle(fontSize: _Typo.body))),
+          ButtonSegment(
+              value: false,
+              label: LatexText(r'm^{-3}', style: TextStyle(fontSize: _Typo.body))),
+        ],
+        onSelectionChanged: (s) {
+          final naSi = _dopingToSi(_naDisplay);
+          final ndSi = _dopingToSi(_ndDisplay);
+          updateChart(() {
+            _useCmUnits = s.first;
+            _naDisplay = _dopingToDisplay(naSi);
+            _ndDisplay = _dopingToDisplay(ndSi);
+            final naRange = _normalizeDopingRange(_naDisplay, 0, 0);
+            _naAnimMin = naRange.$1;
+            _naAnimMax = naRange.$2;
+            final ndRange = _normalizeDopingRange(_ndDisplay, 0, 0);
+            _ndAnimMin = ndRange.$1;
+            _ndAnimMax = ndRange.$2;
+          });
+        },
+      ),
+      ParameterSwitch(
+        label: r'Show markers ($x_p$, $x_n$, junction)',
+        value: _showMarkers,
+        onChanged: (v) {
+          setState(() => _showMarkers = v);
+          bumpChart();
+        },
+      ),
+      ParameterSwitch(
+        label: r'Show outside depletion ($\rho=0$)',
+        value: _showOutside,
+        onChanged: (v) {
+          setState(() => _showOutside = v);
+          bumpChart();
+        },
+      ),
+      const SizedBox(height: 8),
+      ElevatedButton.icon(
+        onPressed: _resetDefaults,
+        icon: const Icon(Icons.restart_alt, size: 18),
+        label: const Text('Reset to Defaults'),
+        style: ElevatedButton.styleFrom(
+          minimumSize: const Size(double.infinity, 36),
+        ),
+      ),
+    ];
   }
 
   Widget _buildAboutCard(BuildContext context) {
@@ -291,9 +674,10 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
           children: [
             Text(
               'About',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+              style: TextStyle(
+                fontSize: _Typo.title,
+                fontWeight: FontWeight.w700,
+              ),
             ),
             const SizedBox(height: 6),
             Wrap(
@@ -301,22 +685,22 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
               children: [
                 Text(
                   'Shows spatial profiles of charge density ',
-                  style: Theme.of(context).textTheme.bodyMedium,
+                  style: TextStyle(fontSize: _Typo.body),
                 ),
-                const LatexText(r'\rho(x)', scale: 1.0),
+                LatexText(r'\rho(x)', style: TextStyle(fontSize: _Typo.body)),
                 Text(
                   ', electric field ',
-                  style: Theme.of(context).textTheme.bodyMedium,
+                  style: TextStyle(fontSize: _Typo.body),
                 ),
-                const LatexText(r'E(x)', scale: 1.0),
+                LatexText(r'E(x)', style: TextStyle(fontSize: _Typo.body)),
                 Text(
                   ', and potential ',
-                  style: Theme.of(context).textTheme.bodyMedium,
+                  style: TextStyle(fontSize: _Typo.body),
                 ),
-                const LatexText(r'V(x)', scale: 1.0),
+                LatexText(r'V(x)', style: TextStyle(fontSize: _Typo.body)),
                 Text(
                   ' in the depletion region of a PN junction under bias.',
-                  style: Theme.of(context).textTheme.bodyMedium,
+                  style: TextStyle(fontSize: _Typo.body),
                 ),
               ],
             ),
@@ -334,9 +718,10 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
         initiallyExpanded: false,
         title: Text(
           'What you should observe',
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
+          style: TextStyle(
+            fontSize: _Typo.title,
+            fontWeight: FontWeight.w700,
+          ),
         ),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         children: [
@@ -345,7 +730,9 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
           _bullet(r'Potential $V(x)$ is parabolic; rises from 0 to $V_{bi}$ across depletion width.'),
           _bullet(r'Depletion width $W$ widens under reverse bias ($V_a < 0$).'),
           const SizedBox(height: 8),
-          Text('Try this:', style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
+          Text('Try this:',
+              style: TextStyle(
+                  fontSize: _Typo.sectionLabel, fontWeight: FontWeight.w700)),
           _bullet(r'Change $N_A$ and $N_D$ to see asymmetric depletion (higher doping → narrower side).'),
           _bullet(r'Apply forward bias ($V_a > 0$) to shrink $W$; reverse bias to widen.'),
           _bullet('Use plot selector to view one profile at a time or all together.'),
@@ -394,353 +781,41 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
     return Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: parts);
   }
 
-  Widget _buildWideLayout(BuildContext context, _PnCurves curves) {
-    return Row(
+  Widget _buildChartArea(BuildContext context, _PnCurves curves) {
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
-          flex: 2,
-          child: _buildChartCard(context, curves),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: SingleChildScrollView(
-            child: Column(
-              children: [
-                _buildReadoutsCard(curves),
-                const SizedBox(height: 12),
-                _buildPointInspectorCard(curves),
-                const SizedBox(height: 12),
-                _buildParametersCard(),
-                const SizedBox(height: 12),
-                _buildKeyObservationsCard(curves),
-              ],
+        if (curves.invalid)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            margin: const EdgeInsets.only(bottom: 12),
+            decoration: BoxDecoration(
+              color: Colors.orange.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              r'Invalid: $V_{bi} - V_a$ must be positive for depletion approximation.',
+              style: const TextStyle(fontWeight: FontWeight.w600),
             ),
           ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildNarrowLayout(BuildContext context, _PnCurves curves) {
-    return SingleChildScrollView(
-      child: Column(
-        children: [
-          ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 300, maxHeight: 450),
-            child: _buildChartCard(context, curves),
-          ),
-          const SizedBox(height: 12),
-          _buildReadoutsCard(curves),
-          const SizedBox(height: 12),
-          _buildPointInspectorCard(curves),
-          const SizedBox(height: 12),
-          _buildParametersCard(),
-          const SizedBox(height: 12),
-          _buildKeyObservationsCard(curves),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildReadoutsCard(_PnCurves curves) {
-    final unitLabel = _useCmUnits ? 'cm⁻³' : 'm⁻³';
-    return ReadoutsCard(
-      title: 'Readouts',
-      readouts: [
-        ReadoutItem(
-          label: r'$W$ (depletion width)',
-          value: '${curves.wUm.toStringAsFixed(3)} µm',
-          boldValue: true,
-        ),
-        ReadoutItem(
-          label: r'$x_p$ (p-side)',
-          value: '${curves.xpUm.toStringAsFixed(3)} µm',
-        ),
-        ReadoutItem(
-          label: r'$x_n$ (n-side)',
-          value: '${curves.xnUm.toStringAsFixed(3)} µm',
-        ),
-        ReadoutItem(
-          label: r'$E_{max}$ (peak field)',
-          value: '${LatexNumberFormatter.toUnicodeSci(curves.eMax.abs(), sigFigs: 3)} V/m',
-        ),
-        ReadoutItem(
-          label: r'$V_{bi}$ (built-in)',
-          value: '${curves.vbi.toStringAsFixed(3)} V',
-        ),
-        ReadoutItem(
-          label: r'$N_A$',
-          value: '${LatexNumberFormatter.toUnicodeSci(_naDisplay, sigFigs: 3)} $unitLabel',
-        ),
-        ReadoutItem(
-          label: r'$N_D$',
-          value: '${LatexNumberFormatter.toUnicodeSci(_ndDisplay, sigFigs: 3)} $unitLabel',
-        ),
-        ReadoutItem(
-          label: r'$T$',
-          value: '${_temperature.toStringAsFixed(0)} K',
-        ),
-        ReadoutItem(
-          label: r'$V_a$ (applied)',
-          value: '${_va.toStringAsFixed(2)} V',
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPointInspectorCard(_PnCurves curves) {
-    return PointInspectorCard<FlSpot>(
-      selectedPoint: _selectedPoint,
-      onClear: () => updateChart(() => _selectedPoint = null),
-      builder: (spot) {
-        final x = spot.x;
-        final y = spot.y;
-        
-        String yLabel;
-        String yValue;
-        if (_selectedPlot == 'ρ(x)') {
-          yLabel = 'ρ';
-          yValue = '${LatexNumberFormatter.toUnicodeSci(y, sigFigs: 3)} C/m³';
-        } else if (_selectedPlot == 'E(x)') {
-          yLabel = 'E';
-          yValue = '${LatexNumberFormatter.toUnicodeSci(y, sigFigs: 3)} V/m';
-        } else {
-          yLabel = 'V';
-          yValue = '${y.toStringAsFixed(3)} V';
-        }
-
-        return [
-          'Plot: $_selectedPlot',
-          'x = ${x.toStringAsFixed(3)} µm',
-          '$yLabel = $yValue',
-          'Tap chart to select point',
-        ];
-      },
-    );
-  }
-
-  Widget _buildParametersCard() {
-    return ParametersCard(
-      title: 'Parameters',
-      collapsible: true,
-      initiallyExpanded: true,
-      children: [
-        ParameterSlider(
-          label: r'$T$ (K)',
-          value: _temperature,
-          min: 200,
-          max: 500,
-          divisions: 300,
-          onChanged: (v) {
-            setState(() => _temperature = v);
-            bumpChart();
-          },
-        ),
-        ParameterSlider(
-          label: r'$N_A$ (${_useCmUnits ? "cm⁻³" : "m⁻³"})',
-          value: _naDisplay,
-          min: 1e14,
-          max: 1e20,
-          divisions: null,
-          onChanged: (v) {
-            setState(() => _naDisplay = v);
-            bumpChart();
-          },
-          subtitle: LatexNumberFormatter.toUnicodeSci(_naDisplay, sigFigs: 3),
-        ),
-        ParameterSlider(
-          label: r'$N_D$ (${_useCmUnits ? "cm⁻³" : "m⁻³"})',
-          value: _ndDisplay,
-          min: 1e14,
-          max: 1e20,
-          divisions: null,
-          onChanged: (v) {
-            setState(() => _ndDisplay = v);
-            bumpChart();
-          },
-          subtitle: LatexNumberFormatter.toUnicodeSci(_ndDisplay, sigFigs: 3),
-        ),
-        ParameterSlider(
-          label: r'$V_a$ (V)',
-          value: _va,
-          min: -5.0,
-          max: 1.0,
-          divisions: 600,
-          onChanged: (v) {
-            setState(() => _va = double.parse(v.toStringAsFixed(2)));
-            bumpChart();
-          },
-          subtitle: 'Applied bias',
-        ),
-        ParameterSlider(
-          label: r'$\varepsilon_r$',
-          value: _epsR,
-          min: 1.0,
-          max: 15.0,
-          divisions: 140,
-          onChanged: (v) {
-            setState(() => _epsR = double.parse(v.toStringAsFixed(2)));
-            bumpChart();
-          },
-          subtitle: 'Relative permittivity',
-        ),
-        const SizedBox(height: 8),
-        ParameterSegmented<bool>(
-          label: 'Doping units',
-          selected: {_useCmUnits},
-          segments: const [
-            ButtonSegment(value: true, label: Text('cm⁻³')),
-            ButtonSegment(value: false, label: Text('m⁻³')),
-          ],
-          onSelectionChanged: (s) {
-            final naSi = _dopingToSi(_naDisplay);
-            final ndSi = _dopingToSi(_ndDisplay);
+        PlotSelector(
+          options: const ['ρ(x)', 'E(x)', 'V(x)', 'All'],
+          selected: _selectedPlot,
+          onChanged: (value) {
             updateChart(() {
-              _useCmUnits = s.first;
-              _naDisplay = _dopingToDisplay(naSi);
-              _ndDisplay = _dopingToDisplay(ndSi);
+              _selectedPlot = value;
+              _selectedPoint = null;
             });
           },
         ),
-        ParameterSwitch(
-          label: r'Show markers ($x_p$, $x_n$, junction)',
-          value: _showMarkers,
-          onChanged: (v) {
-            setState(() => _showMarkers = v);
-            bumpChart();
-          },
-        ),
-        ParameterSwitch(
-          label: r'Show outside depletion ($\rho=0$)',
-          value: _showOutside,
-          onChanged: (v) {
-            setState(() => _showOutside = v);
-            bumpChart();
-          },
-        ),
-        const SizedBox(height: 8),
-        ElevatedButton.icon(
-          onPressed: _resetDefaults,
-          icon: const Icon(Icons.restart_alt, size: 18),
-          label: const Text('Reset to Defaults'),
-          style: ElevatedButton.styleFrom(
-            minimumSize: const Size(double.infinity, 36),
-          ),
-        ),
+        const SizedBox(height: 12),
+        Expanded(child: _buildChart(context, curves)),
       ],
     );
   }
 
-  Widget _buildKeyObservationsCard(_PnCurves curves) {
-    final dynamicObs = _buildDynamicObservations(curves);
-    final staticObs = _buildStaticObservations();
-
-    return KeyObservationsCard(
-      title: 'Key Observations',
-      dynamicObservations: dynamicObs.isNotEmpty ? dynamicObs : null,
-      staticObservations: staticObs,
-      dynamicTitle: 'Current Configuration',
-    );
-  }
-
-  List<String> _buildDynamicObservations(_PnCurves curves) {
-    final obs = <String>[];
-
-    // Bias regime
-    if (_va < -0.1) {
-      obs.add(
-          r'Reverse bias ($V_a < 0$): depletion width increases, peak field rises.');
-    } else if (_va > 0.1 && _va < curves.vbi) {
-      obs.add(
-          r'Forward bias ($V_a > 0$): depletion width shrinks, field decreases.');
-    } else if (_va >= curves.vbi) {
-      obs.add(
-          r'Warning: $V_a \geq V_{bi}$ violates depletion approximation (diffusion dominates).');
-    } else {
-      obs.add(r'Zero bias ($V_a \approx 0$): equilibrium depletion width.');
-    }
-
-    // Doping asymmetry
-    final naSi = _dopingToSi(_naDisplay);
-    final ndSi = _dopingToSi(_ndDisplay);
-    final ratio = naSi / ndSi;
-    if (ratio > 10) {
-      obs.add(
-          r'Highly asymmetric doping: $N_A \gg N_D$ → depletion extends mostly into n-side ($x_n \gg x_p$).');
-    } else if (ratio < 0.1) {
-      obs.add(
-          r'Highly asymmetric doping: $N_D \gg N_A$ → depletion extends mostly into p-side ($x_p \gg x_n$).');
-    } else {
-      obs.add(r'Moderate doping asymmetry: depletion regions fairly balanced.');
-    }
-
-    // Field and bias relationship
-    if (_selectedPlot == 'E(x)') {
-      obs.add(
-          r'Electric field $E(x)$ profile: triangular, peaks at junction ($x=0$), zero at depletion edges.');
-    }
-
-    // Potential shape
-    if (_selectedPlot == 'V(x)') {
-      obs.add(
-          r'Potential $V(x)$ is parabolic in each region; total drop equals $V_{bi} - V_a$.');
-    }
-
-    return obs;
-  }
-
-  List<String> _buildStaticObservations() {
-    return [
-      r'Depletion width $W \propto \sqrt{V_{bi} - V_a}$; sensitive to bias.',
-      r'Peak field $E_{max} = -q N_A x_p / \varepsilon_s = q N_D x_n / \varepsilon_s$ at junction.',
-      r'Charge neutrality: $N_A x_p = N_D x_n$ (equal charge on both sides).',
-      r'Higher doping → narrower depletion on that side (one-sided junction approximation).',
-    ];
-  }
-
-  Widget _buildChartCard(BuildContext context, _PnCurves curves) {
-    return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (curves.invalid)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(10),
-                margin: const EdgeInsets.only(bottom: 12),
-                decoration: BoxDecoration(
-                  color: Colors.orange.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  r'Invalid: $V_{bi} - V_a$ must be positive for depletion approximation.',
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-              ),
-            PlotSelector(
-              options: const ['ρ(x)', 'E(x)', 'V(x)', 'All'],
-              selected: _selectedPlot,
-              onChanged: (value) {
-                updateChart(() {
-                  _selectedPlot = value;
-                  _selectedPoint = null;
-                });
-              },
-            ),
-            const SizedBox(height: 12),
-            Expanded(child: _buildChartArea(context, curves)),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildChartArea(BuildContext context, _PnCurves curves) {
+  Widget _buildChart(BuildContext context, _PnCurves curves) {
     final xMin = -curves.xpUm * 1.5;
     final xMax = curves.xnUm * 1.5;
 
@@ -756,7 +831,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
             show: true,
             alignment: Alignment.bottomLeft,
             padding: const EdgeInsets.only(left: 4, bottom: 4),
-            style: const TextStyle(fontSize: 10),
+            style: TextStyle(fontSize: _Typo.small),
             labelResolver: (_) => '-xₚ',
           ),
         ),
@@ -769,7 +844,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
             show: true,
             alignment: Alignment.topCenter,
             padding: const EdgeInsets.only(top: 4),
-            style: const TextStyle(fontSize: 10),
+            style: TextStyle(fontSize: _Typo.small),
             labelResolver: (_) => 'junction',
           ),
         ),
@@ -782,7 +857,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
             show: true,
             alignment: Alignment.bottomRight,
             padding: const EdgeInsets.only(right: 4, bottom: 4),
-            style: const TextStyle(fontSize: 10),
+            style: TextStyle(fontSize: _Typo.small),
             labelResolver: (_) => 'xₙ',
           ),
         ),
@@ -820,14 +895,16 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
         gridData: const FlGridData(show: true, drawVerticalLine: true),
         titlesData: FlTitlesData(
           leftTitles: AxisTitles(
-            axisNameWidget: const Text('ρ (C/m³)', style: TextStyle(fontSize: 12)),
+            axisNameWidget: Text('ρ (C/m³)',
+                style: TextStyle(
+                    fontSize: _Typo.sectionLabel, fontWeight: FontWeight.w600)),
             axisNameSize: 32,
             sideTitles: SideTitles(
               showTitles: true,
               reservedSize: 70,
               getTitlesWidget: (v, _) => Text(
                 LatexNumberFormatter.toUnicodeSci(v, sigFigs: 2),
-                style: const TextStyle(fontSize: 10),
+                style: TextStyle(fontSize: _Typo.small),
               ),
             ),
           ),
@@ -837,7 +914,8 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
             sideTitles: SideTitles(
               showTitles: true,
               reservedSize: 28,
-              getTitlesWidget: (v, _) => Text(v.toStringAsFixed(2), style: const TextStyle(fontSize: 10)),
+              getTitlesWidget: (v, _) => Text(v.toStringAsFixed(2),
+                  style: TextStyle(fontSize: _Typo.small)),
             ),
           ),
           rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
@@ -866,7 +944,11 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
             getTooltipItems: (spots) => spots
                 .map((s) => LineTooltipItem(
                       'x=${s.x.toStringAsFixed(3)} µm\nρ=${LatexNumberFormatter.toUnicodeSci(s.y, sigFigs: 3)} C/m³',
-                      const TextStyle(fontSize: 11),
+                      TextStyle(
+                        fontSize: _Typo.hint,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ))
                 .toList(),
           ),
@@ -886,14 +968,16 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
         gridData: const FlGridData(show: true, drawVerticalLine: true),
         titlesData: FlTitlesData(
           leftTitles: AxisTitles(
-            axisNameWidget: const Text('E (V/m)', style: TextStyle(fontSize: 12)),
+            axisNameWidget: Text('E (V/m)',
+                style: TextStyle(
+                    fontSize: _Typo.sectionLabel, fontWeight: FontWeight.w600)),
             axisNameSize: 32,
             sideTitles: SideTitles(
               showTitles: true,
               reservedSize: 60,
               getTitlesWidget: (v, _) => Text(
                 LatexNumberFormatter.toUnicodeSci(v, sigFigs: 2),
-                style: const TextStyle(fontSize: 10),
+                style: TextStyle(fontSize: _Typo.small),
               ),
             ),
           ),
@@ -903,7 +987,8 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
             sideTitles: SideTitles(
               showTitles: true,
               reservedSize: 28,
-              getTitlesWidget: (v, _) => Text(v.toStringAsFixed(2), style: const TextStyle(fontSize: 10)),
+              getTitlesWidget: (v, _) => Text(v.toStringAsFixed(2),
+                  style: TextStyle(fontSize: _Typo.small)),
             ),
           ),
           rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
@@ -932,7 +1017,11 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
             getTooltipItems: (spots) => spots
                 .map((s) => LineTooltipItem(
                       'x=${s.x.toStringAsFixed(3)} µm\nE=${LatexNumberFormatter.toUnicodeSci(s.y, sigFigs: 3)} V/m',
-                      const TextStyle(fontSize: 11),
+                      TextStyle(
+                        fontSize: _Typo.hint,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ))
                 .toList(),
           ),
@@ -952,12 +1041,15 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
         gridData: const FlGridData(show: true, drawVerticalLine: true),
         titlesData: FlTitlesData(
           leftTitles: AxisTitles(
-            axisNameWidget: const Text('V (V)', style: TextStyle(fontSize: 12)),
+            axisNameWidget: Text('V (V)',
+                style: TextStyle(
+                    fontSize: _Typo.sectionLabel, fontWeight: FontWeight.w600)),
             axisNameSize: 32,
             sideTitles: SideTitles(
               showTitles: true,
               reservedSize: 60,
-              getTitlesWidget: (v, _) => Text(v.toStringAsFixed(2), style: const TextStyle(fontSize: 10)),
+              getTitlesWidget: (v, _) => Text(v.toStringAsFixed(2),
+                  style: TextStyle(fontSize: _Typo.small)),
             ),
           ),
           bottomTitles: AxisTitles(
@@ -966,7 +1058,8 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
             sideTitles: SideTitles(
               showTitles: true,
               reservedSize: 28,
-              getTitlesWidget: (v, _) => Text(v.toStringAsFixed(2), style: const TextStyle(fontSize: 10)),
+              getTitlesWidget: (v, _) => Text(v.toStringAsFixed(2),
+                  style: TextStyle(fontSize: _Typo.small)),
             ),
           ),
           rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
@@ -995,7 +1088,11 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
             getTooltipItems: (spots) => spots
                 .map((s) => LineTooltipItem(
                       'x=${s.x.toStringAsFixed(3)} µm\nV=${s.y.toStringAsFixed(3)} V',
-                      const TextStyle(fontSize: 11),
+                      TextStyle(
+                        fontSize: _Typo.hint,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ))
                 .toList(),
           ),
