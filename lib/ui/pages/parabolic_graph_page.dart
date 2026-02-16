@@ -9,8 +9,9 @@ import '../../core/constants/constants_loader.dart';
 import '../../core/constants/latex_symbols.dart';
 import '../../core/solver/number_formatter.dart';
 import '../graphs/common/enhanced_animation_panel.dart';
-import '../graphs/core/graph_config.dart' show GraphConfig, ControlsConfig;
+import '../graphs/core/graph_config.dart';
 import '../graphs/core/standard_graph_page_scaffold.dart';
+import '../graphs/core/standard_panel_stack.dart';
 import '../graphs/utils/latex_number_formatter.dart';
 import '../graphs/common/latex_readout.dart';
 import '../widgets/latex_text.dart';
@@ -164,6 +165,7 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
           return const Center(child: CircularProgressIndicator());
         }
         final latexMap = snapshot.data!;
+        final panelConfig = _buildPanelConfig(context, latexMap);
         return StandardGraphPageScaffold(
           config: const GraphConfig(
             title: 'Parabolic Band Dispersion (E-k)',
@@ -179,9 +181,168 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
             builder: (_, __, ___) => _buildChartArea(context, latexMap),
           ),
           rightPanelBuilder: (context, config) =>
-              _buildRightPanel(context, latexMap),
+              StandardPanelStack(config: panelConfig),
         );
       },
+    );
+  }
+
+  GraphConfig _buildPanelConfig(BuildContext context, LatexSymbolMap latexMap) {
+    final activeState = _activePointVN.value;
+    final activePoint = activeState?.point;
+    final readouts = <ReadoutItem>[
+      ReadoutItem(label: r'E_g', value: _eg.toStringAsFixed(3), subtitle: 'eV'),
+      ReadoutItem(label: r'm_n^* / m_0', value: _mnEff.toStringAsFixed(3)),
+      ReadoutItem(label: r'm_p^* / m_0', value: _mpEff.toStringAsFixed(3)),
+      ReadoutItem(label: r'k_max', value: _kMaxScaled.toStringAsFixed(3), subtitle: r'x 10^{10} m^{-1}'),
+      ReadoutItem(label: r'Pins', value: '${_pins.length}'),
+      if (activePoint != null)
+        ReadoutItem(label: r'Active band', value: activePoint.band),
+    ];
+
+    final inspector = PointInspectorConfig(
+      enabled: true,
+      emptyMessage: 'Hover over a curve to inspect. Double-click to pin points.',
+      onClear: () => setState(() => _activePointVN.value = null),
+      builder: activePoint == null
+          ? null
+          : () => [
+                'Band: ${activePoint.band}',
+                'k = ${activePoint.kScaled.toStringAsFixed(3)} x10^10 m^-1',
+                'Delta E = ${activePoint.deltaE.toStringAsExponential(3)} eV',
+                'v_g = ${activePoint.velocity.toStringAsExponential(3)} m/s',
+              ],
+    );
+
+    final animation = AnimationConfig(
+      parameters: _AnimTarget.values.map((target) {
+        final range = _animRanges[target]!;
+        final isSelected = _animTarget == target;
+        final currentValue = switch (target) {
+          _AnimTarget.eg => _eg,
+          _AnimTarget.mn => _mnEff,
+          _AnimTarget.mp => _mpEff,
+          _AnimTarget.kmax => _kMaxScaled,
+        };
+        return AnimatableParameter(
+          id: target.name,
+          label: switch (target) {
+            _AnimTarget.eg => r'E_g (bandgap)',
+            _AnimTarget.mn => r'm_n^* (electron mass)',
+            _AnimTarget.mp => r'm_p^* (hole mass)',
+            _AnimTarget.kmax => r'k_{max} (k-range)',
+          },
+          symbol: switch (target) {
+            _AnimTarget.eg => r'E_g',
+            _AnimTarget.mn => r'm_n^*',
+            _AnimTarget.mp => r'm_p^*',
+            _AnimTarget.kmax => r'k_{max}',
+          },
+          unit: switch (target) {
+            _AnimTarget.eg => r'eV',
+            _AnimTarget.mn => r'm_0',
+            _AnimTarget.mp => r'm_0',
+            _AnimTarget.kmax => r'10^{10}\,m^{-1}',
+          },
+          currentValue: currentValue,
+          rangeMin: range.start,
+          rangeMax: range.end,
+          absoluteMin: switch (target) {
+            _AnimTarget.eg => 0.2,
+            _AnimTarget.mn => 0.05,
+            _AnimTarget.mp => 0.05,
+            _AnimTarget.kmax => 0.1,
+          },
+          absoluteMax: switch (target) {
+            _AnimTarget.eg => 2.5,
+            _AnimTarget.mn => 2.0,
+            _AnimTarget.mp => 2.0,
+            _AnimTarget.kmax => 2.0,
+          },
+          enabled: isSelected,
+          onEnabledChanged: (enabled) {
+            if (!enabled) return;
+            setState(() {
+              _animTarget = target;
+            });
+          },
+          onValueChanged: (value) {
+            if (_isAnimating) _stopAnimation();
+            setState(() {
+              switch (target) {
+                case _AnimTarget.eg:
+                  _eg = value;
+                  break;
+                case _AnimTarget.mn:
+                  _mnEff = value;
+                  break;
+                case _AnimTarget.mp:
+                  _mpEff = value;
+                  break;
+                case _AnimTarget.kmax:
+                  _kMaxScaled = value;
+                  break;
+              }
+            });
+          },
+          onRangeChanged: (min, max) {
+            setState(() {
+              _animRanges[target] = RangeValues(min, max);
+            });
+          },
+          physicsNote: 'Parabolic approximation holds near band extrema.',
+        );
+      }).toList(),
+      selectedParameterId: _animTarget.name,
+      onParameterSelected: (id) => setState(() {
+        _animTarget = _AnimTarget.values.firstWhere(
+          (target) => target.name == id,
+          orElse: () => _AnimTarget.eg,
+        );
+      }),
+      state: AnimationState(
+        isPlaying: _isAnimating,
+        speed: _animSpeed,
+        reverse: _reverseDirection,
+        loop: _loopEnabled,
+        progress: _isAnimating ? _animProgress : null,
+      ),
+      callbacks: AnimationCallbacks(
+        onPlay: _toggleAnimation,
+        onPause: _stopAnimation,
+        onRestart: _restartAnimation,
+        onSpeedChanged: (speed) => setState(() => _animSpeed = speed),
+        onReverseChanged: (reverse) => setState(() => _reverseDirection = reverse),
+        onLoopChanged: (loop) => setState(() => _loopEnabled = loop),
+      ),
+    );
+
+    final insights = InsightsConfig(
+      dynamicObservations: activePoint == null
+          ? null
+          : [
+              'Active band: ${activePoint.band}',
+              'k/k_max = ${(activePoint.kScaled / (_kMaxScaled == 0 ? 1 : _kMaxScaled)).toStringAsFixed(3)}',
+              'Delta E = ${activePoint.deltaE.toStringAsExponential(3)} eV',
+            ],
+      staticObservations: const [
+        'Parabolic bands: E is proportional to k^2 near extrema.',
+        'Smaller effective mass increases curvature and group velocity at fixed k.',
+        'Use pinned points to compare conduction and valence responses.',
+      ],
+      dynamicTitle: activePoint == null ? null : 'Current Point',
+    );
+
+    return GraphConfig(
+      readouts: readouts,
+      pointInspector: inspector,
+      animation: animation,
+      insights: insights,
+      controls: ControlsConfig(
+        children: [_buildControls(context, latexMap)],
+        collapsible: true,
+        initiallyExpanded: true,
+      ),
     );
   }
 
@@ -311,7 +472,7 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
             const _InlinePiece.text(' to see how band curvature affects carrier velocity.'),
           ]),
           _infoBulletSegments([
-            const _InlinePiece.text('Use Î”E mode to compare energy offset from band edges directly.'),
+            const _InlinePiece.text('Use Delta E mode to compare energy offset from band edges directly.'),
           ]),
           _infoBulletSegments([
             const _InlinePiece.text('Hover curve to inspect values; double-click to pin for comparison.'),
@@ -950,7 +1111,7 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                     const _InlinePiece.latex(r'm^{*}'),
                     const _InlinePiece.text(' -> larger'),
                     const _InlinePiece.latex(r'|v_g|'),
-                    const _InlinePiece.text(' and Î”E at this k.'),
+                    const _InlinePiece.text(' and Delta E at this k.'),
                   ]),
                   _infoBulletSegments(ratioPieces),
                   _infoBulletSegments([
@@ -1124,7 +1285,7 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                             label: Text('Absolute E')),
                         ButtonSegment(
                             value: PlotMode.delta,
-                            label: Text('Î”E (relative)')),
+                            label: Text('Delta E (relative)')),
                       ],
                       selected: {_plotMode},
                       onSelectionChanged: (s) =>
@@ -1239,7 +1400,7 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                 'k-axis: k × 10^10 m^-1',
                 style: TextStyle(fontSize: _Typo.hint),
               ),
-              Text('E axis in eV; Î”E if relative mode is selected',
+              Text('E axis in eV; Delta E if relative mode is selected',
                   style: TextStyle(fontSize: _Typo.hint)),
             ],
           ),
@@ -1290,7 +1451,7 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
           Padding(
             padding: const EdgeInsets.only(top: 4),
             child: Text(
-              'Reference ignored in Î”E mode.',
+              'Reference ignored in Delta E mode.',
               style: TextStyle(
                 fontSize: _Typo.hint,
                 color: Colors.redAccent.shade200,
@@ -1840,7 +2001,7 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
 
   /// Plain Unicode formatters for tooltip only (no LaTeX commands).
   String _formatKAxisPlain(double kScaled) =>
-      '${LatexNumberFormatter.toUnicodeSci(kScaled * 1e10, sigFigs: 3)} mâ»Â¹';
+      '${LatexNumberFormatter.toUnicodeSci(kScaled * 1e10, sigFigs: 3)} m^-1';
 
   String _formatEnergyPlain(double e) =>
       '${LatexNumberFormatter.toUnicodeSci(e, sigFigs: 3)} eV';
@@ -2340,5 +2501,6 @@ class _ReadoutCache {
       required this.eAbs,
       required this.v});
 }
+
 
 

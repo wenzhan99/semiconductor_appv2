@@ -11,14 +11,12 @@ import '../widgets/latex_text.dart';
 
 // Standardized components
 import '../graphs/common/graph_controller.dart';
-import '../graphs/common/readouts_card.dart';
-import '../graphs/common/point_inspector_card.dart';
 import '../graphs/common/parameters_card.dart';
-import '../graphs/common/key_observations_card.dart';
 import '../graphs/common/plot_selector.dart';
 import '../graphs/utils/latex_number_formatter.dart';
-import '../graphs/core/graph_config.dart' show GraphConfig, ControlsConfig;
+import '../graphs/core/graph_config.dart';
 import '../graphs/core/standard_graph_page_scaffold.dart';
+import '../graphs/core/standard_panel_stack.dart';
 
 class PnDepletionGraphPage extends StatelessWidget {
   const PnDepletionGraphPage({super.key});
@@ -52,7 +50,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
   bool _showOutside = true;
 
   // Plot selection
-  String _selectedPlot = 'Ï(x)';
+  String _selectedPlot = 'rho(x)';
 
   // Interactive
   FlSpot? _selectedPoint;
@@ -97,7 +95,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
       _useCmUnits = true;
       _showMarkers = true;
       _showOutside = true;
-      _selectedPlot = 'Ï(x)';
+      _selectedPlot = 'rho(x)';
       _selectedPoint = null;
     });
   }
@@ -215,6 +213,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
         }
         final constants = snapshot.data!;
         final curves = _buildCurves(constants);
+        final panelConfig = _buildPanelConfig(curves);
 
         return StandardGraphPageScaffold(
           config: const GraphConfig(
@@ -227,7 +226,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
           aboutSection: _buildAboutCard(context),
           observeSection: _buildObserveCard(context),
           chartBuilder: (context) => _buildChartCard(context, curves),
-          rightPanelBuilder: (context, config) => _buildRightPanel(curves),
+          rightPanelBuilder: (context, config) => StandardPanelStack(config: panelConfig),
         );
       },
     );
@@ -337,7 +336,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
           _bullet(r'Depletion width $W$ widens under reverse bias ($V_a < 0$).'),
           const SizedBox(height: 8),
           Text('Try this:', style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
-          _bullet(r'Change $N_A$ and $N_D$ to see asymmetric depletion (higher doping â†’ narrower side).'),
+          _bullet(r'Change $N_A$ and $N_D$ to see asymmetric depletion (higher doping -> narrower side).'),
           _bullet(r'Apply forward bias ($V_a > 0$) to shrink $W$; reverse bias to widen.'),
           _bullet('Use plot selector to view one profile at a time or all together.'),
         ],
@@ -351,7 +350,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('â€¢ '),
+          const Text('- '),
           Expanded(child: _parseLatex(text)),
         ],
       ),
@@ -385,105 +384,104 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
     return Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: parts);
   }
 
-  Widget _buildRightPanel(_PnCurves curves) {
-    return SingleChildScrollView(
-      child: Column(
-        children: [
-          _buildReadoutsCard(curves),
-          const SizedBox(height: 12),
-          _buildPointInspectorCard(curves),
-          const SizedBox(height: 12),
-          _buildKeyObservationsCard(curves),
-          const SizedBox(height: 12),
-          _buildParametersCard(),
-        ],
+  GraphConfig _buildPanelConfig(_PnCurves curves) {
+    final dynamicObs = _buildDynamicObservations(curves);
+    return GraphConfig(
+      readouts: _buildReadouts(curves),
+      pointInspector: _buildPointInspectorConfig(),
+      insights: InsightsConfig(
+        dynamicObservations: dynamicObs.isEmpty ? null : dynamicObs,
+        staticObservations: _buildStaticObservations(),
+        dynamicTitle: 'Current Configuration',
+      ),
+      controls: ControlsConfig(
+        children: _buildControlsChildren(),
+        collapsible: true,
+        initiallyExpanded: true,
       ),
     );
   }
 
-  Widget _buildReadoutsCard(_PnCurves curves) {
-    final unitLabel = _useCmUnits ? 'cmâ»Â³' : 'mâ»Â³';
-    return ReadoutsCard(
-      title: 'Readouts',
-      readouts: [
-        ReadoutItem(
-          label: r'$W$ (depletion width)',
-          value: '${curves.wUm.toStringAsFixed(3)} Âµm',
-          boldValue: true,
-        ),
-        ReadoutItem(
-          label: r'$x_p$ (p-side)',
-          value: '${curves.xpUm.toStringAsFixed(3)} Âµm',
-        ),
-        ReadoutItem(
-          label: r'$x_n$ (n-side)',
-          value: '${curves.xnUm.toStringAsFixed(3)} Âµm',
-        ),
-        ReadoutItem(
-          label: r'$E_{max}$ (peak field)',
-          value: '${LatexNumberFormatter.toUnicodeSci(curves.eMax.abs(), sigFigs: 3)} V/m',
-        ),
-        ReadoutItem(
-          label: r'$V_{bi}$ (built-in)',
-          value: '${curves.vbi.toStringAsFixed(3)} V',
-        ),
-        ReadoutItem(
-          label: r'$N_A$',
-          value: '${LatexNumberFormatter.toUnicodeSci(_naDisplay, sigFigs: 3)} $unitLabel',
-        ),
-        ReadoutItem(
-          label: r'$N_D$',
-          value: '${LatexNumberFormatter.toUnicodeSci(_ndDisplay, sigFigs: 3)} $unitLabel',
-        ),
-        ReadoutItem(
-          label: r'$T$',
-          value: '${_temperature.toStringAsFixed(0)} K',
-        ),
-        ReadoutItem(
-          label: r'$V_a$ (applied)',
-          value: '${_va.toStringAsFixed(2)} V',
-        ),
-      ],
-    );
+  List<ReadoutItem> _buildReadouts(_PnCurves curves) {
+    final unitLabel = _useCmUnits ? 'cm^-3' : 'm^-3';
+    return [
+      ReadoutItem(
+        label: r'W (depletion width)',
+        value: '${curves.wUm.toStringAsFixed(3)} um',
+        boldValue: true,
+      ),
+      ReadoutItem(
+        label: r'x_p (p-side)',
+        value: '${curves.xpUm.toStringAsFixed(3)} um',
+      ),
+      ReadoutItem(
+        label: r'x_n (n-side)',
+        value: '${curves.xnUm.toStringAsFixed(3)} um',
+      ),
+      ReadoutItem(
+        label: r'E_max (peak field)',
+        value: '${LatexNumberFormatter.toUnicodeSci(curves.eMax.abs(), sigFigs: 3)} V/m',
+      ),
+      ReadoutItem(
+        label: r'V_bi (built-in)',
+        value: '${curves.vbi.toStringAsFixed(3)} V',
+      ),
+      ReadoutItem(
+        label: r'N_A',
+        value: '${LatexNumberFormatter.toUnicodeSci(_naDisplay, sigFigs: 3)} $unitLabel',
+      ),
+      ReadoutItem(
+        label: r'N_D',
+        value: '${LatexNumberFormatter.toUnicodeSci(_ndDisplay, sigFigs: 3)} $unitLabel',
+      ),
+      ReadoutItem(
+        label: r'T',
+        value: '${_temperature.toStringAsFixed(0)} K',
+      ),
+      ReadoutItem(
+        label: r'V_a (applied)',
+        value: '${_va.toStringAsFixed(2)} V',
+      ),
+    ];
   }
 
-  Widget _buildPointInspectorCard(_PnCurves curves) {
-    return PointInspectorCard<FlSpot>(
-      selectedPoint: _selectedPoint,
+  PointInspectorConfig _buildPointInspectorConfig() {
+    return PointInspectorConfig(
+      enabled: true,
+      emptyMessage: 'Tap chart to select a point.',
       onClear: () => updateChart(() => _selectedPoint = null),
-      builder: (spot) {
-        final x = spot.x;
-        final y = spot.y;
-        
-        String yLabel;
-        String yValue;
-        if (_selectedPlot == 'Ï(x)') {
-          yLabel = 'Ï';
-          yValue = '${LatexNumberFormatter.toUnicodeSci(y, sigFigs: 3)} C/mÂ³';
-        } else if (_selectedPlot == 'E(x)') {
-          yLabel = 'E';
-          yValue = '${LatexNumberFormatter.toUnicodeSci(y, sigFigs: 3)} V/m';
-        } else {
-          yLabel = 'V';
-          yValue = '${y.toStringAsFixed(3)} V';
-        }
+      builder: _selectedPoint == null
+          ? null
+          : () {
+              final spot = _selectedPoint!;
+              final x = spot.x;
+              final y = spot.y;
 
-        return [
-          'Plot: $_selectedPlot',
-          'x = ${x.toStringAsFixed(3)} Âµm',
-          '$yLabel = $yValue',
-          'Tap chart to select point',
-        ];
-      },
+              String yLabel;
+              String yValue;
+              if (_selectedPlot.contains('E(')) {
+                yLabel = 'E';
+                yValue = '${LatexNumberFormatter.toUnicodeSci(y, sigFigs: 3)} V/m';
+              } else if (_selectedPlot.contains('V(')) {
+                yLabel = 'V';
+                yValue = '${y.toStringAsFixed(3)} V';
+              } else {
+                yLabel = 'rho';
+                yValue = '${LatexNumberFormatter.toUnicodeSci(y, sigFigs: 3)} C/m^3';
+              }
+
+              return [
+                'Plot: $_selectedPlot',
+                'x = ${x.toStringAsFixed(3)} um',
+                '$yLabel = $yValue',
+                'Tap chart to select point',
+              ];
+            },
     );
   }
 
-  Widget _buildParametersCard() {
-    return ParametersCard(
-      title: 'Parameters',
-      collapsible: true,
-      initiallyExpanded: true,
-      children: [
+  List<Widget> _buildControlsChildren() {
+    return [
         ParameterSlider(
           label: r'$T$ (K)',
           value: _temperature,
@@ -496,7 +494,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
           },
         ),
         ParameterSlider(
-          label: r'$N_A$ (${_useCmUnits ? "cmâ»Â³" : "mâ»Â³"})',
+          label: r'$N_A$ (${_useCmUnits ? "cm^-3" : "m^-3"})',
           value: _naDisplay,
           min: 1e14,
           max: 1e20,
@@ -508,7 +506,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
           subtitle: LatexNumberFormatter.toUnicodeSci(_naDisplay, sigFigs: 3),
         ),
         ParameterSlider(
-          label: r'$N_D$ (${_useCmUnits ? "cmâ»Â³" : "mâ»Â³"})',
+          label: r'$N_D$ (${_useCmUnits ? "cm^-3" : "m^-3"})',
           value: _ndDisplay,
           min: 1e14,
           max: 1e20,
@@ -548,8 +546,8 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
           label: 'Doping units',
           selected: {_useCmUnits},
           segments: const [
-            ButtonSegment(value: true, label: Text('cmâ»Â³')),
-            ButtonSegment(value: false, label: Text('mâ»Â³')),
+            ButtonSegment(value: true, label: Text('cm^-3')),
+            ButtonSegment(value: false, label: Text('m^-3')),
           ],
           onSelectionChanged: (s) {
             final naSi = _dopingToSi(_naDisplay);
@@ -586,20 +584,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
             minimumSize: const Size(double.infinity, 36),
           ),
         ),
-      ],
-    );
-  }
-
-  Widget _buildKeyObservationsCard(_PnCurves curves) {
-    final dynamicObs = _buildDynamicObservations(curves);
-    final staticObs = _buildStaticObservations();
-
-    return KeyObservationsCard(
-      title: 'Key Observations',
-      dynamicObservations: dynamicObs.isNotEmpty ? dynamicObs : null,
-      staticObservations: staticObs,
-      dynamicTitle: 'Current Configuration',
-    );
+    ];
   }
 
   List<String> _buildDynamicObservations(_PnCurves curves) {
@@ -625,10 +610,10 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
     final ratio = naSi / ndSi;
     if (ratio > 10) {
       obs.add(
-          r'Highly asymmetric doping: $N_A \gg N_D$ â†’ depletion extends mostly into n-side ($x_n \gg x_p$).');
+          r'Highly asymmetric doping: $N_A \gg N_D$ -> depletion extends mostly into n-side ($x_n \gg x_p$).');
     } else if (ratio < 0.1) {
       obs.add(
-          r'Highly asymmetric doping: $N_D \gg N_A$ â†’ depletion extends mostly into p-side ($x_p \gg x_n$).');
+          r'Highly asymmetric doping: $N_D \gg N_A$ -> depletion extends mostly into p-side ($x_p \gg x_n$).');
     } else {
       obs.add(r'Moderate doping asymmetry: depletion regions fairly balanced.');
     }
@@ -653,7 +638,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
       r'Depletion width $W \propto \sqrt{V_{bi} - V_a}$; sensitive to bias.',
       r'Peak field $E_{max} = -q N_A x_p / \varepsilon_s = q N_D x_n / \varepsilon_s$ at junction.',
       r'Charge neutrality: $N_A x_p = N_D x_n$ (equal charge on both sides).',
-      r'Higher doping â†’ narrower depletion on that side (one-sided junction approximation).',
+      r'Higher doping -> narrower depletion on that side (one-sided junction approximation).',
     ];
   }
 
@@ -681,7 +666,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
                 ),
               ),
             PlotSelector(
-              options: const ['Ï(x)', 'E(x)', 'V(x)', 'All'],
+              options: const ['rho(x)', 'E(x)', 'V(x)', 'All'],
               selected: _selectedPlot,
               onChanged: (value) {
                 updateChart(() {
@@ -715,7 +700,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
             alignment: Alignment.bottomLeft,
             padding: const EdgeInsets.only(left: 4, bottom: 4),
             style: const TextStyle(fontSize: 10),
-            labelResolver: (_) => '-xâ‚š',
+            labelResolver: (_) => '-x_p',
           ),
         ),
         VerticalLine(
@@ -741,7 +726,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
             alignment: Alignment.bottomRight,
             padding: const EdgeInsets.only(right: 4, bottom: 4),
             style: const TextStyle(fontSize: 10),
-            labelResolver: (_) => 'xâ‚™',
+            labelResolver: (_) => 'x_n',
           ),
         ),
       ]);
@@ -758,7 +743,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
           Expanded(child: _buildVChart(context, curves, xMin, xMax, markerLines)),
         ],
       );
-    } else if (_selectedPlot == 'Ï(x)') {
+    } else if (_selectedPlot == 'rho(x)') {
       return _buildRhoChart(context, curves, xMin, xMax, markerLines);
     } else if (_selectedPlot == 'E(x)') {
       return _buildEChart(context, curves, xMin, xMax, markerLines);
@@ -778,7 +763,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
         gridData: const FlGridData(show: true, drawVerticalLine: true),
         titlesData: FlTitlesData(
           leftTitles: AxisTitles(
-            axisNameWidget: const Text('Ï (C/mÂ³)', style: TextStyle(fontSize: 12)),
+            axisNameWidget: const Text('rho (C/m^3)', style: TextStyle(fontSize: 12)),
             axisNameSize: 32,
             sideTitles: SideTitles(
               showTitles: true,
@@ -790,7 +775,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
             ),
           ),
           bottomTitles: AxisTitles(
-            axisNameWidget: const Text('x (Âµm)'),
+            axisNameWidget: const Text('x (um)'),
             axisNameSize: 32,
             sideTitles: SideTitles(
               showTitles: true,
@@ -823,7 +808,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
           touchTooltipData: LineTouchTooltipData(
             getTooltipItems: (spots) => spots
                 .map((s) => LineTooltipItem(
-                      'x=${s.x.toStringAsFixed(3)} Âµm\nÏ=${LatexNumberFormatter.toUnicodeSci(s.y, sigFigs: 3)} C/mÂ³',
+                      'x=${s.x.toStringAsFixed(3)} um\nrho=${LatexNumberFormatter.toUnicodeSci(s.y, sigFigs: 3)} C/m^3',
                       const TextStyle(fontSize: 11),
                     ))
                 .toList(),
@@ -856,7 +841,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
             ),
           ),
           bottomTitles: AxisTitles(
-            axisNameWidget: const Text('x (Âµm)'),
+            axisNameWidget: const Text('x (um)'),
             axisNameSize: 32,
             sideTitles: SideTitles(
               showTitles: true,
@@ -889,7 +874,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
           touchTooltipData: LineTouchTooltipData(
             getTooltipItems: (spots) => spots
                 .map((s) => LineTooltipItem(
-                      'x=${s.x.toStringAsFixed(3)} Âµm\nE=${LatexNumberFormatter.toUnicodeSci(s.y, sigFigs: 3)} V/m',
+                      'x=${s.x.toStringAsFixed(3)} um\nE=${LatexNumberFormatter.toUnicodeSci(s.y, sigFigs: 3)} V/m',
                       const TextStyle(fontSize: 11),
                     ))
                 .toList(),
@@ -919,7 +904,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
             ),
           ),
           bottomTitles: AxisTitles(
-            axisNameWidget: const Text('x (Âµm)'),
+            axisNameWidget: const Text('x (um)'),
             axisNameSize: 32,
             sideTitles: SideTitles(
               showTitles: true,
@@ -952,7 +937,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
           touchTooltipData: LineTouchTooltipData(
             getTooltipItems: (spots) => spots
                 .map((s) => LineTooltipItem(
-                      'x=${s.x.toStringAsFixed(3)} Âµm\nV=${s.y.toStringAsFixed(3)} V',
+                      'x=${s.x.toStringAsFixed(3)} um\nV=${s.y.toStringAsFixed(3)} V',
                       const TextStyle(fontSize: 11),
                     ))
                 .toList(),
@@ -1014,4 +999,7 @@ class _Constants {
     required this.latexMap,
   });
 }
+
+
+
 

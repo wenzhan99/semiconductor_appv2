@@ -7,8 +7,9 @@ import 'package:flutter/material.dart';
 import '../../core/solver/number_formatter.dart';
 import '../graphs/common/enhanced_animation_panel.dart';
 import '../graphs/common/latex_readout.dart';
-import '../graphs/core/graph_config.dart' show GraphConfig, ControlsConfig;
+import '../graphs/core/graph_config.dart';
 import '../graphs/core/standard_graph_page_scaffold.dart';
+import '../graphs/core/standard_panel_stack.dart';
 import '../widgets/latex_text.dart';
 import '../graphs/utils/safe_math.dart';
 
@@ -18,7 +19,7 @@ class FermiDiracGraphPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Fermiâ€“Dirac Probability')),
+      appBar: AppBar(title: const Text('Fermi-Dirac Probability')),
       body: const FermiDiracGraphView(),
     );
   }
@@ -215,7 +216,7 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Fermiâ€“Dirac Probability Distribution',
+          'Fermi-Dirac Probability Distribution',
           style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 6),
@@ -239,7 +240,7 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
             Text('About', style: TextStyle(fontWeight: FontWeight.w600)),
             SizedBox(height: 4),
             Text(
-              'The Fermiâ€“Dirac distribution describes the probability that an electron occupies an energy state E at thermal equilibrium.',
+              'The Fermi-Dirac distribution describes the probability that an electron occupies an energy state E at thermal equilibrium.',
             ),
           ],
         ),
@@ -509,6 +510,7 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
 
   @override
   Widget build(BuildContext context) {
+    final panelConfig = _buildPanelConfig();
     return StandardGraphPageScaffold(
       config: const GraphConfig(
         title: 'Fermi-Dirac Probability Distribution',
@@ -519,8 +521,125 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
       aboutSection: _buildInfoPanel(),
       observeSection: _buildObserveCard(context),
       chartBuilder: (context) => _buildChartCard(),
-      rightPanelBuilder: (context, config) => SingleChildScrollView(
-        child: _buildSidebar(),
+      rightPanelBuilder: (context, config) => StandardPanelStack(config: panelConfig),
+    );
+  }
+
+  GraphConfig _buildPanelConfig() {
+    final readouts = <ReadoutItem>[
+      ReadoutItem(label: r'T', value: '${_temperature.toStringAsFixed(1)} K'),
+      ReadoutItem(label: r'E_F', value: '${_fermiLevel.toStringAsFixed(3)} eV'),
+      ReadoutItem(label: r'Axis mode', value: _relativeToFermi ? 'E - E_F' : 'E'),
+      ReadoutItem(label: r'Pinned points', value: '${_pins.length}'),
+    ];
+
+    final hovered = _hovered?.spot;
+    final inspector = PointInspectorConfig(
+      enabled: true,
+      emptyMessage: 'Hover the curve to inspect values.',
+      onClear: () => setState(() => _hovered = null),
+      builder: hovered == null
+          ? null
+          : () => [
+                '${_relativeToFermi ? 'E - E_F' : 'E'} = ${hovered.x.toStringAsFixed(3)} eV',
+                'f(E) = ${hovered.y.toStringAsFixed(5)}',
+                'Double-click to pin or unpin this point.',
+              ],
+    );
+
+    final animation = AnimationConfig(
+      parameters: _FDAnimParam.values.map((param) {
+        final range = _animRanges[param]!;
+        final isSelected = _animParam == param;
+        return AnimatableParameter(
+          id: param == _FDAnimParam.temperature ? 'temperature' : 'fermi',
+          label: param == _FDAnimParam.temperature ? r'T (temperature)' : r'E_F (Fermi level)',
+          symbol: param == _FDAnimParam.temperature ? r'T' : r'E_F',
+          unit: param == _FDAnimParam.temperature ? r'K' : r'eV',
+          currentValue: param == _FDAnimParam.temperature ? _temperature : _fermiLevel,
+          rangeMin: range.start,
+          rangeMax: range.end,
+          absoluteMin: param == _FDAnimParam.temperature ? 1 : -1.0,
+          absoluteMax: param == _FDAnimParam.temperature ? 1200 : 1.0,
+          enabled: isSelected,
+          onEnabledChanged: (enabled) {
+            if (!enabled) return;
+            setState(() {
+              _animParam = param;
+              _animProgress = 0.0;
+            });
+          },
+          onValueChanged: (value) {
+            _stopAnimation();
+            _captureOverlay();
+            setState(() {
+              if (param == _FDAnimParam.temperature) {
+                _temperature = value;
+              } else {
+                _fermiLevel = value;
+              }
+              _chartVersion++;
+            });
+          },
+          onRangeChanged: (min, max) {
+            setState(() {
+              _animRanges[param] = RangeValues(min, max);
+            });
+          },
+          physicsNote: param == _FDAnimParam.temperature
+              ? 'Higher temperature broadens the transition around E_F.'
+              : 'Changing E_F shifts the distribution along the energy axis.',
+        );
+      }).toList(),
+      selectedParameterId: _animParam == _FDAnimParam.temperature ? 'temperature' : 'fermi',
+      onParameterSelected: (id) {
+        setState(() {
+          _animParam = id == 'temperature' ? _FDAnimParam.temperature : _FDAnimParam.fermiLevel;
+          _animProgress = 0.0;
+        });
+      },
+      state: AnimationState(
+        isPlaying: _isAnimating,
+        speed: _animSpeed,
+        reverse: _reverseDirection,
+        loop: _loopEnabled,
+        progress: _isAnimating ? _animProgress : null,
+      ),
+      callbacks: AnimationCallbacks(
+        onPlay: _toggleAnimation,
+        onPause: _stopAnimation,
+        onRestart: _restartAnimation,
+        onSpeedChanged: (speed) => setState(() => _animSpeed = speed),
+        onReverseChanged: (reverse) => setState(() => _reverseDirection = reverse),
+        onLoopChanged: (loop) => setState(() => _loopEnabled = loop),
+      ),
+    );
+
+    final staticObservations = <String>[
+      'At E = E_F, f(E) = 0.5 for any temperature.',
+      'Increasing T broadens occupation around E_F.',
+      'Pin points to compare f(E) at multiple energies.',
+    ];
+    final dynamicObservations = hovered == null
+        ? <String>[]
+        : <String>[
+            'Current hover: ${_relativeToFermi ? 'E - E_F' : 'E'} = ${hovered.x.toStringAsFixed(3)} eV',
+            'f(E) = ${hovered.y.toStringAsFixed(5)}',
+          ];
+
+    return GraphConfig(
+      readouts: readouts,
+      pointInspector: inspector,
+      animation: animation,
+      insights: InsightsConfig(
+        dynamicObservations: dynamicObservations.isEmpty ? null : dynamicObservations,
+        staticObservations: staticObservations,
+        dynamicTitle: hovered == null ? null : 'Current Hover',
+      ),
+      controls: ControlsConfig(
+        children: [_buildControls()],
+        collapsible: true,
+        initiallyExpanded: true,
       ),
     );
   }
@@ -1065,6 +1184,7 @@ class _FDAnimationController
   @override
   void restart() => state._restartAnimation();
 }
+
 
 
 

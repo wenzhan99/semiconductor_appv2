@@ -9,14 +9,12 @@ import 'package:flutter/services.dart';
 import '../theme/chart_style.dart';
 import '../widgets/latex_text.dart';
 import '../graphs/common/graph_controller.dart';
-import '../graphs/common/readouts_card.dart';
-import '../graphs/common/point_inspector_card.dart';
-import '../graphs/common/parameters_card.dart';
-import '../graphs/common/key_observations_card.dart';
 import '../graphs/common/chart_toolbar.dart';
+import '../graphs/common/parameters_card.dart';
 import '../graphs/common/viewport_state.dart';
-import '../graphs/core/graph_config.dart' show GraphConfig, ControlsConfig;
+import '../graphs/core/graph_config.dart';
 import '../graphs/core/standard_graph_page_scaffold.dart';
+import '../graphs/core/standard_panel_stack.dart';
 
 class DirectIndirectGraphPage extends StatefulWidget {
   const DirectIndirectGraphPage({super.key});
@@ -155,6 +153,7 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
 
     final egDirect = (ecAtGamma - evAtVbm).clamp(-100.0, 100.0);
     final egIndirect = (ecAtK0 - evAtVbm).clamp(-100.0, 100.0);
+    final panelConfig = _buildPanelConfig(egDirect, egIndirect, kCbmScaled, ec, ev);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Direct vs Indirect Bandgap')),
@@ -180,13 +179,8 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
           egDirect,
           egIndirect,
         ),
-        rightPanelBuilder: (context, config) => _buildRightPanel(
-          egDirect,
-          egIndirect,
-          kCbmScaled,
-          ec,
-          ev,
-        ),
+        rightPanelBuilder: (context, config) =>
+            StandardPanelStack(config: panelConfig),
       ),
     );
   }
@@ -196,7 +190,7 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Direct vs Indirect Bandgap (Schematic Eâ€“k)',
+          'Direct vs Indirect Bandgap (Schematic E-k)',
           style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                 fontWeight: FontWeight.w700,
               ),
@@ -246,7 +240,7 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
             Text('About', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
             const SizedBox(height: 6),
             Text(
-              'Shows parabolic conduction and valence bands. Effective mass (m*) controls curvature: smaller m* â†’ steeper parabola. Band edges (Ec, Ev) remain fixed at band extrema; only curvature changes with m*.',
+              'Shows parabolic conduction and valence bands. Effective mass (m*) controls curvature: smaller m* -> steeper parabola. Band edges (Ec, Ev) remain fixed at band extrema; only curvature changes with m*.',
               style: Theme.of(context).textTheme.bodyMedium,
             ),
           ],
@@ -267,10 +261,10 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
         ),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         children: [
-          _bullet('Direct bandgap: CBM and VBM at same k â†’ vertical photon transition.'),
-          _bullet(r'Indirect: CBM shifted to $k_0 \neq 0$ â†’ phonon needed for momentum.'),
+          _bullet('Direct bandgap: CBM and VBM at same k -> vertical photon transition.'),
+          _bullet(r'Indirect: CBM shifted to $k_0 \neq 0$ -> phonon needed for momentum.'),
           _bullet(r'Animating $m^*$: Band edges stay fixed, only curvature changes.'),
-          _bullet(r'Smaller $m^*$ â†’ steeper parabola (energy grows faster with k).'),
+          _bullet(r'Smaller $m^*$ -> steeper parabola (energy grows faster with k).'),
           const SizedBox(height: 8),
           Text('Try this:', style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
           _bullet(r'Animate $m_n^*$ with overlay ON to see curvature change clearly.'),
@@ -288,7 +282,7 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('â€¢ '),
+          const Text('- '),
           Expanded(child: _parseLatex(text)),
         ],
       ),
@@ -322,307 +316,200 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
     return Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: parts);
   }
 
-  Widget _buildRightPanel(
+  GraphConfig _buildPanelConfig(
     double egDirect,
     double egIndirect,
     double kCbmScaled,
     double ec,
     double ev,
   ) {
-    return SingleChildScrollView(
-      child: Column(
-        children: [
-          _buildReadoutsCard(egDirect, egIndirect, kCbmScaled, ec, ev),
-          const SizedBox(height: 12),
-          _buildPointInspectorCard(),
-          const SizedBox(height: 12),
-          _buildEnhancedAnimationCard(),
-          const SizedBox(height: 12),
-          _buildKeyObservationsCard(egDirect, egIndirect, kCbmScaled),
-          const SizedBox(height: 12),
-          _buildParametersCard(),
+    final controls = <Widget>[
+      ..._buildParameterControls(),
+      const SizedBox(height: 8),
+      ParameterSegmented<LoopMode>(
+        label: 'Loop mode',
+        selected: {_loopMode},
+        segments: const [
+          ButtonSegment(value: LoopMode.off, label: Text('Off')),
+          ButtonSegment(value: LoopMode.loop, label: Text('Loop')),
+          ButtonSegment(value: LoopMode.pingPong, label: Text('PingPong')),
         ],
+        onSelectionChanged: (s) => setState(() => _loopMode = s.first),
+      ),
+      ParameterSwitch(
+        label: 'Hold selected k',
+        value: _holdSelectedK,
+        onChanged: (v) => setState(() => _holdSelectedK = v),
+      ),
+      ParameterSwitch(
+        label: 'Lock y-axis (no auto-scale)',
+        value: _lockYAxis,
+        onChanged: (v) => setState(() => _lockYAxis = v),
+      ),
+      ParameterSwitch(
+        label: 'Overlay previous curve',
+        value: _overlayPreviousCurve,
+        onChanged: (v) => setState(() => _overlayPreviousCurve = v),
+      ),
+    ];
+
+    return GraphConfig(
+      readouts: _buildReadouts(egDirect, egIndirect, kCbmScaled, ec, ev),
+      pointInspector: _buildPointInspectorConfig(),
+      animation: _buildAnimationConfig(),
+      insights: _buildInsightsConfig(egDirect, egIndirect, kCbmScaled),
+      controls: ControlsConfig(
+        children: controls,
+        collapsible: true,
+        initiallyExpanded: true,
       ),
     );
   }
 
-  Widget _buildReadoutsCard(double egDirect, double egIndirect, double kCbmScaled, double ec, double ev) {
-    return ReadoutsCard(
-      title: 'Gap Readouts',
-      readouts: [
-        ReadoutItem(
-          label: r'$E_{g,\\mathrm{direct}}$',
-          value: '${egDirect.toStringAsFixed(3)} eV',
-          boldValue: true,
-        ),
-        ReadoutItem(
-          label: r'$E_{g,\\mathrm{indirect}}$',
-          value: '${egIndirect.toStringAsFixed(3)} eV',
-          boldValue: true,
-        ),
-        ReadoutItem(
-          label: r'CBM position $k_0$',
-          value: '${kCbmScaled.toStringAsFixed(3)} Ã—10Â¹â° mâ»Â¹',
-        ),
-        ReadoutItem(
-          label: r'$E_c$ (conduction edge)',
-          value: '${_formatEnergy(ec)} eV',
-        ),
-        ReadoutItem(
-          label: r'$E_v$ (valence edge)',
-          value: '${_formatEnergy(ev)} eV',
-        ),
-        ReadoutItem(
-          label: r'Gap type',
-          value: _gapType == GapType.direct ? 'Direct' : 'Indirect',
-        ),
-      ],
-    );
+  List<ReadoutItem> _buildReadouts(
+    double egDirect,
+    double egIndirect,
+    double kCbmScaled,
+    double ec,
+    double ev,
+  ) {
+    return [
+      ReadoutItem(
+        label: r'E_{g,\mathrm{direct}}',
+        value: '${egDirect.toStringAsFixed(3)}\\ \\mathrm{eV}',
+        boldValue: true,
+      ),
+      ReadoutItem(
+        label: r'E_{g,\mathrm{indirect}}',
+        value: '${egIndirect.toStringAsFixed(3)}\\ \\mathrm{eV}',
+        boldValue: true,
+      ),
+      ReadoutItem(
+        label: r'k_0',
+        value: '${kCbmScaled.toStringAsFixed(3)}\\times 10^{10}\\ \\mathrm{m^{-1}}',
+      ),
+      ReadoutItem(
+        label: r'E_c',
+        value: '${_formatEnergy(ec)}\\ \\mathrm{eV}',
+      ),
+      ReadoutItem(
+        label: r'E_v',
+        value: '${_formatEnergy(ev)}\\ \\mathrm{eV}',
+      ),
+      ReadoutItem(
+        label: 'Gap type',
+        value: _gapType == GapType.direct ? 'Direct' : 'Indirect',
+      ),
+    ];
   }
 
-  Widget _buildPointInspectorCard() {
-    return PointInspectorCard<_SelectedPoint>(
-      selectedPoint: _selectedPoint,
-      onClear: () => updateChart(() => _selectedPoint = null),
-      builder: (sp) {
-        final cbmKScaled = _gapType == GapType.direct ? 0.0 : _k0Scaled;
-        final nearestEdge = sp.band == 'Valence'
-            ? 'VBM (kâ‰ˆ0)'
-            : (sp.kScaled - cbmKScaled).abs() < 0.05
-                ? 'CBM (kâ‰ˆ${cbmKScaled.toStringAsFixed(2)} Ã—10Â¹â° mâ»Â¹)'
-                : 'Conduction band';
-        return [
-          'Band: ${sp.band}',
-          'k = ${_sci3(sp.k)} mâ»Â¹',
-          'k = ${sp.kScaled.toStringAsFixed(3)} Ã—10Â¹â° mâ»Â¹',
-          'E = ${sp.energy.toStringAsFixed(4)} eV',
-          'Nearest: $nearestEdge',
-        ];
+  String _animateParamId(AnimateParam param) {
+    switch (param) {
+      case AnimateParam.k0:
+        return 'k0';
+      case AnimateParam.eg:
+        return 'eg';
+      case AnimateParam.mnStar:
+        return 'mn';
+      case AnimateParam.mpStar:
+        return 'mp';
+    }
+  }
+
+  AnimateParam _animateParamFromId(String id) {
+    switch (id) {
+      case 'k0':
+        return AnimateParam.k0;
+      case 'eg':
+        return AnimateParam.eg;
+      case 'mn':
+        return AnimateParam.mnStar;
+      case 'mp':
+      default:
+        return AnimateParam.mpStar;
+    }
+  }
+
+  AnimationConfig _buildAnimationConfig() {
+    final params = AnimateParam.values.map((param) {
+      final defaultRange = _getDefaultAnimationRange(param);
+      final isSelected = _animateParam == param;
+      final rangeMin = isSelected ? _animateRangeMin : defaultRange.min;
+      final rangeMax = isSelected ? _animateRangeMax : defaultRange.max;
+      return AnimatableParameter(
+        id: _animateParamId(param),
+        label: _getParamName(param).replaceAll(r'$', '') +
+            (param == AnimateParam.k0
+                ? ' (CBM position)'
+                : param == AnimateParam.eg
+                    ? ' (bandgap)'
+                    : param == AnimateParam.mnStar
+                        ? ' (electron mass)'
+                        : ' (hole mass)'),
+        symbol: _getParamName(param).replaceAll(r'$', ''),
+        unit: param == AnimateParam.k0 ? r'10^{10}\,m^{-1}' : (param == AnimateParam.eg ? r'eV' : r'm_0'),
+        currentValue: _getCurrentParamValue(param),
+        rangeMin: rangeMin,
+        rangeMax: rangeMax,
+        absoluteMin: _getAbsoluteMin(param),
+        absoluteMax: _getAbsoluteMax(param),
+        enabled: isSelected,
+        onEnabledChanged: (enabled) {
+          if (!enabled) return;
+          setState(() {
+            _animateParam = param;
+            _updateAnimationRangeDefaults();
+          });
+        },
+        onValueChanged: (value) {
+          if (_isAnimating) _stopAnimation();
+          _setCurrentParamValue(param, value);
+        },
+        onRangeChanged: (min, max) {
+          if (_animateParam != param) return;
+          setState(() {
+            _animateRangeMin = min;
+            _animateRangeMax = max;
+          });
+        },
+        physicsNote: param == AnimateParam.k0
+            ? 'Moves the CBM in k-space.'
+            : param == AnimateParam.eg
+                ? 'Changes gap while keeping parabolic model.'
+                : 'Changes curvature while band edges stay fixed.',
+      );
+    }).toList();
+
+    return AnimationConfig(
+      parameters: params,
+      selectedParameterId: _animateParamId(_animateParam),
+      onParameterSelected: (id) {
+        final param = _animateParamFromId(id);
+        setState(() {
+          _animateParam = param;
+          _updateAnimationRangeDefaults();
+        });
       },
-    );
-  }
-
-  Widget _buildEnhancedAnimationCard() {
-    final paramName = _getParamName(_animateParam);
-    final paramValue = _getCurrentParamValue(_animateParam);
-
-    return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: ExpansionTile(
-        initiallyExpanded: false,
-        title: const Text('Animation', style: TextStyle(fontWeight: FontWeight.w700)),
-        childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-        children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Parameter selector
-              ParameterDropdown<AnimateParam>(
-                label: 'Animate parameter',
-                value: _animateParam,
-                items: const [
-                  DropdownMenuItem(value: AnimateParam.k0, child: Text('kâ‚€ (CBM position)')),
-                  DropdownMenuItem(value: AnimateParam.eg, child: Text('Eg (bandgap)')),
-                  DropdownMenuItem(value: AnimateParam.mnStar, child: Text('mn* (electron mass)')),
-                  DropdownMenuItem(value: AnimateParam.mpStar, child: Text('mp* (hole mass)')),
-                ],
-                onChanged: (v) {
-                  setState(() {
-                    _animateParam = v!;
-                    _updateAnimationRangeDefaults();
-                  });
-                },
-              ),
-              
-              const SizedBox(height: 12),
-              const Text('Current value:', style: TextStyle(fontWeight: FontWeight.w600)),
-              const SizedBox(height: 4),
-              _parseLatex('$paramName = ${paramValue.toStringAsFixed(3)}'),
-              
-              const SizedBox(height: 12),
-              
-              // MANUAL SLIDER (always visible)
-              Text('Manual control:', style: Theme.of(context).textTheme.labelMedium),
-              Slider(
-                value: paramValue,
-                min: _animateRangeMin,
-                max: _animateRangeMax,
-                divisions: 100,
-                label: paramValue.toStringAsFixed(3),
-                onChanged: (v) {
-                  // Pause animation if user manually adjusts
-                  if (_isAnimating) _stopAnimation();
-                  _setCurrentParamValue(_animateParam, v);
-                },
-              ),
-              
-              const SizedBox(height: 12),
-              
-              // Animation range controls
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Range Min', style: Theme.of(context).textTheme.labelSmall),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Slider(
-                                value: _animateRangeMin,
-                                min: _getAbsoluteMin(_animateParam),
-                                max: _animateRangeMax,
-                                divisions: 50,
-                                label: _animateRangeMin.toStringAsFixed(3),
-                                onChanged: (v) => setState(() => _animateRangeMin = v),
-                              ),
-                            ),
-                            SizedBox(
-                              width: 50,
-                              child: Text(_animateRangeMin.toStringAsFixed(2), style: const TextStyle(fontSize: 11)),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Range Max', style: Theme.of(context).textTheme.labelSmall),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Slider(
-                                value: _animateRangeMax,
-                                min: _animateRangeMin,
-                                max: _getAbsoluteMax(_animateParam),
-                                divisions: 50,
-                                label: _animateRangeMax.toStringAsFixed(3),
-                                onChanged: (v) => setState(() => _animateRangeMax = v),
-                              ),
-                            ),
-                            SizedBox(
-                              width: 50,
-                              child: Text(_animateRangeMax.toStringAsFixed(2), style: const TextStyle(fontSize: 11)),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              
-              const SizedBox(height: 12),
-              
-              // Speed control
-              ParameterSlider(
-                label: 'Speed',
-                value: _animateSpeed,
-                min: 0.25,
-                max: 3.0,
-                divisions: 11,
-                onChanged: (v) => setState(() => _animateSpeed = v),
-                valueFormatter: (v) => '${v.toStringAsFixed(2)}Ã—',
-              ),
-              
-              // Loop mode
-              ParameterSegmented<LoopMode>(
-                label: 'Loop mode',
-                selected: {_loopMode},
-                segments: const [
-                  ButtonSegment(value: LoopMode.off, label: Text('Off')),
-                  ButtonSegment(value: LoopMode.loop, label: Text('Loop')),
-                  ButtonSegment(value: LoopMode.pingPong, label: Text('PingPong')),
-                ],
-                onSelectionChanged: (s) => setState(() => _loopMode = s.first),
-              ),
-              
-              // Direction and overlay toggles
-              ParameterSwitch(
-                label: 'Reverse direction',
-                value: _reverseDirection,
-                onChanged: (v) => setState(() => _reverseDirection = v),
-              ),
-              ParameterSwitch(
-                label: 'Hold selected k',
-                value: _holdSelectedK,
-                onChanged: (v) => setState(() => _holdSelectedK = v),
-              ),
-              ParameterSwitch(
-                label: 'Lock y-axis (no auto-scale)',
-                value: _lockYAxis,
-                onChanged: (v) => setState(() => _lockYAxis = v),
-              ),
-              ParameterSwitch(
-                label: 'Overlay previous curve',
-                value: _overlayPreviousCurve,
-                onChanged: (v) => setState(() => _overlayPreviousCurve = v),
-              ),
-              
-              const SizedBox(height: 12),
-              
-              // Play controls
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  ElevatedButton.icon(
-                    onPressed: _isAnimating ? _stopAnimation : _startAnimation,
-                    icon: Icon(_isAnimating ? Icons.pause : Icons.play_arrow),
-                    label: Text(_isAnimating ? 'Pause' : 'Play'),
-                  ),
-                  ElevatedButton.icon(
-                    onPressed: _restartAnimation,
-                    icon: const Icon(Icons.restart_alt),
-                    label: const Text('Restart'),
-                  ),
-                  ElevatedButton.icon(
-                    onPressed: () => setState(() {
-                      _updateAnimationRangeDefaults();
-                    }),
-                    icon: const Icon(Icons.settings_backup_restore),
-                    label: const Text('Reset Range'),
-                  ),
-                ],
-              ),
-              
-              if (_isAnimating) ...[
-                const SizedBox(height: 8),
-                LinearProgressIndicator(value: _animationProgress),
-              ],
-              
-              // Physics note for m* animation
-              if (_animateParam == AnimateParam.mnStar || _animateParam == AnimateParam.mpStar) ...[
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: Colors.blue.withOpacity(0.3)),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.info_outline, size: 16, color: Colors.blue[700]),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Physics note: Band edges stay fixed; only curvature changes with m*.',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ],
+      state: AnimationState(
+        isPlaying: _isAnimating,
+        speed: _animateSpeed,
+        reverse: _reverseDirection,
+        loop: _loopMode != LoopMode.off,
+        progress: _isAnimating ? _animationProgress : null,
+      ),
+      callbacks: AnimationCallbacks(
+        onPlay: _startAnimation,
+        onPause: _stopAnimation,
+        onRestart: _restartAnimation,
+        onSpeedChanged: (speed) => setState(() => _animateSpeed = speed),
+        onReverseChanged: (reverse) => setState(() => _reverseDirection = reverse),
+        onLoopChanged: (loop) => setState(() {
+          if (!loop) {
+            _loopMode = LoopMode.off;
+          } else if (_loopMode == LoopMode.off) {
+            _loopMode = LoopMode.loop;
+          }
+        }),
       ),
     );
   }
@@ -698,122 +585,143 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
     }
   }
 
-  Widget _buildParametersCard() {
-    return ParametersCard(
-      title: 'Parameters',
-      collapsible: true,
-      initiallyExpanded: true,
-      children: [
-        ParameterSegmented<GapType>(
-          label: 'Gap type',
-          selected: {_gapType},
-          segments: const [
-            ButtonSegment(value: GapType.direct, label: Text('Direct')),
-            ButtonSegment(value: GapType.indirect, label: Text('Indirect')),
-          ],
-          onSelectionChanged: (s) => updateChart(() {
-            _gapType = s.first;
-            if (_gapType == GapType.direct) _k0Scaled = 0.0;
-            _selectedPoint = null;
-          }),
-        ),
-        ParameterDropdown<String>(
-          label: 'Material preset',
-          value: _preset,
-          items: const [
-            DropdownMenuItem(value: 'GaAs (Direct)', child: Text('GaAs (Direct)')),
-            DropdownMenuItem(value: 'Si (Indirect)', child: Text('Si (Indirect)')),
-            DropdownMenuItem(value: 'Custom', child: Text('Custom')),
-          ],
-          onChanged: (v) => updateChart(() {
-            _preset = v!;
-            _applyPreset(v);
-          }),
-        ),
-        ParameterDropdown<EnergyReference>(
-          label: 'Energy reference',
-          value: _energyReference,
-          items: const [
-            DropdownMenuItem(value: EnergyReference.midgap, child: Text('Midgap = 0')),
-            DropdownMenuItem(value: EnergyReference.evZero, child: Text('Ev = 0')),
-            DropdownMenuItem(value: EnergyReference.ecZero, child: Text('Ec = 0')),
-          ],
-          onChanged: (v) => updateChart(() {
-            _energyReference = v!;
-            _selectedPoint = null;
-          }),
-        ),
-        ParameterSlider(
-          label: r'$E_g$ (eV)',
-          value: _eg,
-          min: 0.2,
-          max: 2.5,
-          divisions: 230,
-          onChanged: (v) => _updateCustom(() => _eg = double.parse(v.toStringAsFixed(3))),
-        ),
-        ParameterSlider(
-          label: r'$m_n^*$ (Ã—$m_0$)',
-          value: _mnEff,
-          min: 0.05,
-          max: 2.0,
-          divisions: 195,
-          onChanged: (v) => _updateCustom(() => _mnEff = double.parse(v.toStringAsFixed(3))),
-          subtitle: 'Affects conduction band curvature only',
-        ),
-        ParameterSlider(
-          label: r'$m_p^*$ (Ã—$m_0$)',
-          value: _mpEff,
-          min: 0.05,
-          max: 2.0,
-          divisions: 195,
-          onChanged: (v) => _updateCustom(() => _mpEff = double.parse(v.toStringAsFixed(3))),
-          subtitle: 'Affects valence band curvature only',
-        ),
-        ParameterSlider(
-          label: r'$k_0$ (Ã—10Â¹â° mâ»Â¹)',
-          value: _k0Scaled,
-          min: 0.0,
-          max: 1.5,
-          divisions: 150,
-          onChanged: _gapType == GapType.indirect
-              ? (v) => _updateCustom(() => _k0Scaled = double.parse(v.toStringAsFixed(3)))
-              : null,
-        ),
-        ParameterSlider(
-          label: r'$k_{\\mathrm{max}}$ (Ã—10Â¹â° mâ»Â¹)',
-          value: _kMaxScaled,
-          min: 0.5,
-          max: 2.0,
-          divisions: 150,
-          onChanged: (v) => _updateCustom(() => _kMaxScaled = double.parse(v.toStringAsFixed(2))),
-        ),
-        ParameterSwitch(
-          label: 'Show transitions',
-          value: _showTransitions,
-          onChanged: (v) => updateChart(() => _showTransitions = v),
-        ),
-        ParameterSwitch(
-          label: 'Show band edges',
-          value: _showBandEdges,
-          onChanged: (v) => updateChart(() => _showBandEdges = v),
-        ),
-        const SizedBox(height: 8),
-        ElevatedButton.icon(
-          onPressed: _resetDemo,
-          icon: const Icon(Icons.restart_alt, size: 18),
-          label: const Text('Reset Demo'),
-          style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 36)),
-        ),
-      ],
+  List<Widget> _buildParameterControls() {
+    return [
+      ParameterSegmented<GapType>(
+        label: 'Gap type',
+        selected: {_gapType},
+        segments: const [
+          ButtonSegment(value: GapType.direct, label: Text('Direct')),
+          ButtonSegment(value: GapType.indirect, label: Text('Indirect')),
+        ],
+        onSelectionChanged: (s) => updateChart(() {
+          _gapType = s.first;
+          if (_gapType == GapType.direct) _k0Scaled = 0.0;
+          _selectedPoint = null;
+        }),
+      ),
+      ParameterDropdown<String>(
+        label: 'Material preset',
+        value: _preset,
+        items: const [
+          DropdownMenuItem(value: 'GaAs (Direct)', child: Text('GaAs (Direct)')),
+          DropdownMenuItem(value: 'Si (Indirect)', child: Text('Si (Indirect)')),
+          DropdownMenuItem(value: 'Custom', child: Text('Custom')),
+        ],
+        onChanged: (v) => updateChart(() {
+          _preset = v!;
+          _applyPreset(v);
+        }),
+      ),
+      ParameterDropdown<EnergyReference>(
+        label: 'Energy reference',
+        value: _energyReference,
+        items: const [
+          DropdownMenuItem(value: EnergyReference.midgap, child: Text('Midgap = 0')),
+          DropdownMenuItem(value: EnergyReference.evZero, child: Text('Ev = 0')),
+          DropdownMenuItem(value: EnergyReference.ecZero, child: Text('Ec = 0')),
+        ],
+        onChanged: (v) => updateChart(() {
+          _energyReference = v!;
+          _selectedPoint = null;
+        }),
+      ),
+      ParameterSlider(
+        label: r'$E_g$ (eV)',
+        value: _eg,
+        min: 0.2,
+        max: 2.5,
+        divisions: 230,
+        onChanged: (v) => _updateCustom(() => _eg = double.parse(v.toStringAsFixed(3))),
+      ),
+      ParameterSlider(
+        label: r'$m_n^*$ (x$m_0$)',
+        value: _mnEff,
+        min: 0.05,
+        max: 2.0,
+        divisions: 195,
+        onChanged: (v) => _updateCustom(() => _mnEff = double.parse(v.toStringAsFixed(3))),
+        subtitle: 'Affects conduction band curvature only',
+      ),
+      ParameterSlider(
+        label: r'$m_p^*$ (x$m_0$)',
+        value: _mpEff,
+        min: 0.05,
+        max: 2.0,
+        divisions: 195,
+        onChanged: (v) => _updateCustom(() => _mpEff = double.parse(v.toStringAsFixed(3))),
+        subtitle: 'Affects valence band curvature only',
+      ),
+      ParameterSlider(
+        label: r'$k_0$ (x10^10 m^-1)',
+        value: _k0Scaled,
+        min: 0.0,
+        max: 1.5,
+        divisions: 150,
+        onChanged: _gapType == GapType.indirect
+            ? (v) => _updateCustom(() => _k0Scaled = double.parse(v.toStringAsFixed(3)))
+            : null,
+      ),
+      ParameterSlider(
+        label: r'$k_{\\mathrm{max}}$ (x10^10 m^-1)',
+        value: _kMaxScaled,
+        min: 0.5,
+        max: 2.0,
+        divisions: 150,
+        onChanged: (v) => _updateCustom(() => _kMaxScaled = double.parse(v.toStringAsFixed(2))),
+      ),
+      ParameterSwitch(
+        label: 'Show transitions',
+        value: _showTransitions,
+        onChanged: (v) => updateChart(() => _showTransitions = v),
+      ),
+      ParameterSwitch(
+        label: 'Show band edges',
+        value: _showBandEdges,
+        onChanged: (v) => updateChart(() => _showBandEdges = v),
+      ),
+      const SizedBox(height: 8),
+      ElevatedButton.icon(
+        onPressed: _resetDemo,
+        icon: const Icon(Icons.restart_alt, size: 18),
+        label: const Text('Reset Demo'),
+        style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 36)),
+      ),
+    ];
+  }
+
+  PointInspectorConfig _buildPointInspectorConfig() {
+    return PointInspectorConfig(
+      enabled: true,
+      emptyMessage: 'Tap or hover over the chart to inspect a point.',
+      onClear: () => updateChart(() => _selectedPoint = null),
+      builder: () {
+        final sp = _selectedPoint;
+        if (sp == null) {
+          return const ['Hover or tap the chart to inspect points.'];
+        }
+        final cbmKScaled = _gapType == GapType.direct ? 0.0 : _k0Scaled;
+        final nearestEdge = sp.band == 'Valence'
+            ? 'VBM (k~=0)'
+            : (sp.kScaled - cbmKScaled).abs() < 0.05
+                ? 'CBM (k~=${cbmKScaled.toStringAsFixed(2)} x10^10 m^-1)'
+                : 'Conduction band';
+        return [
+          'Band: ${sp.band}',
+          'k = ${_sci3(sp.k)} m^-1',
+          'k = ${sp.kScaled.toStringAsFixed(3)} x10^10 m^-1',
+          'E = ${sp.energy.toStringAsFixed(4)} eV',
+          'Nearest: $nearestEdge',
+        ];
+      },
     );
   }
 
-  Widget _buildKeyObservationsCard(double egDirect, double egIndirect, double kCbmScaled) {
+  InsightsConfig _buildInsightsConfig(double egDirect, double egIndirect, double kCbmScaled) {
     final dynamicObs = _buildDynamicObservations(egDirect, egIndirect, kCbmScaled);
     final staticObs = _buildStaticObservations();
 
-    return KeyObservationsCard(
-      title: 'Key Observations',
+    return InsightsConfig(
       dynamicObservations: dynamicObs.isNotEmpty ? dynamicObs : null,
       staticObservations: staticObs,
       dynamicTitle: 'Current Configuration',
@@ -824,22 +732,22 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
     final obs = <String>[];
 
     if (_gapType == GapType.direct) {
-      obs.add('Direct gap: CBM and VBM at kâ‰ˆ0 â†’ vertical photon transition. \$E_{g,\\mathrm{dir}} = ${egDirect.toStringAsFixed(3)}\$ eV.');
+      obs.add('Direct gap: CBM and VBM at k~=0 -> vertical photon transition. \$E_{g,\\mathrm{dir}} = ${egDirect.toStringAsFixed(3)}\$ eV.');
     } else {
-      obs.add('Indirect gap: CBM at \$k_0 = ${kCbmScaled.toStringAsFixed(3)} \\times 10^{10}\$ mâ»Â¹ â†’ phonon needed. \$E_{g,\\mathrm{ind}} = ${egIndirect.toStringAsFixed(3)}\$ eV.');
+      obs.add('Indirect gap: CBM at \$k_0 = ${kCbmScaled.toStringAsFixed(3)} \\times 10^{10}\$ m^-1 -> phonon needed. \$E_{g,\\mathrm{ind}} = ${egIndirect.toStringAsFixed(3)}\$ eV.');
       final deltaK = kCbmScaled.abs();
-      obs.add('CBM shift: \$\\Delta k = ${deltaK.toStringAsFixed(3)} \\times 10^{10}\$ mâ»Â¹ from Î“.');
+      obs.add('CBM shift: \$\\Delta k = ${deltaK.toStringAsFixed(3)} \\times 10^{10}\$ m^-1 from Gamma.');
     }
 
     // Curvature analysis
     final probeK = _kMaxScaled * 0.5 * _kDisplayScale;
     final deltaEc = _bandEnergyTerm(probeK, _mnEff);
     final deltaEv = _bandEnergyTerm(probeK, _mpEff);
-    obs.add('Curvature: \$m_n^* = ${_mnEff.toStringAsFixed(3)}\$, \$m_p^* = ${_mpEff.toStringAsFixed(3)}\$. Smaller \$m^*\$ â†’ steeper bands.');
+    obs.add('Curvature: \$m_n^* = ${_mnEff.toStringAsFixed(3)}\$, \$m_p^* = ${_mpEff.toStringAsFixed(3)}\$. Smaller \$m^*\$ -> steeper bands.');
 
     if (_selectedPoint != null) {
       final sp = _selectedPoint!;
-      obs.add('Selected: k=${sp.kScaled.toStringAsFixed(3)} Ã—10Â¹â° mâ»Â¹, E=${sp.energy.toStringAsFixed(3)} eV.');
+      obs.add('Selected: k=${sp.kScaled.toStringAsFixed(3)} x10^10 m^-1, E=${sp.energy.toStringAsFixed(3)} eV.');
     }
 
     return obs;
@@ -847,10 +755,10 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
 
   List<String> _buildStaticObservations() {
     return [
-      r'Parabolic bands: $E \propto k^2$; smaller $m^*$ â†’ steeper curvature.',
+      r'Parabolic bands: $E \propto k^2$; smaller $m^*$ -> steeper curvature.',
       r'Band edges ($E_c$, $E_v$) stay fixed at extrema; $m^*$ only affects curvature.',
       r'Direct materials (GaAs): efficient light emission (LEDs, lasers).',
-      r'Indirect materials (Si): phonon required â†’ less efficient light emission.',
+      r'Indirect materials (Si): phonon required -> less efficient light emission.',
     ];
   }
 
@@ -882,7 +790,7 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
               child: Text(
                 _gapType == GapType.direct
                     ? 'Direct: CBM and VBM at same k (vertical transition)'
-                    : 'Indirect: CBM shifted to kâ‚€ â‰  0 (phonon needed)',
+                    : 'Indirect: CBM shifted to k0 != 0 (phonon needed)',
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
               ),
             ),
@@ -1141,12 +1049,12 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
       final kScaled = k / _kDisplayScale;
 
       // CRITICAL: Valence band edge is at k=0 by definition
-      // E_v(k) = E_v - (Ä§Â²kÂ²)/(2m_h*) where E_v is the valence band maximum
+      // E_v(k) = E_v - (hbar^2 k^2)/(2m_h*) where E_v is the valence band maximum
       final eValence = edges.ev - _bandEnergyTerm(k, _mpEff);
       valence.add(_GraphPoint(k: k, kScaled: kScaled, energy: eValence));
 
       // CRITICAL: Conduction band edge is at k=k0
-      // E_c(k) = E_c + (Ä§Â²(k-k0)Â²)/(2m_e*) where E_c is the conduction band minimum
+      // E_c(k) = E_c + (hbar^2 (k-k0)^2)/(2m_e*) where E_c is the conduction band minimum
       final eConduction = edges.ec + _bandEnergyTerm(k - k0, _mnEff);
       conduction.add(_GraphPoint(k: k, kScaled: kScaled, energy: eConduction));
     }
@@ -1155,7 +1063,7 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
   }
 
   double _bandEnergyTerm(double k, double mEff) {
-    // Î”E = (Ä§Â²kÂ²)/(2m*) - parabolic dispersion term
+    // DeltaE = (hbar^2 k^2)/(2m*) - parabolic dispersion term
     // This is the energy INCREASE away from the band extremum
     return (_hbar * _hbar * k * k) / (2 * (mEff * _m0)) / _q;
   }
@@ -1163,7 +1071,7 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
   double _conductionEnergy({required double k}) {
     final ec = _bandEdges().ec;
     final k0 = (_gapType == GapType.direct ? 0.0 : _k0Scaled) * _kDisplayScale;
-    // E_c(k) = E_c + (Ä§Â²(k-k0)Â²)/(2m_e*)
+    // E_c(k) = E_c + (hbar^2 (k-k0)^2)/(2m_e*)
     return ec + _bandEnergyTerm(k - k0, _mnEff);
   }
 
@@ -1246,7 +1154,7 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
     if (value == 0) return '0';
     final exp = (math.log(value.abs()) / math.ln10).floor();
     final mant = value / math.pow(10, exp);
-    return '${mant.toStringAsFixed(3)}Ã—10^$exp';
+    return '${mant.toStringAsFixed(3)}x10^$exp';
   }
 
   Widget _legendSwatch(Color color, String label) {
@@ -1445,6 +1353,12 @@ class _Preset {
     required this.gapType,
   });
 }
+
+
+
+
+
+
 
 
 

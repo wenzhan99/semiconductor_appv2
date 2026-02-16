@@ -127,9 +127,9 @@ class _ReadoutRow extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              LatexText(
+              _buildValue(
                 item.value,
-                style: TextStyle(
+                TextStyle(
                   fontSize: _Typo.value,
                   fontWeight: item.boldValue ? FontWeight.w700 : FontWeight.w400,
                   color: item.valueColor,
@@ -153,6 +153,13 @@ class _ReadoutRow extends StatelessWidget {
   }
 
   Widget _buildLabel(String text, TextStyle style) {
+    if (_looksLikeLatex(text)) {
+      return LatexText(text, style: style);
+    }
+    return Text(text, style: style);
+  }
+
+  Widget _buildValue(String text, TextStyle style) {
     if (_looksLikeLatex(text)) {
       return LatexText(text, style: style);
     }

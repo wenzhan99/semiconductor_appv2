@@ -11,8 +11,9 @@ import '../graphs/utils/latex_number_formatter.dart';
 import '../graphs/utils/safe_math.dart';
 import '../graphs/utils/semiconductor_models.dart';
 import '../widgets/latex_text.dart';
-import '../graphs/core/graph_config.dart' show GraphConfig, ControlsConfig;
+import '../graphs/core/graph_config.dart';
 import '../graphs/core/standard_graph_page_scaffold.dart';
+import '../graphs/core/standard_panel_stack.dart';
 
 class CarrierConcentrationGraphPage extends StatelessWidget {
   const CarrierConcentrationGraphPage({super.key});
@@ -246,6 +247,7 @@ class _CarrierConcentrationGraphViewState
             _calcP(_fermiLevel, curves.Nv, constants.q, constants.kB) *
                 _densityDisplayFactor;
         final currentNi = curves.ni * _densityDisplayFactor;
+        final panelConfig = _buildPanelConfig(context, currentN, currentP, currentNi);
 
         return StandardGraphPageScaffold(
           config: const GraphConfig(
@@ -259,9 +261,58 @@ class _CarrierConcentrationGraphViewState
           observeSection: _buildInfoPanel(context),
           chartBuilder: (context) =>
               _buildChartContent(context, curves, currentN, currentP, currentNi),
-          rightPanelBuilder: (context, config) => _buildRightPanel(context),
+          rightPanelBuilder: (context, config) =>
+              StandardPanelStack(config: panelConfig),
         );
       },
+    );
+  }
+
+  GraphConfig _buildPanelConfig(
+    BuildContext context,
+    double n,
+    double p,
+    double ni,
+  ) {
+    final unitLabel = _useCmUnits ? 'cm^-3' : 'm^-3';
+    final readouts = <ReadoutItem>[
+      ReadoutItem(label: r'T', value: '${_temperature.toStringAsFixed(0)} K'),
+      ReadoutItem(label: r'E_F', value: '${_fermiLevel.toStringAsFixed(3)} eV'),
+      if (_seriesMode != SeriesMode.pOnly)
+        ReadoutItem(
+          label: r'n(E_F)',
+          value: '${LatexNumberFormatter.toUnicodeSci(n, sigFigs: 3)} $unitLabel',
+        ),
+      if (_seriesMode != SeriesMode.nOnly)
+        ReadoutItem(
+          label: r'p(E_F)',
+          value: '${LatexNumberFormatter.toUnicodeSci(p, sigFigs: 3)} $unitLabel',
+        ),
+      if (_showNiLine)
+        ReadoutItem(
+          label: r'n_i(T)',
+          value: '${LatexNumberFormatter.toUnicodeSci(ni, sigFigs: 3)} $unitLabel',
+        ),
+    ];
+
+    return GraphConfig(
+      readouts: readouts,
+      pointInspector: const PointInspectorConfig(
+        enabled: true,
+        emptyMessage: 'Use chart hover tooltips to inspect n(E_F), p(E_F), and n_i(T).',
+      ),
+      insights: const InsightsConfig(
+        dynamicObservations: [
+          'n increases as E_F approaches E_c',
+          'p increases as E_F approaches E_v',
+          'n_i marks intrinsic condition where n and p are comparable',
+        ],
+      ),
+      controls: ControlsConfig(
+        children: [_buildControls(context)],
+        collapsible: true,
+        initiallyExpanded: true,
+      ),
     );
   }
 
@@ -384,7 +435,7 @@ class _CarrierConcentrationGraphViewState
 
   Widget _buildChart(BuildContext context, _CarrierCurves curves) {
     final unitLatex = _useCmUnits ? r'\mathrm{cm^{-3}}' : r'\mathrm{m^{-3}}';
-    final unitUnicode = _useCmUnits ? 'cmâ»Â³' : 'mâ»Â³';
+    final unitUnicode = _useCmUnits ? 'cm^-3' : 'm^-3';
     final legendColorN = Theme.of(context).colorScheme.primary;
     final legendColorP = Theme.of(context).colorScheme.tertiary;
     final intrinsicMarker = _computeIntrinsicMarker(curves);
@@ -403,7 +454,7 @@ class _CarrierConcentrationGraphViewState
             alignment: Alignment.centerRight,
             padding: const EdgeInsets.only(right: 6),
             style: const TextStyle(fontSize: 11, color: Colors.grey),
-            labelResolver: (_) => 'náµ¢',
+            labelResolver: (_) => 'ni',
           ),
         ),
       );
@@ -437,7 +488,7 @@ class _CarrierConcentrationGraphViewState
             alignment: Alignment.centerLeft,
             padding: const EdgeInsets.only(left: 4),
             style: TextStyle(fontSize: 11, color: legendColorP),
-            labelResolver: (_) => 'Eáµ¥',
+            labelResolver: (_) => 'Ev',
           ),
         ),
         VerticalLine(
@@ -450,7 +501,7 @@ class _CarrierConcentrationGraphViewState
             alignment: Alignment.centerRight,
             padding: const EdgeInsets.only(right: 4),
             style: TextStyle(fontSize: 11, color: legendColorN),
-            labelResolver: (_) => 'Eá´„',
+            labelResolver: (_) => 'Ec',
           ),
         ),
       ]);
@@ -608,7 +659,7 @@ class _CarrierConcentrationGraphViewState
                             ),
                             TextSpan(
                               text:
-                                  'logâ‚â‚€($label) = ${yVal.toStringAsFixed(2)}',
+                                  'log10($label) = ${yVal.toStringAsFixed(2)}',
                               style: TextStyle(
                                   fontSize: 10, color: Colors.grey[300]),
                             ),
@@ -627,7 +678,7 @@ class _CarrierConcentrationGraphViewState
                             ),
                             TextSpan(
                               text:
-                                  'logâ‚â‚€($label) = ${yVal.toStringAsFixed(2)}',
+                                  'log10($label) = ${yVal.toStringAsFixed(2)}',
                               style: TextStyle(
                                   fontSize: 10, color: Colors.grey[300]),
                             ),
@@ -1044,7 +1095,7 @@ class _InfoBullet extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('â€¢ '),
+          const Text('- '),
           Expanded(
             child: useLatex ? LatexText(text, scale: 0.95) : Text(text),
           ),
@@ -1053,5 +1104,7 @@ class _InfoBullet extends StatelessWidget {
     );
   }
 }
+
+
 
 

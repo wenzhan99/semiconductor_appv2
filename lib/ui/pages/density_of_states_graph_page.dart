@@ -5,14 +5,12 @@ import 'package:flutter/material.dart';
 
 import '../widgets/latex_text.dart';
 import '../graphs/common/graph_controller.dart';
-import '../graphs/common/readouts_card.dart';
-import '../graphs/common/point_inspector_card.dart';
 import '../graphs/common/parameters_card.dart';
-import '../graphs/common/key_observations_card.dart';
 import '../graphs/common/chart_toolbar.dart';
 import '../graphs/common/viewport_state.dart';
-import '../graphs/core/graph_config.dart' show GraphConfig, ControlsConfig;
+import '../graphs/core/graph_config.dart';
 import '../graphs/core/standard_graph_page_scaffold.dart';
+import '../graphs/core/standard_panel_stack.dart';
 
 class DensityOfStatesGraphPage extends StatelessWidget {
   const DensityOfStatesGraphPage({super.key});
@@ -83,6 +81,7 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
       defaultMinY: 0,
       defaultMaxY: (data.maxDos * 1.08).clamp(0.1, double.infinity),
     );
+    final panelConfig = _buildPanelConfig(ec, ev);
 
     return StandardGraphPageScaffold(
       config: const GraphConfig(
@@ -96,7 +95,7 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
       aboutSection: _buildAboutCard(context),
       observeSection: _buildObserveCard(context),
       chartBuilder: (context) => _buildChartCard(context, data, ec, ev),
-      rightPanelBuilder: (context, config) => _buildRightPanel(ec, ev),
+      rightPanelBuilder: (context, config) => StandardPanelStack(config: panelConfig),
     );
   }
 
@@ -203,7 +202,7 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('â€¢ '),
+          const Text('- '),
           Expanded(child: _parseLatex(text)),
         ],
       ),
@@ -237,68 +236,71 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
     return Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: parts);
   }
 
-  Widget _buildRightPanel(double ec, double ev) {
-    return SingleChildScrollView(
-      child: Column(
-        children: [
-          _buildReadoutsCard(ec, ev),
-          const SizedBox(height: 12),
-          _buildPointInspectorCard(),
-          const SizedBox(height: 12),
-          _buildKeyObservationsCard(ec, ev),
-          const SizedBox(height: 12),
-          _buildParametersCard(),
-        ],
+  GraphConfig _buildPanelConfig(double ec, double ev) {
+    final dynamicObservations = _buildDynamicObservations(ec, ev);
+    return GraphConfig(
+      readouts: _buildReadouts(ec, ev),
+      pointInspector: _buildPointInspectorConfig(),
+      insights: InsightsConfig(
+        dynamicObservations: dynamicObservations.isEmpty ? null : dynamicObservations,
+        staticObservations: _buildStaticObservations(),
+        dynamicTitle: _selectedPoint != null ? 'Selected Point' : null,
+      ),
+      controls: ControlsConfig(
+        children: _buildControlsChildren(),
+        collapsible: true,
+        initiallyExpanded: true,
       ),
     );
   }
 
-  Widget _buildReadoutsCard(double ec, double ev) {
+  List<ReadoutItem> _buildReadouts(double ec, double ev) {
     final dosAtEc = _dosCoeff(_meEff) * math.sqrt(0.1);
     final dosAtEv = _dosCoeff(_mhEff) * math.sqrt(0.1);
 
-    return ReadoutsCard(
-      title: 'Band Edges & DOS',
-      readouts: [
-        ReadoutItem(
-          label: r'$E_c$ (conduction edge)',
-          value: '${ec.toStringAsFixed(3)} eV',
-        ),
-        ReadoutItem(
-          label: r'$E_v$ (valence edge)',
-          value: '${ev.toStringAsFixed(3)} eV',
-        ),
-        ReadoutItem(
-          label: r'$E_g$ (bandgap)',
-          value: '${_eg.toStringAsFixed(3)} eV',
-          boldValue: true,
-        ),
-        ReadoutItem(
-          label: r'$E_F$ (Fermi level)',
-          value: '${_fermiOffset.toStringAsFixed(3)} eV',
-        ),
-        ReadoutItem(
-          label: r'$g_c$ at $E_c$+0.1eV',
-          value: dosAtEc.toStringAsPrecision(3),
-          subtitle: 'Arbitrary units',
-        ),
-        ReadoutItem(
-          label: r'$g_v$ at $E_v$âˆ’0.1eV',
-          value: dosAtEv.toStringAsPrecision(3),
-          subtitle: 'Arbitrary units',
-        ),
-      ],
-    );
+    return [
+      ReadoutItem(
+        label: r'E_c (conduction edge)',
+        value: '${ec.toStringAsFixed(3)} eV',
+      ),
+      ReadoutItem(
+        label: r'E_v (valence edge)',
+        value: '${ev.toStringAsFixed(3)} eV',
+      ),
+      ReadoutItem(
+        label: r'E_g (bandgap)',
+        value: '${_eg.toStringAsFixed(3)} eV',
+        boldValue: true,
+      ),
+      ReadoutItem(
+        label: r'E_F (Fermi level)',
+        value: '${_fermiOffset.toStringAsFixed(3)} eV',
+      ),
+      ReadoutItem(
+        label: r'g_c at E_c + 0.1 eV',
+        value: dosAtEc.toStringAsPrecision(3),
+        subtitle: 'Arbitrary units',
+      ),
+      ReadoutItem(
+        label: r'g_v at E_v - 0.1 eV',
+        value: dosAtEv.toStringAsPrecision(3),
+        subtitle: 'Arbitrary units',
+      ),
+    ];
   }
 
-  Widget _buildPointInspectorCard() {
-    return PointInspectorCard<FlSpot>(
-      selectedPoint: _selectedPoint,
+  PointInspectorConfig _buildPointInspectorConfig() {
+    return PointInspectorConfig(
+      enabled: true,
+      emptyMessage: 'Tap the chart to inspect a point.',
       onClear: () => updateChart(() {
         _selectedPoint = null;
         _selectedBand = null;
       }),
-      builder: (spot) {
+      builder: _selectedPoint == null
+          ? null
+          : () {
+              final spot = _selectedPoint!;
         return [
           'Band: ${_selectedBand ?? "Unknown"}',
           'Energy: ${spot.x.toStringAsFixed(3)} eV',
@@ -319,12 +321,8 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
     }
   }
 
-  Widget _buildParametersCard() {
-    return ParametersCard(
-      title: 'Parameters',
-      collapsible: true,
-      initiallyExpanded: true,
-      children: [
+  List<Widget> _buildControlsChildren() {
+    return [
         ParameterSlider(
           label: r'Bandgap $E_g$ (eV)',
           value: _eg,
@@ -401,20 +399,7 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
             minimumSize: const Size(double.infinity, 36),
           ),
         ),
-      ],
-    );
-  }
-
-  Widget _buildKeyObservationsCard(double ec, double ev) {
-    final dynamicObs = _buildDynamicObservations(ec, ev);
-    final staticObs = _buildStaticObservations();
-
-    return KeyObservationsCard(
-      title: 'Key Observations',
-      dynamicObservations: dynamicObs.isNotEmpty ? dynamicObs : null,
-      staticObservations: staticObs,
-      dynamicTitle: _selectedPoint != null ? 'Selected Point' : null,
-    );
+    ];
   }
 
   List<String> _buildDynamicObservations(double ec, double ev) {
@@ -444,7 +429,7 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
     final deltaEf = (_fermiOffset - e).abs();
     if (deltaEf < 0.2) {
       obs.add(
-          r'Selected point is near $E_F$ ($\Delta E_F < 0.2$ eV) â†’ high occupation/depletion probability.');
+          r'Selected point is near $E_F$ ($\Delta E_F < 0.2$ eV) -> high occupation/depletion probability.');
     }
 
     return obs;
@@ -452,7 +437,7 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
 
   List<String> _buildStaticObservations() {
     return [
-      r'DOS $\propto (m^*)^{3/2}$; heavier effective mass â†’ more available states.',
+      r'DOS $\propto (m^*)^{3/2}$; heavier effective mass -> more available states.',
       r'Conduction DOS: $g_c(E) \propto \sqrt{E - E_c}$ (parabolic band).',
       r'Valence DOS: $g_v(E) \propto \sqrt{E_v - E}$ (parabolic band).',
       r'Carrier concentration $\propto$ DOS $\times$ Fermi-Dirac distribution.',
@@ -564,7 +549,7 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
                 show: true,
                 alignment: Alignment.topRight,
                 padding: const EdgeInsets.only(bottom: 6, right: 4),
-                labelResolver: (_) => 'Eá´„',
+                labelResolver: (_) => 'Ec',
               ),
             ),
             VerticalLine(
@@ -575,7 +560,7 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
                 show: true,
                 alignment: Alignment.topLeft,
                 padding: const EdgeInsets.only(bottom: 6, left: 4),
-                labelResolver: (_) => 'Eá´ ',
+                labelResolver: (_) => 'Ev',
               ),
             ),
             VerticalLine(
@@ -587,7 +572,7 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
                 show: true,
                 alignment: Alignment.bottomRight,
                 padding: const EdgeInsets.only(top: 4, right: 4),
-                labelResolver: (_) => 'Eêœ°',
+                labelResolver: (_) => 'Ef',
               ),
             ),
           ],
@@ -696,4 +681,6 @@ class _DosData {
 
   _DosData({required this.conduction, required this.valence, required this.maxDos});
 }
+
+
 

@@ -16,13 +16,10 @@ import '../graphs/utils/debouncer.dart';
 
 // Standardized components
 import '../graphs/common/graph_controller.dart';
-import '../graphs/common/readouts_card.dart';
-import '../graphs/common/point_inspector_card.dart';
-import '../graphs/common/animation_card.dart';
 import '../graphs/common/parameters_card.dart';
-import '../graphs/common/key_observations_card.dart';
-import '../graphs/core/graph_config.dart' show GraphConfig, ControlsConfig;
+import '../graphs/core/graph_config.dart';
 import '../graphs/core/standard_graph_page_scaffold.dart';
+import '../graphs/core/standard_panel_stack.dart';
 
 enum ScalingMode { locked, auto, wide }
 
@@ -259,6 +256,7 @@ class _IntrinsicCarrierGraphViewState extends State<_IntrinsicCarrierGraphView>
 
         final c = snapshot.data!;
         final curveData = _computeNiCurve(c.h, c.kB, c.m0, c.q);
+        final panelConfig = _buildPanelConfig(c);
 
         return StandardGraphPageScaffold(
           config: const GraphConfig(
@@ -271,7 +269,7 @@ class _IntrinsicCarrierGraphViewState extends State<_IntrinsicCarrierGraphView>
           aboutSection: _buildAboutCard(context),
           observeSection: _buildObserveCard(context),
           chartBuilder: (context) => _buildChartArea(context, c, curveData),
-          rightPanelBuilder: (context, config) => _buildRightPanel(c),
+          rightPanelBuilder: (context, config) => StandardPanelStack(config: panelConfig),
         );
       },
     );
@@ -384,7 +382,7 @@ class _IntrinsicCarrierGraphViewState extends State<_IntrinsicCarrierGraphView>
         ),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         children: [
-          _bullet(r'$n_i$ rises exponentially with T; slope â‰ˆ $-E_g/(2k)$ on Arrhenius plot.'),
+          _bullet(r'$n_i$ rises exponentially with T; slope ~= $-E_g/(2k)$ on Arrhenius plot.'),
           _bullet(r'Larger $E_g$ suppresses $n_i$; $N_c$, $N_v \propto T^{3/2}$ (weaker effect).'),
           _bullet(r'Log scale is essential because $n_i$ spans many decades over temperature range.'),
           const SizedBox(height: 8),
@@ -403,7 +401,7 @@ class _IntrinsicCarrierGraphViewState extends State<_IntrinsicCarrierGraphView>
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('â€¢ '),
+          const Text('- '),
           Expanded(
             child: _parseLatex(text, Theme.of(context).textTheme.bodyMedium),
           ),
@@ -440,91 +438,145 @@ class _IntrinsicCarrierGraphViewState extends State<_IntrinsicCarrierGraphView>
     return Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: parts);
   }
 
-  Widget _buildRightPanel(_Constants c) {
-    return SingleChildScrollView(
-      child: Column(
-        children: [
-          _buildReadoutsCard(c),
-          const SizedBox(height: 12),
-          _buildPointInspectorCard(c),
-          const SizedBox(height: 12),
-          _buildAnimationCard(),
-          const SizedBox(height: 12),
-          _buildKeyObservationsCard(c),
-          const SizedBox(height: 12),
-          _buildParametersCard(),
+  GraphConfig _buildPanelConfig(_Constants c) {
+    final dynamicObs = _buildDynamicObservations(c);
+    final animationRange = _normalizeBandgapAnimationRange();
+    return GraphConfig(
+      readouts: _buildReadouts(c),
+      pointInspector: _buildPointInspectorConfig(),
+      animation: AnimationConfig(
+        parameters: [
+          AnimatableParameter(
+            id: 'bandgap',
+            label: r'E_g (Bandgap)',
+            symbol: r'E_g',
+            unit: r'eV',
+            currentValue: _bandgap,
+            rangeMin: animationRange.$1,
+            rangeMax: animationRange.$2,
+            absoluteMin: 0.2,
+            absoluteMax: 2.5,
+            enabled: true,
+            onEnabledChanged: (_) {},
+            onValueChanged: (value) {
+              if (_isAnimating) return;
+              setState(() {
+                _bandgap = value;
+              });
+              _scheduleChartRefresh();
+            },
+            onRangeChanged: (min, max) {
+              setState(() {
+                // Range is fixed to preserve existing behavior.
+              });
+            },
+            physicsNote: 'Bandgap strongly changes n_i via exponential dependence.',
+          ),
         ],
+        selectedParameterId: 'bandgap',
+        onParameterSelected: (_) {},
+        state: AnimationState(
+          isPlaying: _isAnimating,
+          speed: 1.0,
+          reverse: false,
+          loop: false,
+          progress: _animationProgress,
+        ),
+        callbacks: AnimationCallbacks(
+          onPlay: _startAnimation,
+          onPause: _stopAnimation,
+          onRestart: _resetAnimation,
+          onSpeedChanged: (_) {},
+          onReverseChanged: (_) {},
+          onLoopChanged: (_) {},
+        ),
+      ),
+      insights: InsightsConfig(
+        dynamicObservations: dynamicObs,
+        staticObservations: _buildStaticObservations(c),
+        dynamicTitle: _pinnedSpots.length >= 2 ? 'From Your Pins' : null,
+        customHeader: Row(
+          children: [
+            ElevatedButton.icon(
+              onPressed: _pinnedSpots.isEmpty
+                  ? null
+                  : () => updateChart(() => _pinnedSpots.clear()),
+              icon: const Icon(Icons.clear_all, size: 18),
+              label: Text('Clear ${_pinnedSpots.length} pins'),
+              style: ElevatedButton.styleFrom(minimumSize: const Size(0, 32)),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '(Max $_maxPins)',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+      controls: ControlsConfig(
+        children: _buildControlsChildren(),
+        collapsible: true,
+        initiallyExpanded: true,
       ),
     );
   }
 
-  Widget _buildReadoutsCard(_Constants c) {
-    final ni300 = _computeNi(300, c.h, c.kB, c.m0, c.q);
-    final ni300Display = _useCmCubed ? ni300 / 1e6 : ni300;
-    final unit = _useCmCubed ? 'cmâ»Â³' : 'mâ»Â³';
-
-    return ReadoutsCard(
-      title: 'Readouts (at 300 K)',
-      readouts: [
-        ReadoutItem(
-          label: r'$n_i$(300K)',
-          value: '${LatexNumberFormatter.toUnicodeSci(ni300Display, sigFigs: 3)} $unit',
-        ),
-        ReadoutItem(
-          label: r'$\log_{10}(n_i)$',
-          value: (math.log(ni300Display) / math.ln10).toStringAsFixed(2),
-        ),
-        ReadoutItem(
-          label: r'Current $E_g$',
-          value: '${_bandgap.toStringAsFixed(3)} eV',
-          boldValue: true,
-        ),
-      ],
-    );
+  (double, double) _normalizeBandgapAnimationRange() {
+    return (0.6, 1.6);
   }
 
-  Widget _buildPointInspectorCard(_Constants c) {
-    return PointInspectorCard<FlSpot>(
-      selectedPoint: _hoverSpot,
+  List<ReadoutItem> _buildReadouts(_Constants c) {
+    final ni300 = _computeNi(300, c.h, c.kB, c.m0, c.q);
+    final ni300Display = _useCmCubed ? ni300 / 1e6 : ni300;
+    final unit = _useCmCubed ? 'cm^-3' : 'm^-3';
+
+    return [
+      ReadoutItem(
+        label: r'n_i(300 K)',
+        value: '${LatexNumberFormatter.toUnicodeSci(ni300Display, sigFigs: 3)} $unit',
+      ),
+      ReadoutItem(
+        label: r'log_10(n_i)',
+        value: (math.log(ni300Display) / math.ln10).toStringAsFixed(2),
+      ),
+      ReadoutItem(
+        label: r'Current E_g',
+        value: '${_bandgap.toStringAsFixed(3)} eV',
+        boldValue: true,
+      ),
+    ];
+  }
+
+  PointInspectorConfig _buildPointInspectorConfig() {
+    return PointInspectorConfig(
+      enabled: true,
+      emptyMessage: 'Hover over the curve to inspect values.',
       onClear: () => updateChart(() {
         _hoverSpot = null;
         _pinnedSpots.clear();
       }),
-      builder: (spot) {
+      builder: _hoverSpot == null
+          ? null
+          : () {
+        final spot = _hoverSpot!;
         final T = _arrheniusMode ? (1.0 / spot.x) : spot.x;
         final logNi = spot.y;
         final ni = math.pow(10, logNi).toDouble();
         final niFormatted = LatexNumberFormatter.toUnicodeSci(ni, sigFigs: 3);
-        final unit = _useCmCubed ? 'cmâ»Â³' : 'mâ»Â³';
+        final unit = _useCmCubed ? 'cm^-3' : 'm^-3';
 
         return [
           'T = ${T.toStringAsFixed(1)} K',
           '$niFormatted $unit',
-          r'$\log_{10}(n_i)$ = ${logNi.toStringAsFixed(2)}',
+          r'\log_{10}(n_i) = ${logNi.toStringAsFixed(2)}',
           'Tap curve to pin (max $_maxPins)',
         ];
       },
     );
   }
 
-  Widget _buildAnimationCard() {
-    return AnimationCard(
-      description: r'Animate $E_g$: 0.6 â†’ 1.6 eV',
-      currentValue: 'Current: \$E_g = ${_bandgap.toStringAsFixed(3)}\\,\\mathrm{eV}\$',
-      isAnimating: _isAnimating,
-      progress: _animationProgress,
-      onPlay: _startAnimation,
-      onPause: _stopAnimation,
-      onReset: _resetAnimation,
-    );
-  }
-
-  Widget _buildParametersCard() {
-    return ParametersCard(
-      title: 'Parameters',
-      collapsible: true,
-      initiallyExpanded: true,
-      children: [
+  List<Widget> _buildControlsChildren() {
+    return [
         ParameterSlider(
           label: r'$E_g$ (eV)',
           value: _bandgap,
@@ -537,10 +589,10 @@ class _IntrinsicCarrierGraphViewState extends State<_IntrinsicCarrierGraphView>
                   setState(() => _bandgap = v);
                   _scheduleChartRefresh();
                 },
-          subtitle: 'Strong (exponential) effect on náµ¢',
+          subtitle: 'Strong (exponential) effect on n_i',
         ),
         ParameterSlider(
-          label: r'$m_n^*$ (Ã—$m_0$)',
+          label: r'$m_n^*$ (x$m_0$)',
           value: _mEffElectron,
           min: 0.05,
           max: 2.0,
@@ -551,10 +603,10 @@ class _IntrinsicCarrierGraphViewState extends State<_IntrinsicCarrierGraphView>
                   setState(() => _mEffElectron = v);
                   _scheduleChartRefresh();
                 },
-          subtitle: 'Moderate effect via Nâ‚“ âˆ (m*T)^(3/2)',
+          subtitle: 'Moderate effect via N_c proportional to (m*T)^(3/2)',
         ),
         ParameterSlider(
-          label: r'$m_p^*$ (Ã—$m_0$)',
+          label: r'$m_p^*$ (x$m_0$)',
           value: _mEffHole,
           min: 0.05,
           max: 2.0,
@@ -565,11 +617,11 @@ class _IntrinsicCarrierGraphViewState extends State<_IntrinsicCarrierGraphView>
                   setState(() => _mEffHole = v);
                   _scheduleChartRefresh();
                 },
-          subtitle: 'Moderate effect via Náµ¥ âˆ (m*T)^(3/2)',
+          subtitle: 'Moderate effect via N_v proportional to (m*T)^(3/2)',
         ),
         ParameterSwitch(
           label: 'Units',
-          subtitle: _useCmCubed ? 'cmâ»Â³' : 'mâ»Â³',
+          subtitle: _useCmCubed ? 'cm^-3' : 'm^-3',
           value: _useCmCubed,
           onChanged: (v) {
             setState(() => _useCmCubed = v);
@@ -614,37 +666,7 @@ class _IntrinsicCarrierGraphViewState extends State<_IntrinsicCarrierGraphView>
             minimumSize: const Size(double.infinity, 36),
           ),
         ),
-      ],
-    );
-  }
-
-  Widget _buildKeyObservationsCard(_Constants c) {
-    final dynamicObs = _buildDynamicObservations(c);
-    final staticObs = _buildStaticObservations(c);
-
-    return KeyObservationsCard(
-      title: 'Key Observations & Pins',
-      dynamicObservations: dynamicObs,
-      staticObservations: staticObs,
-      dynamicTitle: _pinnedSpots.length >= 2 ? 'From Your Pins' : null,
-      customHeader: Row(
-        children: [
-          ElevatedButton.icon(
-            onPressed: _pinnedSpots.isEmpty
-                ? null
-                : () => updateChart(() => _pinnedSpots.clear()),
-            icon: const Icon(Icons.clear_all, size: 18),
-            label: Text('Clear ${_pinnedSpots.length} pins'),
-            style: ElevatedButton.styleFrom(minimumSize: const Size(0, 32)),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            '(Max $_maxPins)',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-        ],
-      ),
-    );
+    ];
   }
 
   List<String> _buildDynamicObservations(_Constants c) {
@@ -657,7 +679,7 @@ class _IntrinsicCarrierGraphViewState extends State<_IntrinsicCarrierGraphView>
 
     final obs = <String>[];
     obs.add(
-        'Between ${_fmtT(first.x)} and ${_fmtT(last.x)}, \$n_i\$ changes â‰ˆ ${deltaLog.toStringAsFixed(2)} decades.');
+        'Between ${_fmtT(first.x)} and ${_fmtT(last.x)}, \$n_i\$ changes ~= ${deltaLog.toStringAsFixed(2)} decades.');
 
     // Ratio range
     final ni300 = _computeNi(300, c.h, c.kB, c.m0, c.q);
@@ -676,8 +698,8 @@ class _IntrinsicCarrierGraphViewState extends State<_IntrinsicCarrierGraphView>
 
   List<String> _buildStaticObservations(_Constants c) {
     return [
-      r'$n_i$ âˆ $\sqrt{N_c N_v}\,\exp\!\left(-\frac{E_g}{2kT}\right)$; exponential term dominates.',
-      r'Larger $E_g$ â†’ lower $n_i$; key parameter for device design.',
+      r'$n_i$ \propto $\sqrt{N_c N_v}\,\exp\!\left(-\frac{E_g}{2kT}\right)$; exponential term dominates.',
+      r'Larger $E_g$ -> lower $n_i$; key parameter for device design.',
       r'Log scale needed: $n_i$ spans ~10 decades between 200K and 600K.',
     ];
   }
@@ -876,12 +898,12 @@ class _IntrinsicCarrierGraphViewState extends State<_IntrinsicCarrierGraphView>
                 final logNi = s.y;
                 final ni = math.pow(10, logNi).toDouble();
                 final niStr = LatexNumberFormatter.toUnicodeSci(ni, sigFigs: 3);
-                final unit = _useCmCubed ? 'cmâ»Â³' : 'mâ»Â³';
+                final unit = _useCmCubed ? 'cm^-3' : 'm^-3';
                 return LineTooltipItem(
                   'T: ${T.toStringAsFixed(1)} K\n',
                   const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
                   children: [
-                    TextSpan(text: 'náµ¢: $niStr $unit\n', style: const TextStyle(fontSize: 11)),
+                    TextSpan(text: 'ni: $niStr $unit\n', style: const TextStyle(fontSize: 11)),
                     TextSpan(
                       text: 'Tap to pin; tap empty to clear',
                       style: TextStyle(fontSize: 9, color: Colors.grey[400]),
@@ -908,4 +930,8 @@ class _Constants {
     required this.latexMap,
   });
 }
+
+
+
+
 

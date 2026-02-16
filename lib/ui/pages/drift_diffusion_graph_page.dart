@@ -9,14 +9,12 @@ import '../widgets/latex_text.dart';
 
 // Standardized components
 import '../graphs/common/graph_controller.dart';
-import '../graphs/common/readouts_card.dart';
-import '../graphs/common/point_inspector_card.dart';
 import '../graphs/common/parameters_card.dart';
-import '../graphs/common/key_observations_card.dart';
 import '../graphs/common/plot_selector.dart';
 import '../graphs/utils/latex_number_formatter.dart';
-import '../graphs/core/graph_config.dart' show GraphConfig, ControlsConfig;
+import '../graphs/core/graph_config.dart';
 import '../graphs/core/standard_graph_page_scaffold.dart';
+import '../graphs/core/standard_panel_stack.dart';
 
 class DriftDiffusionGraphPage extends StatelessWidget {
   const DriftDiffusionGraphPage({super.key});
@@ -238,6 +236,7 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
         }
         final constants = snapshot.data!;
         final profiles = _buildProfiles(constants.kB, constants.q);
+        final panelConfig = _buildPanelConfig(constants, profiles);
 
         return StandardGraphPageScaffold(
           config: const GraphConfig(
@@ -251,7 +250,7 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
           observeSection: _buildObserveCard(context),
           chartBuilder: (context) => _buildChartContent(context, profiles),
           rightPanelBuilder: (context, config) =>
-              _buildRightPanel(constants, profiles),
+              StandardPanelStack(config: panelConfig),
         );
       },
     );
@@ -401,110 +400,107 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
     );
   }
 
-  Widget _buildRightPanel(
+  GraphConfig _buildPanelConfig(
     ({double q, double kB}) constants,
     _ProfileData profiles,
   ) {
-    return SingleChildScrollView(
-      child: Column(
-        children: [
-          _buildReadoutsCard(constants, profiles),
-          const SizedBox(height: 12),
-          _buildPointInspectorCard(profiles),
-          const SizedBox(height: 12),
-          _buildKeyObservationsCard(profiles),
-          const SizedBox(height: 12),
-          _buildParametersCard(constants),
-        ],
+    return GraphConfig(
+      readouts: _buildReadouts(profiles),
+      pointInspector: _buildPointInspectorConfig(),
+      insights: InsightsConfig(
+        dynamicObservations: _buildDynamicObservations(profiles),
+        staticObservations: _buildStaticObservations(),
+      ),
+      controls: ControlsConfig(
+        children: _buildControlsChildren(constants),
+        collapsible: true,
+        initiallyExpanded: true,
       ),
     );
   }
 
-  Widget _buildReadoutsCard(({double q, double kB}) constants, _ProfileData profiles) {
-    final densityUnit = _useCmUnits ? 'cmâ»Â³' : 'mâ»Â³';
-    final mu = profiles.mu * 1e4; // back to cmÂ²/VÂ·s for display
-    final D = profiles.D;
-    
-    return ReadoutsCard(
-      title: 'Readouts @ x = L/2',
-      readouts: [
-        ReadoutItem(
-          label: r'Carrier',
-          value: _carrierMode.name,
-        ),
-        ReadoutItem(
-          label: r'$E$ (V/m)',
-          value: LatexNumberFormatter.toUnicodeSci(_electricField, sigFigs: 3),
-        ),
-        ReadoutItem(
-          label: r'$\mu$ (cmÂ²/VÂ·s)',
-          value: mu.toStringAsFixed(0),
-        ),
-        ReadoutItem(
-          label: r'$D$ (mÂ²/s)',
-          value: LatexNumberFormatter.toUnicodeSci(D, sigFigs: 3),
-        ),
-        ReadoutItem(
-          label: r'$J_{\\mathrm{drift}}$ (A/mÂ²)',
-          value: LatexNumberFormatter.toUnicodeSci(profiles.midDrift, sigFigs: 3),
-        ),
-        ReadoutItem(
-          label: r'$J_{\\mathrm{diff}}$ (A/mÂ²)',
-          value: LatexNumberFormatter.toUnicodeSci(profiles.midDiff, sigFigs: 3),
-        ),
-        ReadoutItem(
-          label: r'$J_{\\mathrm{total}}$ (A/mÂ²)',
-          value: LatexNumberFormatter.toUnicodeSci(profiles.midTotal, sigFigs: 3),
-          boldValue: true,
-        ),
-      ],
-    );
+  List<ReadoutItem> _buildReadouts(_ProfileData profiles) {
+    final densityUnit = _useCmUnits ? 'cm^-3' : 'm^-3';
+    final mu = profiles.mu * 1e4; // back to cm^2/Vs for display
+    final d = profiles.D;
+
+    return [
+      ReadoutItem(
+        label: r'Carrier',
+        value: _carrierMode.name,
+      ),
+      ReadoutItem(
+        label: r'E (V/m)',
+        value: LatexNumberFormatter.toUnicodeSci(_electricField, sigFigs: 3),
+      ),
+      ReadoutItem(
+        label: r'mu (cm^2/Vs)',
+        value: mu.toStringAsFixed(0),
+      ),
+      ReadoutItem(
+        label: r'D (m^2/s)',
+        value: LatexNumberFormatter.toUnicodeSci(d, sigFigs: 3),
+      ),
+      ReadoutItem(
+        label: r'J_drift (A/m^2)',
+        value: LatexNumberFormatter.toUnicodeSci(profiles.midDrift, sigFigs: 3),
+      ),
+      ReadoutItem(
+        label: r'J_diff (A/m^2)',
+        value: LatexNumberFormatter.toUnicodeSci(profiles.midDiff, sigFigs: 3),
+      ),
+      ReadoutItem(
+        label: r'J_total (A/m^2)',
+        value: LatexNumberFormatter.toUnicodeSci(profiles.midTotal, sigFigs: 3),
+        boldValue: true,
+      ),
+      ReadoutItem(
+        label: r'Units',
+        value: densityUnit,
+      ),
+    ];
   }
 
-  Widget _buildPointInspectorCard(_ProfileData profiles) {
-    return PointInspectorCard<FlSpot>(
-      selectedPoint: _hoverSpot,
+  PointInspectorConfig _buildPointInspectorConfig() {
+    return PointInspectorConfig(
+      enabled: true,
+      emptyMessage: 'Hover over any plot to inspect local values.',
       onClear: () => updateChart(() {
         _hoverSpot = null;
         _hoverPlotId = null;
       }),
-      builder: (spot) {
-        final densityUnit = _useCmUnits ? 'cmâ»Â³' : 'mâ»Â³';
-        final x = spot.x; // Î¼m
-        final y = spot.y;
+      builder: _hoverSpot == null
+          ? null
+          : () {
+              final spot = _hoverSpot!;
+              final densityUnit = _useCmUnits ? 'cm^-3' : 'm^-3';
+              final x = spot.x;
+              final y = spot.y;
 
-        if (_hoverPlotId == 'density') {
-          return [
-            'x = ${x.toStringAsFixed(2)} Î¼m',
-            'n/p = ${LatexNumberFormatter.toUnicodeSci(y, sigFigs: 3)} $densityUnit',
-            '',
-            'Hover over plots for details',
-          ];
-        } else if (_hoverPlotId == 'current') {
-          return [
-            'x = ${x.toStringAsFixed(2)} Î¼m',
-            'J = ${LatexNumberFormatter.toUnicodeSci(y, sigFigs: 3)} A/mÂ²',
-            '',
-            'Hover over plots for details',
-          ];
-        }
-
-        return [
-          'Hover over any plot',
-          'to inspect values',
-        ];
-      },
+              if (_hoverPlotId == 'density') {
+                return [
+                  'x = ${x.toStringAsFixed(2)} um',
+                  'n/p = ${LatexNumberFormatter.toUnicodeSci(y, sigFigs: 3)} $densityUnit',
+                ];
+              }
+              if (_hoverPlotId == 'current') {
+                return [
+                  'x = ${x.toStringAsFixed(2)} um',
+                  'J = ${LatexNumberFormatter.toUnicodeSci(y, sigFigs: 3)} A/m^2',
+                ];
+              }
+              return [
+                'Hover over any plot',
+                'to inspect values',
+              ];
+            },
     );
   }
 
-  Widget _buildParametersCard(({double q, double kB}) constants) {
-    final D = _diffusivity(constants.kB, constants.q);
-    
-    return ParametersCard(
-      title: 'Parameters',
-      collapsible: true,
-      initiallyExpanded: true,
-      children: [
+  List<Widget> _buildControlsChildren(({double q, double kB}) constants) {
+    final d = _diffusivity(constants.kB, constants.q);
+
+    return [
         // Carrier mode dropdown
         Padding(
           padding: const EdgeInsets.only(bottom: 12),
@@ -558,7 +554,7 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
           },
         ),
         ParameterSlider(
-          label: r'Length $L$ (Î¼m)',
+          label: r'Length $L$ (um)',
           value: _lengthUm,
           min: 1,
           max: 50,
@@ -589,7 +585,7 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
             setState(() => _n0Display = v);
             updateChart(() {});
           },
-          subtitle: _useCmUnits ? 'cmâ»Â³' : 'mâ»Â³',
+          subtitle: _useCmUnits ? 'cm^-3' : 'm^-3',
         ),
         ParameterSlider(
           label: r'Gradient strength',
@@ -604,7 +600,7 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
           subtitle: 'Controls dn/dx magnitude',
         ),
         ParameterSlider(
-          label: r'$\mu$ (cmÂ²/VÂ·s)',
+          label: r'$\mu$ (cm^2/Vs)',
           value: _mobilityCm2,
           min: 50,
           max: 2000,
@@ -620,8 +616,8 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
           label: 'Density units',
           selected: {_useCmUnits},
           segments: const [
-            ButtonSegment(value: true, label: Text('cmâ»Â³')),
-            ButtonSegment(value: false, label: Text('mâ»Â³')),
+            ButtonSegment(value: true, label: Text('cm^-3')),
+            ButtonSegment(value: false, label: Text('m^-3')),
           ],
           onSelectionChanged: (s) {
             final siDensity = _toSiDensity(_n0Display);
@@ -638,7 +634,7 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
         ),
         if (!_useEinstein)
           ParameterSlider(
-            label: r'$D$ override (mÂ²/s)',
+            label: r'$D$ override (m^2/s)',
             value: _manualD,
             min: 1e-4,
             max: 0.05,
@@ -655,7 +651,7 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
         ),
         const SizedBox(height: 4),
         Text(
-          'Current D: ${D.toStringAsExponential(3)} mÂ²/s',
+          'Current D: ${d.toStringAsExponential(3)} m^2/s',
           style: const TextStyle(fontSize: 12, color: Colors.grey),
         ),
         const SizedBox(height: 12),
@@ -667,19 +663,7 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
             minimumSize: const Size(double.infinity, 36),
           ),
         ),
-      ],
-    );
-  }
-
-  Widget _buildKeyObservationsCard(_ProfileData profiles) {
-    final dynamicObs = _buildDynamicObservations(profiles);
-    final staticObs = _buildStaticObservations();
-
-    return KeyObservationsCard(
-      title: 'Key Observations',
-      dynamicObservations: dynamicObs,
-      staticObservations: staticObs,
-    );
+    ];
   }
 
   List<String> _buildDynamicObservations(_ProfileData profiles) {
@@ -689,23 +673,23 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
     final diffRatio = (profiles.midDiff / profiles.midTotal).abs();
     
     if (driftRatio > 0.9) {
-      obs.add('Drift dominates: \$|J_{\\mathrm{drift}}/J_{\\mathrm{total}}| â‰ˆ ${(driftRatio * 100).toStringAsFixed(0)}\\%\$');
+      obs.add('Drift dominates: \$|J_{\\mathrm{drift}}/J_{\\mathrm{total}}| ~= ${(driftRatio * 100).toStringAsFixed(0)}\\%\$');
     } else if (diffRatio > 0.9) {
-      obs.add('Diffusion dominates: \$|J_{\\mathrm{diff}}/J_{\\mathrm{total}}| â‰ˆ ${(diffRatio * 100).toStringAsFixed(0)}\\%\$');
+      obs.add('Diffusion dominates: \$|J_{\\mathrm{diff}}/J_{\\mathrm{total}}| ~= ${(diffRatio * 100).toStringAsFixed(0)}\\%\$');
     } else {
       obs.add('Drift and diffusion are comparable: drift ${(driftRatio * 100).toStringAsFixed(0)}%, diff ${(diffRatio * 100).toStringAsFixed(0)}%');
     }
 
     if (_electricField.abs() < 1000) {
-      obs.add(r'Very low $E$-field â†’ diffusion term more important.');
+      obs.add(r'Very low $E$-field -> diffusion term more important.');
     } else if (_electricField.abs() > 100000) {
-      obs.add(r'Large $E$-field â†’ drift term dominates.');
+      obs.add(r'Large $E$-field -> drift term dominates.');
     }
 
     if (_gradientStrength.abs() < 0.1) {
-      obs.add(r'Nearly flat profile â†’ small $dn/dx$, minimal diffusion.');
+      obs.add(r'Nearly flat profile -> small $dn/dx$, minimal diffusion.');
     } else if (_gradientStrength.abs() > 1.5) {
-      obs.add(r'Steep gradient â†’ large $dn/dx$, strong diffusion.');
+      obs.add(r'Steep gradient -> large $dn/dx$, strong diffusion.');
     }
 
     if (_profileType == ProfileType.exponential && _gradientStrength.abs() > 0.5) {
@@ -745,7 +729,7 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
   }
 
   Widget _buildDensityChart(BuildContext context, _ProfileData profiles) {
-    final densityUnit = _useCmUnits ? 'cmâ»Â³' : 'mâ»Â³';
+    final densityUnit = _useCmUnits ? 'cm^-3' : 'm^-3';
     final colorN = Theme.of(context).colorScheme.primary;
     final colorP = Theme.of(context).colorScheme.tertiary;
     final xMax = _lengthUm;
@@ -807,7 +791,7 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
               children: [
                 LatexText(r'x', scale: 1.0),
                 SizedBox(width: 4),
-                Text('(Î¼m)', style: TextStyle(fontSize: 12)),
+                Text('(um)', style: TextStyle(fontSize: 12)),
               ],
             ),
             axisNameSize: 40,
@@ -847,7 +831,7 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
           touchTooltipData: LineTouchTooltipData(
             getTooltipItems: (spots) => spots.map((s) {
               return LineTooltipItem(
-                'x=${s.x.toStringAsFixed(2)} Î¼m\nn/p=${LatexNumberFormatter.toUnicodeSci(s.y, sigFigs: 3)} $densityUnit',
+                'x=${s.x.toStringAsFixed(2)} um\nn/p=${LatexNumberFormatter.toUnicodeSci(s.y, sigFigs: 3)} $densityUnit',
                 const TextStyle(fontSize: 11),
               );
             }).toList(),
@@ -905,7 +889,7 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
               children: [
                 LatexText(r'J', scale: 1.0),
                 SizedBox(width: 4),
-                Text('(A/mÂ²)', style: TextStyle(fontSize: 12)),
+                Text('(A/m^2)', style: TextStyle(fontSize: 12)),
               ],
             ),
             axisNameSize: 40,
@@ -927,7 +911,7 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
               children: [
                 LatexText(r'x', scale: 1.0),
                 SizedBox(width: 4),
-                Text('(Î¼m)', style: TextStyle(fontSize: 12)),
+                Text('(um)', style: TextStyle(fontSize: 12)),
               ],
             ),
             axisNameSize: 40,
@@ -984,7 +968,7 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
           touchTooltipData: LineTouchTooltipData(
             getTooltipItems: (spots) => spots.map((s) {
               return LineTooltipItem(
-                'x=${s.x.toStringAsFixed(2)} Î¼m\nJ=${LatexNumberFormatter.toUnicodeSci(s.y, sigFigs: 3)} A/mÂ²',
+                'x=${s.x.toStringAsFixed(2)} um\nJ=${LatexNumberFormatter.toUnicodeSci(s.y, sigFigs: 3)} A/m^2',
                 const TextStyle(fontSize: 11),
               );
             }).toList(),
@@ -1041,6 +1025,10 @@ class _ProfileData {
     required this.D,
   });
 }
+
+
+
+
 
 
 
