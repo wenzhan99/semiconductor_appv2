@@ -1,4 +1,4 @@
-import 'dart:math' as math;
+﻿import 'dart:math' as math;
 
 /// Plain-text scientific notation formatter with fixed significant figures.
 class TextNumberFormatter {
@@ -13,7 +13,7 @@ class TextNumberFormatter {
     final digits = sigFigs - 1;
     final mantissaStr = mantissa.toStringAsFixed(digits);
 
-    return '$mantissaStr×10^$exponent';
+    return '${mantissaStr}x10^$exponent';
   }
 
   static String withUnit(double value, String unit, {int sigFigs = 3}) {
@@ -21,3 +21,4 @@ class TextNumberFormatter {
     return unit.isEmpty ? numStr : '$numStr $unit';
   }
 }
+

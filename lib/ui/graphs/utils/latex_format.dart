@@ -29,7 +29,7 @@ class LatexSymbolMapLocal {
 /// Formats scientific numbers into LaTeX strings.
 class ScientificLatexFormatter {
   static String sci(double value, {int sigFigs = 3}) {
-    if (value.isNaN || value.isInfinite) return r'\text{--}';
+    if (value.isNaN || value.isInfinite) return '--';
     if (value == 0) return '0';
     final absVal = value.abs();
     final exponent = (math.log(absVal) / math.ln10).floor();

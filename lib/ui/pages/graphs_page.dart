@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
 import '../widgets/latex_text.dart';
 import 'carrier_concentration_graph_page.dart';
@@ -91,16 +91,16 @@ class _GraphsPageState extends State<GraphsPage> {
       GraphTopic(
         topicId: 'energy_band_structure',
         topicTitle: 'Energy & Band Structure',
-        topicDescription: 'Understand E–k relations, effective mass, and bandgap type.',
+        topicDescription: 'Understand E-k relations, effective mass, and bandgap type.',
         subcategories: [
           GraphSubcategory(
             subId: 'ek_dispersion',
-            subTitle: 'E–k Dispersion',
-            learningOutcome: 'Relate curvature of E–k to effective mass and group velocity.',
+            subTitle: 'E-k Dispersion',
+            learningOutcome: 'Relate curvature of E-k to effective mass and group velocity.',
             graphs: [
               GraphInfo(
                 graphId: 'graph_parabolic_band_dispersion',
-                title: 'Parabolic Band Dispersion (E–k)',
+                title: 'Parabolic Band Dispersion (E-k)',
                 subtitle: 'Explore conduction/valence parabolas, effective masses, and group velocity.',
                 learningOutcome: 'See how curvature links to m* and v_g(k).',
                 inputsSummary: ['m*_e', 'm*_h', 'k-range', 'E0 offsets (Ec0/Ev0)'],
@@ -115,7 +115,7 @@ class _GraphsPageState extends State<GraphsPage> {
             graphs: [
               GraphInfo(
                 graphId: 'graph_direct_vs_indirect_bandgap',
-                title: 'Direct vs Indirect Bandgap (Schematic E–k)',
+                title: 'Direct vs Indirect Bandgap (Schematic E-k)',
                 subtitle: 'Compare VBM/CBM alignment in k-space, gap readouts, and photon/phonon transitions.',
                 learningOutcome: 'Distinguish direct gaps from indirect gaps in k-space.',
                 inputsSummary: ['Eg', 'k-offset (indirect)', 'display markers: VBM/CBM'],
@@ -133,11 +133,11 @@ class _GraphsPageState extends State<GraphsPage> {
           GraphSubcategory(
             subId: 'occupancy',
             subTitle: 'Occupancy Probability',
-            learningOutcome: 'Visualize Fermi–Dirac distribution and thermal smearing with temperature.',
+            learningOutcome: 'Visualize Fermi-Dirac distribution and thermal smearing with temperature.',
             graphs: [
               GraphInfo(
                 graphId: 'graph_fermi_dirac_probability',
-                title: 'Fermi–Dirac Probability f(E) vs E',
+                title: 'Fermi-Dirac Probability f(E) vs E',
                 subtitle: 'Interactive visualization of electron occupation probability. Adjust temperature and Fermi level.',
                 learningOutcome: 'See how T and E_F shift occupancy across the gap.',
                 inputsSummary: ['T', 'E_F', 'E-range', 'optional markers (0.1/0.5/0.9)'],
@@ -207,7 +207,7 @@ class _GraphsPageState extends State<GraphsPage> {
         subcategories: [
           GraphSubcategory(
             subId: 'drift_diffusion_1d',
-            subTitle: 'Drift–Diffusion (1D)',
+            subTitle: 'Drift-Diffusion (1D)',
             learningOutcome: 'Decompose total current into drift and diffusion components across a 1D profile.',
             graphs: [
               GraphInfo(
@@ -229,12 +229,12 @@ class _GraphsPageState extends State<GraphsPage> {
         subcategories: [
           GraphSubcategory(
             subId: 'depletion_profiles',
-            subTitle: 'Depletion Profiles (ρ, E, V)',
+            subTitle: 'Depletion Profiles (rho, E, V)',
             learningOutcome: 'Understand charge density, electric field shape, potential, and depletion widths in an abrupt PN junction.',
             graphs: [
               GraphInfo(
                 graphId: 'graph_pn_junction_depletion_profiles',
-                title: 'PN Junction Depletion Profiles (ρ, E, V)',
+                title: 'PN Junction Depletion Profiles (rho, E, V)',
                 subtitle: 'Abrupt junction depletion approximation with charge density, electric field, potential, and depletion widths under bias.',
                 learningOutcome: 'Connect doping to depletion width, field, and potential.',
                 inputsSummary: ['N_A, N_D', 'epsilon_s', 'V_A (bias)', 'T (optional)', 'built-in potential model'],
@@ -394,43 +394,36 @@ class _ChipLabel extends StatelessWidget {
     'Eg': r'E_{g}',
     'E_g': r'E_{g}',
     'E_g(T)': r'E_{g}(T)',
-    'E0 offsets (Ec0/Ev0)': r'\text{E0 offsets }(E_{c0}/E_{v0})',
-    'k-range': r'k\text{-range}',
-    'k-offset (indirect)': r'k\text{-offset (indirect)}',
-    'display markers: VBM/CBM': r'\text{markers: VBM/CBM}',
     'T': r'T',
     'E_F': r'E_{F}',
-    'E-range': r'E\text{-range}',
-    'optional markers (0.1/0.5/0.9)': r'\text{markers }(0.1/0.5/0.9)',
     'E_c': r'E_{c}',
     'E_v': r'E_{v}',
     'E_i': r'E_{i}',
-    'constants (h)': r'\text{constants }(h)',
-    'T-range': r'T\text{-range}',
-    'E_g(T) model (optional)': r'E_{g}(T)\ \text{model (opt.)}',
-    'N_c(T), N_v(T) model (optional)': r'N_{c}(T),\,N_{v}(T)\ \text{model (opt.)}',
-    'E_F sweep range': r'E_{F}\ \text{sweep range}',
-    'E_c, E_v, E_i markers': r'E_{c},\,E_{v},\,E_{i}\ \text{markers}',
-    'E(x) profile': r'E(x)\ \text{profile}',
-    'n(x), p(x) profiles': r'n(x),\,p(x)\ \text{profiles}',
+    'E0 offsets (Ec0/Ev0)': r'E_{c0},E_{v0}',
+    'k-range': r'k',
+    'k-offset (indirect)': r'k_0',
+    'display markers: VBM/CBM': r'k_{VBM},k_{CBM}',
+    'E-range': r'E',
+    'optional markers (0.1/0.5/0.9)': r'0.1,0.5,0.9',
+    'constants (h)': r'h',
+    'T-range': r'T',
+    'E_g(T) model (optional)': r'E_{g}(T)',
+    'N_c(T), N_v(T) model (optional)': r'N_{c}(T),N_{v}(T)',
+    'E_F sweep range': r'E_{F}',
+    'E_c, E_v, E_i markers': r'E_{c},E_{v},E_{i}',
+    'E(x) profile': r'E(x)',
+    'n(x), p(x) profiles': r'n(x),p(x)',
     'mu_n, mu_p': r'\mu_{n},\,\mu_{p}',
     'D_n, D_p': r'D_{n},\,D_{p}',
     'q': r'q',
     'N_A, N_D': r'N_{A},\,N_{D}',
     'epsilon_s': r'\varepsilon_{s}',
-    'V_A (bias)': r'V_{A}\ \text{(bias)}',
-    'T (optional)': r'T\ \text{(opt.)}',
-    'built-in potential model': r'\text{built-in potential model}',
-    'V_A (eq/fwd/rev)': r'V_{A}\ \text{(eq/fwd/rev)}',
-    'optional: E_Fn, E_Fp': r'\text{opt: }E_{Fn},\,E_{Fp}',
+    'V_A (bias)': r'V_{A}',
+    'T (optional)': r'T',
+    'built-in potential model': r'V_{bi}',
+    'V_A (eq/fwd/rev)': r'V_{A}',
+    'optional: E_Fn, E_Fp': r'E_{Fn},E_{Fp}',
   };
-
-  String _toLatex(String value) {
-    final mapped = _map[value];
-    if (mapped != null) return mapped;
-    final sanitized = value.replaceAll('_', r'\_').replaceAll('*', r'\*');
-    return r'\text{' + sanitized + '}';
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -441,10 +434,16 @@ class _ChipLabel extends StatelessWidget {
         borderRadius: BorderRadius.circular(6),
         border: Border.all(color: Theme.of(context).dividerColor),
       ),
-      child: LatexText(
-        _toLatex(raw),
-        style: const TextStyle(fontSize: 12),
-      ),
+      child: _map.containsKey(raw)
+          ? LatexText(
+              _map[raw]!,
+              style: const TextStyle(fontSize: 12),
+            )
+          : Text(
+              raw,
+              style: const TextStyle(fontSize: 12),
+            ),
     );
   }
 }
+

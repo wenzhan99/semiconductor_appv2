@@ -9,7 +9,7 @@ class LatexNumberFormatter {
   /// Format a number to LaTeX scientific notation with specified significant figures.
   /// Example: 0.0000259 -> 2.59 \times 10^{-5}
   static String toScientific(double value, {int sigFigs = 3}) {
-    if (value.isNaN || value.isInfinite) return r'\text{---}';
+    if (value.isNaN || value.isInfinite) return '---';
     if (value == 0) return '0';
 
     final absValue = value.abs();

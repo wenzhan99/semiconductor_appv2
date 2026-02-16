@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../../core/constants/constants_repository.dart';
@@ -100,7 +100,7 @@ class _ConstantsUnitsPageState extends State<ConstantsUnitsPage> {
                   c.name,
                   valueLatex,
                   unitLatex,
-                  c.note ?? '—',
+                  c.note ?? '-',
                 ];
               }).toList(),
               latexColumns: const {0, 2, 3},
@@ -117,7 +117,7 @@ class _ConstantsUnitsPageState extends State<ConstantsUnitsPage> {
     final q = constantsRepo.getConstantValue('q');
     
     String expression = 'V_T = kT / q';
-    String defaultValue = '—';
+    String defaultValue = '-';
     
     if (k != null && q != null) {
       final vt300K = (k * 300) / q;
@@ -141,7 +141,7 @@ class _ConstantsUnitsPageState extends State<ConstantsUnitsPage> {
             ),
             const SizedBox(height: 4),
             Text(
-              'Default temperature: 300 K → V_T ≈ $defaultValue',
+              'Default temperature: 300 K -> V_T ~= $defaultValue',
               style: Theme.of(context).textTheme.bodyMedium,
             ),
           ],
@@ -227,7 +227,7 @@ class _ConstantsUnitsPageState extends State<ConstantsUnitsPage> {
             ),
             const SizedBox(height: 12),
             _buildDataTable(
-              ['Material', 'εᵣ'],
+              ['Material', 'eps_r'],
               _dielectrics.map((d) => [d.name, d.epsR]).toList(),
             ),
           ],
@@ -314,56 +314,62 @@ class _DielectricEntry {
 }
 
 const _unitHelpers = [
-  '1 cm⁻³ = 1×10⁶ m⁻³',
-  '1 eV = 1.602×10⁻¹⁹ J',
-  '1 Å = 1×10⁻¹⁰ m',
+  '1 cm^-3 = 1x10^6 m^-3',
+  '1 eV = 1.602x10^-19 J',
+  '1 Angstrom = 1x10^-10 m',
 ];
 
 const _materials = [
   _MaterialEntry('Silicon (Si)', {
-    'Atomic density (cm⁻³)': '5.00×10²²',
-    'Mass density (g/cm³)': '2.33',
-    'Lattice constant (Å)': '5.43',
-    'Dielectric constant εᵣ': '11.7',
+    'Atomic density (cm^-3)': '5.00x10^22',
+    'Mass density (g/cm^3)': '2.33',
+    'Lattice constant (Angstrom)': '5.43',
+    'Dielectric constant eps_r': '11.7',
     'Bandgap E_g (eV)': '1.12',
     'Electron affinity (eV)': '4.01',
-    'N_c (cm⁻³)': '2.8×10¹⁹',
-    'N_v (cm⁻³)': '1.04×10¹⁹',
-    'nᵢ (cm⁻³)': '1.5×10¹⁰',
-    'Electron mobility (cm²/V·s)': '1350',
-    'Hole mobility (cm²/V·s)': '480',
+    'N_c (cm^-3)': '2.8x10^19',
+    'N_v (cm^-3)': '1.04x10^19',
+    'n_i (cm^-3)': '1.5x10^10',
+    'Electron mobility (cm^2/V*s)': '1350',
+    'Hole mobility (cm^2/V*s)': '480',
   }),
   _MaterialEntry('Gallium Arsenide (GaAs)', {
-    'Atomic density (cm⁻³)': '4.42×10²²',
-    'Mass density (g/cm³)': '5.32',
-    'Lattice constant (Å)': '5.65',
-    'Dielectric constant εᵣ': '13.1',
+    'Atomic density (cm^-3)': '4.42x10^22',
+    'Mass density (g/cm^3)': '5.32',
+    'Lattice constant (Angstrom)': '5.65',
+    'Dielectric constant eps_r': '13.1',
     'Bandgap E_g (eV)': '1.42',
     'Electron affinity (eV)': '4.07',
-    'N_c (cm⁻³)': '4.7×10¹⁷',
-    'N_v (cm⁻³)': '7.0×10¹⁸',
-    'nᵢ (cm⁻³)': '1.8×10⁶',
-    'Electron mobility (cm²/V·s)': '8500',
-    'Hole mobility (cm²/V·s)': '400',
+    'N_c (cm^-3)': '4.7x10^17',
+    'N_v (cm^-3)': '7.0x10^18',
+    'n_i (cm^-3)': '1.8x10^6',
+    'Electron mobility (cm^2/V*s)': '8500',
+    'Hole mobility (cm^2/V*s)': '400',
   }),
   _MaterialEntry('Germanium (Ge)', {
-    'Atomic density (cm⁻³)': '4.42×10²²',
-    'Mass density (g/cm³)': '5.33',
-    'Lattice constant (Å)': '5.65',
-    'Dielectric constant εᵣ': '16.0',
+    'Atomic density (cm^-3)': '4.42x10^22',
+    'Mass density (g/cm^3)': '5.33',
+    'Lattice constant (Angstrom)': '5.65',
+    'Dielectric constant eps_r': '16.0',
     'Bandgap E_g (eV)': '0.66',
     'Electron affinity (eV)': '4.13',
-    'N_c (cm⁻³)': '1.04×10¹⁹',
-    'N_v (cm⁻³)': '6.0×10¹⁸',
-    'nᵢ (cm⁻³)': '2.4×10¹³',
-    'Electron mobility (cm²/V·s)': '3900',
-    'Hole mobility (cm²/V·s)': '1900',
+    'N_c (cm^-3)': '1.04x10^19',
+    'N_v (cm^-3)': '6.0x10^18',
+    'n_i (cm^-3)': '2.4x10^13',
+    'Electron mobility (cm^2/V*s)': '3900',
+    'Hole mobility (cm^2/V*s)': '1900',
   }),
 ];
 
 const _dielectrics = [
-  _DielectricEntry('SiO₂', '3.8'),
-  _DielectricEntry('Si₃N₄', '7.5'),
-  _DielectricEntry('HfO₂', '25'),
-  _DielectricEntry('Al₂O₃', '9.0'),
+  _DielectricEntry('SiO2', '3.8'),
+  _DielectricEntry('Si3N4', '7.5'),
+  _DielectricEntry('HfO2', '25'),
+  _DielectricEntry('Al2O3', '9.0'),
 ];
+
+
+
+
+
+
