@@ -1,4 +1,4 @@
-import 'dart:math' as math;
+﻿import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
@@ -23,7 +23,6 @@ class PnBandDiagramGraphPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    debugPrint('✅ PN Band Diagram: USING STANDARD SCAFFOLD');
     return Scaffold(
       appBar: AppBar(title: const Text('PN Junction Band Diagram (E vs x)')),
       body: const PnBandDiagramView(),
@@ -210,11 +209,8 @@ class _PnBandDiagramViewState extends State<PnBandDiagramView> {
     return StandardGraphPageScaffold(
       config: config,
       chartBuilder: (context) => _buildChart(context, profile),
-      showDebugBadge: true,
-      debugBadgeText: 'PN USING STANDARD SCAFFOLD',
-      headerWidgets: [
-        _buildInfoPanel(),
-      ],
+      aboutSection: _buildAboutCard(context),
+      observeSection: _buildInfoPanel(),
     );
   }
 
@@ -284,38 +280,32 @@ class _PnBandDiagramViewState extends State<PnBandDiagramView> {
   }
 
   List<ReadoutItem> _buildReadouts(_BandProfile profile) {
-    const voltageUnit = r'\mathrm{V}';
-    const lengthUnit = r'\mu\mathrm{m}';
+    const voltageUnit = r'V';
+    const lengthUnit = r'\mu m';
 
     return [
       ReadoutItem(
-        label: r'\(V_{bi}\) (built-in)',
+        label: r'V_{bi} (built-in)',
         value: LatexNumberFormatter.valueWithUnit(profile.vbi, unitLatex: voltageUnit, sigFigs: 3),
         boldValue: true,
       ),
       ReadoutItem(
-        label: r'\(V_A\) (applied)',
+        label: r'V_A (applied)',
         value: LatexNumberFormatter.valueWithUnit(_bias, unitLatex: voltageUnit, sigFigs: 3),
       ),
       ReadoutItem(
-        label: r'Barrier $V_{bi} - V_A$',
+        label: r'V_{bi} - V_A (barrier)',
         value: LatexNumberFormatter.valueWithUnit(profile.barrier, unitLatex: voltageUnit, sigFigs: 3),
       ),
       ReadoutItem(
-        label: r'Depletion width $W$',
+        label: r'W (depletion width)',
         value: LatexNumberFormatter.valueWithUnit(profile.totalWidthUm, unitLatex: lengthUnit, sigFigs: 3),
       ),
     ];
   }
 
   List<Widget> _buildControlsChildren(_BandProfile profile) {
-    const dopingUnit = r'\mathrm{cm^{-3}}';
-    const tempLabel = r'\(T\,(\mathrm{K})\)';
-    const naLabel = r'\(N_A\,(' + dopingUnit + r')\)';
-    const ndLabel = r'\(N_D\,(' + dopingUnit + r')\)';
-    const egLabel = r'\(E_g\,(\mathrm{eV})\)';
-    const biasLabel = r'\(V_A\,(\mathrm{V})\)';
-    const epsLabel = r'\(\varepsilon_r\)';
+    const dopingUnitSuffix = '(cm^-3)';
     
     return [
       Text(
@@ -327,21 +317,24 @@ class _PnBandDiagramViewState extends State<PnBandDiagramView> {
       ),
       const SizedBox(height: 12),
       _logSlider(
-        label: naLabel,
+        symbolTex: r'N_A',
+        plainSuffix: dopingUnitSuffix,
         value: _na,
         min: 1e14,
         max: 1e19,
         onChanged: (v) => setState(() => _na = v),
       ),
       _logSlider(
-        label: ndLabel,
+        symbolTex: r'N_D',
+        plainSuffix: dopingUnitSuffix,
         value: _nd,
         min: 1e14,
         max: 1e19,
         onChanged: (v) => setState(() => _nd = v),
       ),
       _slider(
-        label: tempLabel,
+        symbolTex: r'T',
+        plainSuffix: '(K)',
         value: _temperature,
         min: 200,
         max: 450,
@@ -349,7 +342,8 @@ class _PnBandDiagramViewState extends State<PnBandDiagramView> {
         onChanged: (v) => setState(() => _temperature = v),
       ),
       _slider(
-        label: egLabel,
+        symbolTex: r'E_g',
+        plainSuffix: '(eV)',
         value: _eg,
         min: 0.7,
         max: 1.6,
@@ -357,7 +351,8 @@ class _PnBandDiagramViewState extends State<PnBandDiagramView> {
         onChanged: (v) => setState(() => _eg = double.parse(v.toStringAsFixed(3))),
       ),
       _slider(
-        label: biasLabel,
+        symbolTex: r'V_A',
+        plainSuffix: '(V)',
         value: _bias,
         min: -1.0,
         max: 0.8,
@@ -365,7 +360,7 @@ class _PnBandDiagramViewState extends State<PnBandDiagramView> {
         onChanged: (v) => setState(() => _bias = double.parse(v.toStringAsFixed(3))),
       ),
       _slider(
-        label: epsLabel,
+        symbolTex: r'\varepsilon_r',
         value: _epsRel,
         min: 8,
         max: 15,
@@ -390,6 +385,53 @@ class _PnBandDiagramViewState extends State<PnBandDiagramView> {
         ),
       ),
     ];
+  }
+
+  Widget _buildAboutCard(BuildContext context) {
+    return Card(
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'About',
+              style: TextStyle(
+                fontSize: _Typo.title,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text(
+                  'Shows PN band-edge profiles ',
+                  style: TextStyle(fontSize: _Typo.body),
+                ),
+                LatexText(
+                  r'E_c(x), E_v(x), E_i(x)',
+                  style: TextStyle(fontSize: _Typo.body),
+                ),
+                Text(
+                  ' and quasi-Fermi levels ',
+                  style: TextStyle(fontSize: _Typo.body),
+                ),
+                LatexText(
+                  r'E_{Fn}, E_{Fp}',
+                  style: TextStyle(fontSize: _Typo.body),
+                ),
+                Text(
+                  ' under applied bias.',
+                  style: TextStyle(fontSize: _Typo.body),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildInfoPanel() {
@@ -424,8 +466,16 @@ class _PnBandDiagramViewState extends State<PnBandDiagramView> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        LatexText(r'E_c, E_v, E_i, E_{Fn}, E_{Fp}\ \text{(eV)}',
-            style: TextStyle(fontSize: _Typo.sectionLabel)),
+        Row(
+          children: [
+            LatexText(
+              r'E_c, E_v, E_i, E_{Fn}, E_{Fp}',
+              style: TextStyle(fontSize: _Typo.sectionLabel),
+            ),
+            const SizedBox(width: 4),
+            Text('(eV)', style: TextStyle(fontSize: _Typo.sectionLabel)),
+          ],
+        ),
         const SizedBox(height: 8),
         Expanded(
           child: LineChart(
@@ -456,7 +506,7 @@ class _PnBandDiagramViewState extends State<PnBandDiagramView> {
                   ),
                 ),
                 bottomTitles: AxisTitles(
-                  axisNameWidget: Text('Position (µm)',
+                  axisNameWidget: Text('Position (Âµm)',
                       style: TextStyle(
                           fontSize: _Typo.sectionLabel,
                           fontWeight: FontWeight.w600)),
@@ -487,7 +537,7 @@ class _PnBandDiagramViewState extends State<PnBandDiagramView> {
                     return spots
                         .map(
                           (s) => LineTooltipItem(
-                            'x=${s.x.toStringAsFixed(3)} µm\nE=${s.y.toStringAsFixed(3)} eV',
+                            'x=${s.x.toStringAsFixed(3)} Âµm\nE=${s.y.toStringAsFixed(3)} eV',
                             TextStyle(
                               fontSize: _Typo.hint,
                               color: Colors.white,
@@ -591,7 +641,8 @@ class _PnBandDiagramViewState extends State<PnBandDiagramView> {
   }
 
   Widget _slider({
-    required String label,
+    required String symbolTex,
+    String? plainSuffix,
     required double value,
     required double min,
     required double max,
@@ -606,10 +657,29 @@ class _PnBandDiagramViewState extends State<PnBandDiagramView> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              LatexText(label,
-                  style: TextStyle(
-                      fontSize: _Typo.sectionLabel,
-                      fontWeight: FontWeight.w600)),
+              Expanded(
+                child: Row(
+                  children: [
+                    LatexText(
+                      symbolTex,
+                      style: TextStyle(
+                        fontSize: _Typo.sectionLabel,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (plainSuffix != null) ...[
+                      const SizedBox(width: 4),
+                      Text(
+                        plainSuffix,
+                        style: TextStyle(
+                          fontSize: _Typo.sectionLabel,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
               Text(value.toStringAsPrecision(4),
                   style: TextStyle(fontSize: _Typo.value)),
             ],
@@ -621,7 +691,8 @@ class _PnBandDiagramViewState extends State<PnBandDiagramView> {
   }
 
   Widget _logSlider({
-    required String label,
+    required String symbolTex,
+    String? plainSuffix,
     required double value,
     required double min,
     required double max,
@@ -638,10 +709,29 @@ class _PnBandDiagramViewState extends State<PnBandDiagramView> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              LatexText(label,
-                  style: TextStyle(
-                      fontSize: _Typo.sectionLabel,
-                      fontWeight: FontWeight.w600)),
+              Expanded(
+                child: Row(
+                  children: [
+                    LatexText(
+                      symbolTex,
+                      style: TextStyle(
+                        fontSize: _Typo.sectionLabel,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (plainSuffix != null) ...[
+                      const SizedBox(width: 4),
+                      Text(
+                        plainSuffix,
+                        style: TextStyle(
+                          fontSize: _Typo.sectionLabel,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
               Text(value.toStringAsPrecision(3),
                   style: TextStyle(fontSize: _Typo.value)),
             ],
@@ -698,7 +788,7 @@ class _Bullet extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('• ', style: TextStyle(fontSize: _Typo.body)),
+          Text('â€¢ ', style: TextStyle(fontSize: _Typo.body)),
           Expanded(
               child: LatexText(latex,
                   style: TextStyle(fontSize: _Typo.body))),
@@ -707,3 +797,4 @@ class _Bullet extends StatelessWidget {
     );
   }
 }
+

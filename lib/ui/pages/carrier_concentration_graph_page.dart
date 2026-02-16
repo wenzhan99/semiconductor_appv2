@@ -1,4 +1,4 @@
-import 'dart:math' as math;
+﻿import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
@@ -11,6 +11,8 @@ import '../graphs/utils/latex_number_formatter.dart';
 import '../graphs/utils/safe_math.dart';
 import '../graphs/utils/semiconductor_models.dart';
 import '../widgets/latex_text.dart';
+import '../graphs/core/graph_config.dart' show GraphConfig, ControlsConfig;
+import '../graphs/core/standard_graph_page_scaffold.dart';
 
 class CarrierConcentrationGraphPage extends StatelessWidget {
   const CarrierConcentrationGraphPage({super.key});
@@ -245,58 +247,19 @@ class _CarrierConcentrationGraphViewState
                 _densityDisplayFactor;
         final currentNi = curves.ni * _densityDisplayFactor;
 
-        return Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildHeader(context),
-              const SizedBox(height: 12),
-              _buildInfoPanel(context),
-              const SizedBox(height: 12),
-              Expanded(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      flex: 2,
-                      child: Card(
-                        elevation: 1,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                        child: Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              _buildResultsStrip(currentN, currentP, currentNi),
-                              const SizedBox(height: 12),
-                              Expanded(child: _buildChart(context, curves)),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: SingleChildScrollView(
-                        child: Column(
-                          children: [
-                            _buildControls(context),
-                            const SizedBox(height: 12),
-                            SizedBox(
-                              height: 300,
-                              child: _buildObservations(context),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+        return StandardGraphPageScaffold(
+          config: const GraphConfig(
+            title: 'Carrier Concentration vs Fermi Level',
+            subtitle: 'Carrier Concentration',
+            mainEquation:
+                r'n = N_c e^{-\frac{E_c - E_F}{kT}},\quad p = N_v e^{-\frac{E_F - E_v}{kT}}',
+            controls: ControlsConfig(children: []),
           ),
+          aboutSection: _buildAboutCard(context),
+          observeSection: _buildInfoPanel(context),
+          chartBuilder: (context) =>
+              _buildChartContent(context, curves, currentN, currentP, currentNi),
+          rightPanelBuilder: (context, config) => _buildRightPanel(context),
         );
       },
     );
@@ -320,6 +283,31 @@ class _CarrierConcentrationGraphViewState
     );
   }
 
+  Widget _buildAboutCard(BuildContext context) {
+    return Card(
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'About',
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Shows how electron and hole concentrations change with Fermi-level position at fixed temperature and band parameters.',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildInfoPanel(BuildContext context) {
     return Card(
       elevation: 0,
@@ -330,15 +318,38 @@ class _CarrierConcentrationGraphViewState
             style: TextStyle(fontWeight: FontWeight.w700)),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         children: const [
-          _InfoBullet(
-              r'n \text{ rises exponentially as } E_F \text{ moves toward } E_c',
-              useLatex: true),
-          _InfoBullet(
-              r'p \text{ rises exponentially as } E_F \text{ moves toward } E_v',
-              useLatex: true),
-          _InfoBullet(
-              r'\text{At intrinsic conditions, } n \approx p \approx n_i \text{ (log-scale helps)}',
-              useLatex: true),
+          _InfoBullet('n rises as E_F moves toward E_c'),
+          _InfoBullet('p rises as E_F moves toward E_v'),
+          _InfoBullet('At intrinsic conditions, n approximately equals p and n_i'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildChartContent(
+    BuildContext context,
+    _CarrierCurves curves,
+    double n,
+    double p,
+    double ni,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildResultsStrip(n, p, ni),
+        const SizedBox(height: 12),
+        Expanded(child: _buildChart(context, curves)),
+      ],
+    );
+  }
+
+  Widget _buildRightPanel(BuildContext context) {
+    return SingleChildScrollView(
+      child: Column(
+        children: [
+          _buildObservations(context),
+          const SizedBox(height: 12),
+          _buildControls(context),
         ],
       ),
     );
@@ -373,7 +384,7 @@ class _CarrierConcentrationGraphViewState
 
   Widget _buildChart(BuildContext context, _CarrierCurves curves) {
     final unitLatex = _useCmUnits ? r'\mathrm{cm^{-3}}' : r'\mathrm{m^{-3}}';
-    final unitUnicode = _useCmUnits ? 'cm⁻³' : 'm⁻³';
+    final unitUnicode = _useCmUnits ? 'cmâ»Â³' : 'mâ»Â³';
     final legendColorN = Theme.of(context).colorScheme.primary;
     final legendColorP = Theme.of(context).colorScheme.tertiary;
     final intrinsicMarker = _computeIntrinsicMarker(curves);
@@ -392,7 +403,7 @@ class _CarrierConcentrationGraphViewState
             alignment: Alignment.centerRight,
             padding: const EdgeInsets.only(right: 6),
             style: const TextStyle(fontSize: 11, color: Colors.grey),
-            labelResolver: (_) => 'nᵢ',
+            labelResolver: (_) => 'náµ¢',
           ),
         ),
       );
@@ -426,7 +437,7 @@ class _CarrierConcentrationGraphViewState
             alignment: Alignment.centerLeft,
             padding: const EdgeInsets.only(left: 4),
             style: TextStyle(fontSize: 11, color: legendColorP),
-            labelResolver: (_) => 'Eᵥ',
+            labelResolver: (_) => 'Eáµ¥',
           ),
         ),
         VerticalLine(
@@ -439,7 +450,7 @@ class _CarrierConcentrationGraphViewState
             alignment: Alignment.centerRight,
             padding: const EdgeInsets.only(right: 4),
             style: TextStyle(fontSize: 11, color: legendColorN),
-            labelResolver: (_) => 'Eᴄ',
+            labelResolver: (_) => 'Eá´„',
           ),
         ),
       ]);
@@ -597,7 +608,7 @@ class _CarrierConcentrationGraphViewState
                             ),
                             TextSpan(
                               text:
-                                  'log₁₀($label) = ${yVal.toStringAsFixed(2)}',
+                                  'logâ‚â‚€($label) = ${yVal.toStringAsFixed(2)}',
                               style: TextStyle(
                                   fontSize: 10, color: Colors.grey[300]),
                             ),
@@ -616,7 +627,7 @@ class _CarrierConcentrationGraphViewState
                             ),
                             TextSpan(
                               text:
-                                  'log₁₀($label) = ${yVal.toStringAsFixed(2)}',
+                                  'logâ‚â‚€($label) = ${yVal.toStringAsFixed(2)}',
                               style: TextStyle(
                                   fontSize: 10, color: Colors.grey[300]),
                             ),
@@ -813,10 +824,10 @@ class _CarrierConcentrationGraphViewState
                 segments: const [
                   ButtonSegment(
                       value: SeriesMode.nOnly,
-                      label: LatexText(r'n\ \text{only}', scale: 0.95)),
+                      label: const Text('n only')),
                   ButtonSegment(
                       value: SeriesMode.pOnly,
-                      label: LatexText(r'p\ \text{only}', scale: 0.95)),
+                      label: const Text('p only')),
                   ButtonSegment(value: SeriesMode.both, label: Text('n & p')),
                 ],
                 selected: {_seriesMode},
@@ -843,7 +854,7 @@ class _CarrierConcentrationGraphViewState
               ),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
-                title: const LatexText(r'Auto\text{-}scale\ Y'),
+                title: const Text('Auto-scale Y'),
                 subtitle: const Text(
                     'If off, fixed log range so curves visibly shift'),
                 value: _autoScaleY,
@@ -882,19 +893,14 @@ class _CarrierConcentrationGraphViewState
             Text('Key Observations',
                 style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 8),
-            Expanded(
-              child: ListView(
-                children: const [
-                  _InfoBullet(
-                      r'n \text{ increases exponentially as } E_F \text{ approaches } E_c',
-                      useLatex: true),
-                  _InfoBullet(
-                      r'p \text{ increases exponentially as } E_F \text{ approaches } E_v',
-                      useLatex: true),
-                  _InfoBullet(r'n_i \text{ marks the intrinsic point } (n = p)',
-                      useLatex: true),
-                ],
-              ),
+            ListView(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              children: const [
+                _InfoBullet('n increases as E_F approaches E_c'),
+                _InfoBullet('p increases as E_F approaches E_v'),
+                _InfoBullet('n_i marks the intrinsic point where n equals p'),
+              ],
             ),
           ],
         ),
@@ -1038,7 +1044,7 @@ class _InfoBullet extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('• '),
+          const Text('â€¢ '),
           Expanded(
             child: useLatex ? LatexText(text, scale: 0.95) : Text(text),
           ),
@@ -1047,3 +1053,5 @@ class _InfoBullet extends StatelessWidget {
     );
   }
 }
+
+

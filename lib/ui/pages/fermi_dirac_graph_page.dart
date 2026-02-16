@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 import '../../core/solver/number_formatter.dart';
 import '../graphs/common/enhanced_animation_panel.dart';
 import '../graphs/common/latex_readout.dart';
+import '../graphs/core/graph_config.dart' show GraphConfig, ControlsConfig;
+import '../graphs/core/standard_graph_page_scaffold.dart';
 import '../widgets/latex_text.dart';
 import '../graphs/utils/safe_math.dart';
 
@@ -16,7 +18,7 @@ class FermiDiracGraphPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Fermi–Dirac Probability')),
+      appBar: AppBar(title: const Text('Fermiâ€“Dirac Probability')),
       body: const FermiDiracGraphView(),
     );
   }
@@ -56,7 +58,7 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
   double _animProgress = 0.0;
   double _animSpeed = 1.0;
   _FDAnimParam _animParam = _FDAnimParam.temperature;
-  LoopMode _loopMode = LoopMode.loop;
+  bool _loopEnabled = true;
   bool _reverseDirection = false;
   bool _holdSelectedK = false;
   bool _lockYAxis = true;
@@ -152,18 +154,11 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
     setState(() {
       _animProgress += 0.01 * _animSpeed * _animDirection;
       if (_animProgress > 1.0 || _animProgress < 0.0) {
-        switch (_loopMode) {
-          case LoopMode.off:
-            _animProgress = _animProgress.clamp(0.0, 1.0);
-            _stopAnimation();
-            break;
-          case LoopMode.loop:
-            _animProgress = _animProgress < 0 ? 1.0 : 0.0;
-            break;
-          case LoopMode.pingPong:
-            _animDirection *= -1;
-            _animProgress = _animProgress < 0 ? 0.0 : 1.0;
-            break;
+        if (_loopEnabled) {
+          _animProgress = _animProgress < 0 ? 1.0 : 0.0;
+        } else {
+          _animProgress = _animProgress.clamp(0.0, 1.0);
+          _stopAnimation();
         }
       }
       _applyAnimatedValue();
@@ -220,7 +215,7 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Fermi–Dirac Probability Distribution',
+          'Fermiâ€“Dirac Probability Distribution',
           style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 6),
@@ -244,7 +239,7 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
             Text('About', style: TextStyle(fontWeight: FontWeight.w600)),
             SizedBox(height: 4),
             Text(
-              'The Fermi–Dirac distribution describes the probability that an electron occupies an energy state E at thermal equilibrium.',
+              'The Fermiâ€“Dirac distribution describes the probability that an electron occupies an energy state E at thermal equilibrium.',
             ),
           ],
         ),
@@ -514,47 +509,51 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final isWide = constraints.maxWidth >= 1100;
-          final chartCard = _buildChartCard();
-          final sidebar = _buildSidebar();
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildHeader(context),
-              const SizedBox(height: 12),
-              _buildInfoPanel(),
-              const SizedBox(height: 12),
-              Expanded(
-                child: isWide
-                    ? Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(flex: 2, child: chartCard),
-                          const SizedBox(width: 12),
-                          SizedBox(
-                              width:
-                                  math.min(520, constraints.maxWidth / 2),
-                              child: sidebar),
-                        ],
-                      )
-                    : Scrollbar(
-                        child: ListView(
-                          padding: EdgeInsets.zero,
-                          children: [
-                            SizedBox(height: 420, child: chartCard),
-                            const SizedBox(height: 12),
-                            sidebar,
-                          ],
-                        ),
-                      ),
+    return StandardGraphPageScaffold(
+      config: const GraphConfig(
+        title: 'Fermi-Dirac Probability Distribution',
+        subtitle: 'DOS & Statistics',
+        mainEquation: r'f(E) = \frac{1}{1 + \exp\left(\frac{E - E_F}{k T}\right)}',
+        controls: ControlsConfig(children: []),
+      ),
+      aboutSection: _buildInfoPanel(),
+      observeSection: _buildObserveCard(context),
+      chartBuilder: (context) => _buildChartCard(),
+      rightPanelBuilder: (context, config) => SingleChildScrollView(
+        child: _buildSidebar(),
+      ),
+    );
+  }
+
+  Widget _buildObserveCard(BuildContext context) {
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: ExpansionTile(
+        initiallyExpanded: false,
+        title: Text(
+          'What you should observe',
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w700,
               ),
-            ],
-          );
-        },
+        ),
+        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        children: [
+          _bulletLine(const [
+            _InlinePiece.text('At '),
+            _InlinePiece.latex(r'E = E_F'),
+            _InlinePiece.text(', '),
+            _InlinePiece.latex(r'f(E)=0.5'),
+            _InlinePiece.text(' for any temperature.'),
+          ], latexScale: _inlineLatexScale),
+          _bulletLine(const [
+            _InlinePiece.text('Higher '),
+            _InlinePiece.latex(r'T'),
+            _InlinePiece.text(' broadens the transition around '),
+            _InlinePiece.latex(r'E_F'),
+            _InlinePiece.text('.'),
+          ], latexScale: _inlineLatexScale),
+        ],
       ),
     );
   }
@@ -700,7 +699,7 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
                   ], latexScale: _inlineLatexScale)
                 else ...[
                   LatexText(
-                    'kT \\approx ${_fmt.formatLatex(kT)}\\,\\mathrm{eV},\\quad \\text{width} \\sim ${_fmt.formatLatex(widthApprox)}\\,\\mathrm{eV}',
+                    'kT \\approx ${_fmt.formatLatex(kT)}\\,\\mathrm{eV},\\quad \\mathrm{width} \\sim ${_fmt.formatLatex(widthApprox)}\\,\\mathrm{eV}',
                     scale: _inlineLatexScaleSmall,
                   ),
                   const SizedBox(height: 4),
@@ -712,7 +711,7 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
                   ),
                   if (_relativeToFermi)
                     const LatexText(
-                      r'f(E_F)=0.5 \text{ when } E=E_F',
+                      r'f(E_F)=0.5 \\mathrm{ when } E=E_F',
                       scale: 1.0,
                     ),
                 ],
@@ -1019,10 +1018,10 @@ class _FDAnimationController
       _update(() => state._animSpeed = multiplier);
 
   @override
-  LoopMode get loopMode => state._loopMode;
+  bool get loopEnabled => state._loopEnabled;
 
   @override
-  void setLoopMode(LoopMode mode) => _update(() => state._loopMode = mode);
+  void setLoopEnabled(bool value) => _update(() => state._loopEnabled = value);
 
   @override
   bool get reverseDirection => state._reverseDirection;
@@ -1066,3 +1065,6 @@ class _FDAnimationController
   @override
   void restart() => state._restartAnimation();
 }
+
+
+

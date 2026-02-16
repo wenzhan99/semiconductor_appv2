@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'graph_config.dart';
 import 'standard_panel_stack.dart';
 import '../../widgets/latex_text.dart';
+import '../common/enhanced_animation_panel.dart';
+
+typedef _Typo = GraphPanelTextStyles;
 
 /// Standard scaffold for graph pages.
 /// 
@@ -29,8 +32,18 @@ class StandardGraphPageScaffold extends StatelessWidget {
   /// Builder for chart widget
   final Widget Function(BuildContext context) chartBuilder;
   
-  /// Optional header widgets (About, Observe, etc.) - shown above main layout
+  /// Optional About card shown under header.
+  final Widget? aboutSection;
+
+  /// Optional Observe card shown under About section.
+  final Widget? observeSection;
+
+  /// Optional extra header widgets shown after Observe.
   final List<Widget>? headerWidgets;
+
+  /// Optional right-panel builder override.
+  /// Defaults to [StandardPanelStack] when not provided.
+  final Widget Function(BuildContext context, GraphConfig config)? rightPanelBuilder;
   
   /// Whether to show debug badge (for migration verification)
   final bool showDebugBadge;
@@ -41,14 +54,25 @@ class StandardGraphPageScaffold extends StatelessWidget {
   /// Breakpoint for wide vs narrow layout
   final double wideLayoutBreakpoint;
 
+  /// Fixed right-panel width in wide layout.
+  final double rightPanelWidth;
+
+  /// Chart height used in narrow ListView mode.
+  final double narrowChartHeight;
+
   const StandardGraphPageScaffold({
     super.key,
     required this.config,
     required this.chartBuilder,
+    this.aboutSection,
+    this.observeSection,
     this.headerWidgets,
+    this.rightPanelBuilder,
     this.showDebugBadge = false,
     this.debugBadgeText = 'USING STANDARD SCAFFOLD',
     this.wideLayoutBreakpoint = 1100,
+    this.rightPanelWidth = 520,
+    this.narrowChartHeight = 420,
   });
 
   @override
@@ -56,6 +80,8 @@ class StandardGraphPageScaffold extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isWide = constraints.maxWidth >= wideLayoutBreakpoint;
+        final rightPanel = rightPanelBuilder?.call(context, config) ??
+            StandardPanelStack(config: config);
         
         return Stack(
           children: [
@@ -74,8 +100,18 @@ class StandardGraphPageScaffold extends StatelessWidget {
                       config.subtitle != null || 
                       config.mainEquation != null)
                     const SizedBox(height: 12),
-                  
-                  // Optional header widgets (About, Observe, etc.)
+
+                  if (aboutSection != null) ...[
+                    aboutSection!,
+                    const SizedBox(height: 12),
+                  ],
+
+                  if (observeSection != null) ...[
+                    observeSection!,
+                    const SizedBox(height: 12),
+                  ],
+
+                  // Optional extra header widgets
                   if (headerWidgets != null) ...[
                     ...headerWidgets!.map((w) => Padding(
                           padding: const EdgeInsets.only(bottom: 12),
@@ -86,8 +122,8 @@ class StandardGraphPageScaffold extends StatelessWidget {
                   // Main layout (chart + panels)
                   Expanded(
                     child: isWide
-                        ? _buildWideLayout(context)
-                        : _buildNarrowLayout(context),
+                        ? _buildWideLayout(context, rightPanel)
+                        : _buildNarrowLayout(context, rightPanel),
                   ),
                 ],
               ),
@@ -127,18 +163,20 @@ class StandardGraphPageScaffold extends StatelessWidget {
         if (config.title != null) ...[
           Text(
             config.title!,
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+            style: TextStyle(
+              fontSize: _Typo.title,
+              fontWeight: FontWeight.w700,
+            ),
           ),
           const SizedBox(height: 6),
         ],
         if (config.subtitle != null) ...[
           Text(
             config.subtitle!,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
+            style: TextStyle(
+              fontSize: _Typo.body,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
           const SizedBox(height: 12),
         ],
@@ -156,7 +194,7 @@ class StandardGraphPageScaffold extends StatelessWidget {
               child: LatexText(
                 config.mainEquation!,
                 displayMode: true,
-                style: const TextStyle(fontSize: 12),
+                style: TextStyle(fontSize: _Typo.body),
               ),
             ),
           ),
@@ -165,36 +203,38 @@ class StandardGraphPageScaffold extends StatelessWidget {
     );
   }
 
-  Widget _buildWideLayout(BuildContext context) {
+  Widget _buildWideLayout(
+    BuildContext context,
+    Widget rightPanel,
+  ) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Chart area (2/3 width)
+        // Chart area
         Expanded(
-          flex: 2,
           child: _buildChartCard(context),
         ),
         const SizedBox(width: 12),
-        // Panel stack (1/3 width)
-        Expanded(
-          child: StandardPanelStack(config: config),
+        // Right panel
+        SizedBox(
+          width: rightPanelWidth,
+          child: rightPanel,
         ),
       ],
     );
   }
 
-  Widget _buildNarrowLayout(BuildContext context) {
-    return SingleChildScrollView(
-      child: Column(
+  Widget _buildNarrowLayout(BuildContext context, Widget rightPanel) {
+    return Scrollbar(
+      child: ListView(
+        padding: EdgeInsets.zero,
         children: [
-          // Chart area
-          ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 300, maxHeight: 450),
+          SizedBox(
+            height: narrowChartHeight,
             child: _buildChartCard(context),
           ),
           const SizedBox(height: 12),
-          // Panel stack
-          StandardPanelStack(config: config),
+          rightPanel,
         ],
       ),
     );

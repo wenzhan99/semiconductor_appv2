@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
@@ -15,6 +15,8 @@ import '../graphs/common/parameters_card.dart';
 import '../graphs/common/key_observations_card.dart';
 import '../graphs/common/chart_toolbar.dart';
 import '../graphs/common/viewport_state.dart';
+import '../graphs/core/graph_config.dart' show GraphConfig, ControlsConfig;
+import '../graphs/core/standard_graph_page_scaffold.dart';
 
 class DirectIndirectGraphPage extends StatefulWidget {
   const DirectIndirectGraphPage({super.key});
@@ -156,30 +158,35 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
 
     return Scaffold(
       appBar: AppBar(title: const Text('Direct vs Indirect Bandgap')),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final isWide = constraints.maxWidth >= 1100;
-
-          return Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildHeader(context),
-                const SizedBox(height: 12),
-                _buildAboutCard(context),
-                const SizedBox(height: 12),
-                _buildObserveCard(context),
-                const SizedBox(height: 12),
-                Expanded(
-                  child: isWide
-                      ? _buildWideLayout(context, egDirect, egIndirect, kCbmScaled, ec, ev, kVbm, kCbm, evAtVbm, ecAtGamma)
-                      : _buildNarrowLayout(context, egDirect, egIndirect, kCbmScaled, ec, ev, kVbm, kCbm, evAtVbm, ecAtGamma),
-                ),
-              ],
-            ),
-          );
-        },
+      body: StandardGraphPageScaffold(
+        config: const GraphConfig(
+          title: 'Direct vs Indirect Bandgap (Schematic E-k)',
+          subtitle: 'Energy & Band Structure',
+          mainEquation:
+              r'E_c(k) = E_c + \frac{\hbar^2 (k-k_0)^2}{2 m_e^*}, \quad E_v(k) = E_v - \frac{\hbar^2 k^2}{2 m_h^*}',
+          controls: ControlsConfig(children: []),
+        ),
+        aboutSection: _buildAboutCard(context),
+        observeSection: _buildObserveCard(context),
+        chartBuilder: (context) => _buildChartCard(
+          context,
+          ec,
+          ev,
+          kVbm,
+          kCbm,
+          kCbmScaled,
+          evAtVbm,
+          ecAtGamma,
+          egDirect,
+          egIndirect,
+        ),
+        rightPanelBuilder: (context, config) => _buildRightPanel(
+          egDirect,
+          egIndirect,
+          kCbmScaled,
+          ec,
+          ev,
+        ),
       ),
     );
   }
@@ -189,7 +196,7 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Direct vs Indirect Bandgap (Schematic E–k)',
+          'Direct vs Indirect Bandgap (Schematic Eâ€“k)',
           style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                 fontWeight: FontWeight.w700,
               ),
@@ -239,7 +246,7 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
             Text('About', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
             const SizedBox(height: 6),
             Text(
-              'Shows parabolic conduction and valence bands. Effective mass (m*) controls curvature: smaller m* → steeper parabola. Band edges (Ec, Ev) remain fixed at band extrema; only curvature changes with m*.',
+              'Shows parabolic conduction and valence bands. Effective mass (m*) controls curvature: smaller m* â†’ steeper parabola. Band edges (Ec, Ev) remain fixed at band extrema; only curvature changes with m*.',
               style: Theme.of(context).textTheme.bodyMedium,
             ),
           ],
@@ -260,10 +267,10 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
         ),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         children: [
-          _bullet('Direct bandgap: CBM and VBM at same k → vertical photon transition.'),
-          _bullet(r'Indirect: CBM shifted to $k_0 \neq 0$ → phonon needed for momentum.'),
+          _bullet('Direct bandgap: CBM and VBM at same k â†’ vertical photon transition.'),
+          _bullet(r'Indirect: CBM shifted to $k_0 \neq 0$ â†’ phonon needed for momentum.'),
           _bullet(r'Animating $m^*$: Band edges stay fixed, only curvature changes.'),
-          _bullet(r'Smaller $m^*$ → steeper parabola (energy grows faster with k).'),
+          _bullet(r'Smaller $m^*$ â†’ steeper parabola (energy grows faster with k).'),
           const SizedBox(height: 8),
           Text('Try this:', style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
           _bullet(r'Animate $m_n^*$ with overlay ON to see curvature change clearly.'),
@@ -281,7 +288,7 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('• '),
+          const Text('â€¢ '),
           Expanded(child: _parseLatex(text)),
         ],
       ),
@@ -315,54 +322,25 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
     return Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: parts);
   }
 
-  Widget _buildWideLayout(BuildContext context, double egDirect, double egIndirect, double kCbmScaled, double ec, double ev, double kVbm, double kCbm, double evAtVbm, double ecAtGamma) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          flex: 2,
-          child: _buildChartCard(context, ec, ev, kVbm, kCbm, kCbmScaled, evAtVbm, ecAtGamma, egDirect, egIndirect),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: SingleChildScrollView(
-            child: Column(
-              children: [
-                _buildReadoutsCard(egDirect, egIndirect, kCbmScaled, ec, ev),
-                const SizedBox(height: 12),
-                _buildPointInspectorCard(),
-                const SizedBox(height: 12),
-                _buildEnhancedAnimationCard(),
-                const SizedBox(height: 12),
-                _buildParametersCard(),
-                const SizedBox(height: 12),
-                _buildKeyObservationsCard(egDirect, egIndirect, kCbmScaled),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildNarrowLayout(BuildContext context, double egDirect, double egIndirect, double kCbmScaled, double ec, double ev, double kVbm, double kCbm, double evAtVbm, double ecAtGamma) {
+  Widget _buildRightPanel(
+    double egDirect,
+    double egIndirect,
+    double kCbmScaled,
+    double ec,
+    double ev,
+  ) {
     return SingleChildScrollView(
       child: Column(
         children: [
-          ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 300, maxHeight: 450),
-            child: _buildChartCard(context, ec, ev, kVbm, kCbm, kCbmScaled, evAtVbm, ecAtGamma, egDirect, egIndirect),
-          ),
-          const SizedBox(height: 12),
           _buildReadoutsCard(egDirect, egIndirect, kCbmScaled, ec, ev),
           const SizedBox(height: 12),
           _buildPointInspectorCard(),
           const SizedBox(height: 12),
           _buildEnhancedAnimationCard(),
           const SizedBox(height: 12),
-          _buildParametersCard(),
-          const SizedBox(height: 12),
           _buildKeyObservationsCard(egDirect, egIndirect, kCbmScaled),
+          const SizedBox(height: 12),
+          _buildParametersCard(),
         ],
       ),
     );
@@ -373,18 +351,18 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
       title: 'Gap Readouts',
       readouts: [
         ReadoutItem(
-          label: r'$E_{g,\text{direct}}$',
+          label: r'$E_{g,\\mathrm{direct}}$',
           value: '${egDirect.toStringAsFixed(3)} eV',
           boldValue: true,
         ),
         ReadoutItem(
-          label: r'$E_{g,\text{indirect}}$',
+          label: r'$E_{g,\\mathrm{indirect}}$',
           value: '${egIndirect.toStringAsFixed(3)} eV',
           boldValue: true,
         ),
         ReadoutItem(
           label: r'CBM position $k_0$',
-          value: '${kCbmScaled.toStringAsFixed(3)} ×10¹⁰ m⁻¹',
+          value: '${kCbmScaled.toStringAsFixed(3)} Ã—10Â¹â° mâ»Â¹',
         ),
         ReadoutItem(
           label: r'$E_c$ (conduction edge)',
@@ -409,14 +387,14 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
       builder: (sp) {
         final cbmKScaled = _gapType == GapType.direct ? 0.0 : _k0Scaled;
         final nearestEdge = sp.band == 'Valence'
-            ? 'VBM (k≈0)'
+            ? 'VBM (kâ‰ˆ0)'
             : (sp.kScaled - cbmKScaled).abs() < 0.05
-                ? 'CBM (k≈${cbmKScaled.toStringAsFixed(2)} ×10¹⁰ m⁻¹)'
+                ? 'CBM (kâ‰ˆ${cbmKScaled.toStringAsFixed(2)} Ã—10Â¹â° mâ»Â¹)'
                 : 'Conduction band';
         return [
           'Band: ${sp.band}',
-          'k = ${_sci3(sp.k)} m⁻¹',
-          'k = ${sp.kScaled.toStringAsFixed(3)} ×10¹⁰ m⁻¹',
+          'k = ${_sci3(sp.k)} mâ»Â¹',
+          'k = ${sp.kScaled.toStringAsFixed(3)} Ã—10Â¹â° mâ»Â¹',
           'E = ${sp.energy.toStringAsFixed(4)} eV',
           'Nearest: $nearestEdge',
         ];
@@ -444,7 +422,7 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
                 label: 'Animate parameter',
                 value: _animateParam,
                 items: const [
-                  DropdownMenuItem(value: AnimateParam.k0, child: Text('k₀ (CBM position)')),
+                  DropdownMenuItem(value: AnimateParam.k0, child: Text('kâ‚€ (CBM position)')),
                   DropdownMenuItem(value: AnimateParam.eg, child: Text('Eg (bandgap)')),
                   DropdownMenuItem(value: AnimateParam.mnStar, child: Text('mn* (electron mass)')),
                   DropdownMenuItem(value: AnimateParam.mpStar, child: Text('mp* (hole mass)')),
@@ -550,7 +528,7 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
                 max: 3.0,
                 divisions: 11,
                 onChanged: (v) => setState(() => _animateSpeed = v),
-                valueFormatter: (v) => '${v.toStringAsFixed(2)}×',
+                valueFormatter: (v) => '${v.toStringAsFixed(2)}Ã—',
               ),
               
               // Loop mode
@@ -774,7 +752,7 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
           onChanged: (v) => _updateCustom(() => _eg = double.parse(v.toStringAsFixed(3))),
         ),
         ParameterSlider(
-          label: r'$m_n^*$ (×$m_0$)',
+          label: r'$m_n^*$ (Ã—$m_0$)',
           value: _mnEff,
           min: 0.05,
           max: 2.0,
@@ -783,7 +761,7 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
           subtitle: 'Affects conduction band curvature only',
         ),
         ParameterSlider(
-          label: r'$m_p^*$ (×$m_0$)',
+          label: r'$m_p^*$ (Ã—$m_0$)',
           value: _mpEff,
           min: 0.05,
           max: 2.0,
@@ -792,7 +770,7 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
           subtitle: 'Affects valence band curvature only',
         ),
         ParameterSlider(
-          label: r'$k_0$ (×10¹⁰ m⁻¹)',
+          label: r'$k_0$ (Ã—10Â¹â° mâ»Â¹)',
           value: _k0Scaled,
           min: 0.0,
           max: 1.5,
@@ -802,7 +780,7 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
               : null,
         ),
         ParameterSlider(
-          label: r'$k_{\text{max}}$ (×10¹⁰ m⁻¹)',
+          label: r'$k_{\\mathrm{max}}$ (Ã—10Â¹â° mâ»Â¹)',
           value: _kMaxScaled,
           min: 0.5,
           max: 2.0,
@@ -846,22 +824,22 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
     final obs = <String>[];
 
     if (_gapType == GapType.direct) {
-      obs.add('Direct gap: CBM and VBM at k≈0 → vertical photon transition. \$E_{g,\\text{dir}} = ${egDirect.toStringAsFixed(3)}\$ eV.');
+      obs.add('Direct gap: CBM and VBM at kâ‰ˆ0 â†’ vertical photon transition. \$E_{g,\\mathrm{dir}} = ${egDirect.toStringAsFixed(3)}\$ eV.');
     } else {
-      obs.add('Indirect gap: CBM at \$k_0 = ${kCbmScaled.toStringAsFixed(3)} \\times 10^{10}\$ m⁻¹ → phonon needed. \$E_{g,\\text{ind}} = ${egIndirect.toStringAsFixed(3)}\$ eV.');
+      obs.add('Indirect gap: CBM at \$k_0 = ${kCbmScaled.toStringAsFixed(3)} \\times 10^{10}\$ mâ»Â¹ â†’ phonon needed. \$E_{g,\\mathrm{ind}} = ${egIndirect.toStringAsFixed(3)}\$ eV.');
       final deltaK = kCbmScaled.abs();
-      obs.add('CBM shift: \$\\Delta k = ${deltaK.toStringAsFixed(3)} \\times 10^{10}\$ m⁻¹ from Γ.');
+      obs.add('CBM shift: \$\\Delta k = ${deltaK.toStringAsFixed(3)} \\times 10^{10}\$ mâ»Â¹ from Î“.');
     }
 
     // Curvature analysis
     final probeK = _kMaxScaled * 0.5 * _kDisplayScale;
     final deltaEc = _bandEnergyTerm(probeK, _mnEff);
     final deltaEv = _bandEnergyTerm(probeK, _mpEff);
-    obs.add('Curvature: \$m_n^* = ${_mnEff.toStringAsFixed(3)}\$, \$m_p^* = ${_mpEff.toStringAsFixed(3)}\$. Smaller \$m^*\$ → steeper bands.');
+    obs.add('Curvature: \$m_n^* = ${_mnEff.toStringAsFixed(3)}\$, \$m_p^* = ${_mpEff.toStringAsFixed(3)}\$. Smaller \$m^*\$ â†’ steeper bands.');
 
     if (_selectedPoint != null) {
       final sp = _selectedPoint!;
-      obs.add('Selected: k=${sp.kScaled.toStringAsFixed(3)} ×10¹⁰ m⁻¹, E=${sp.energy.toStringAsFixed(3)} eV.');
+      obs.add('Selected: k=${sp.kScaled.toStringAsFixed(3)} Ã—10Â¹â° mâ»Â¹, E=${sp.energy.toStringAsFixed(3)} eV.');
     }
 
     return obs;
@@ -869,10 +847,10 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
 
   List<String> _buildStaticObservations() {
     return [
-      r'Parabolic bands: $E \propto k^2$; smaller $m^*$ → steeper curvature.',
+      r'Parabolic bands: $E \propto k^2$; smaller $m^*$ â†’ steeper curvature.',
       r'Band edges ($E_c$, $E_v$) stay fixed at extrema; $m^*$ only affects curvature.',
       r'Direct materials (GaAs): efficient light emission (LEDs, lasers).',
-      r'Indirect materials (Si): phonon required → less efficient light emission.',
+      r'Indirect materials (Si): phonon required â†’ less efficient light emission.',
     ];
   }
 
@@ -904,7 +882,7 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
               child: Text(
                 _gapType == GapType.direct
                     ? 'Direct: CBM and VBM at same k (vertical transition)'
-                    : 'Indirect: CBM shifted to k₀ ≠ 0 (phonon needed)',
+                    : 'Indirect: CBM shifted to kâ‚€ â‰  0 (phonon needed)',
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
               ),
             ),
@@ -1163,12 +1141,12 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
       final kScaled = k / _kDisplayScale;
 
       // CRITICAL: Valence band edge is at k=0 by definition
-      // E_v(k) = E_v - (ħ²k²)/(2m_h*) where E_v is the valence band maximum
+      // E_v(k) = E_v - (Ä§Â²kÂ²)/(2m_h*) where E_v is the valence band maximum
       final eValence = edges.ev - _bandEnergyTerm(k, _mpEff);
       valence.add(_GraphPoint(k: k, kScaled: kScaled, energy: eValence));
 
       // CRITICAL: Conduction band edge is at k=k0
-      // E_c(k) = E_c + (ħ²(k-k0)²)/(2m_e*) where E_c is the conduction band minimum
+      // E_c(k) = E_c + (Ä§Â²(k-k0)Â²)/(2m_e*) where E_c is the conduction band minimum
       final eConduction = edges.ec + _bandEnergyTerm(k - k0, _mnEff);
       conduction.add(_GraphPoint(k: k, kScaled: kScaled, energy: eConduction));
     }
@@ -1177,7 +1155,7 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
   }
 
   double _bandEnergyTerm(double k, double mEff) {
-    // ΔE = (ħ²k²)/(2m*) - parabolic dispersion term
+    // Î”E = (Ä§Â²kÂ²)/(2m*) - parabolic dispersion term
     // This is the energy INCREASE away from the band extremum
     return (_hbar * _hbar * k * k) / (2 * (mEff * _m0)) / _q;
   }
@@ -1185,7 +1163,7 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
   double _conductionEnergy({required double k}) {
     final ec = _bandEdges().ec;
     final k0 = (_gapType == GapType.direct ? 0.0 : _k0Scaled) * _kDisplayScale;
-    // E_c(k) = E_c + (ħ²(k-k0)²)/(2m_e*)
+    // E_c(k) = E_c + (Ä§Â²(k-k0)Â²)/(2m_e*)
     return ec + _bandEnergyTerm(k - k0, _mnEff);
   }
 
@@ -1268,7 +1246,7 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
     if (value == 0) return '0';
     final exp = (math.log(value.abs()) / math.ln10).floor();
     final mant = value / math.pow(10, exp);
-    return '${mant.toStringAsFixed(3)}×10^$exp';
+    return '${mant.toStringAsFixed(3)}Ã—10^$exp';
   }
 
   Widget _legendSwatch(Color color, String label) {
@@ -1467,3 +1445,6 @@ class _Preset {
     required this.gapType,
   });
 }
+
+
+

@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
@@ -21,6 +21,8 @@ import '../graphs/common/point_inspector_card.dart';
 import '../graphs/common/animation_card.dart';
 import '../graphs/common/parameters_card.dart';
 import '../graphs/common/key_observations_card.dart';
+import '../graphs/core/graph_config.dart' show GraphConfig, ControlsConfig;
+import '../graphs/core/standard_graph_page_scaffold.dart';
 
 enum ScalingMode { locked, auto, wide }
 
@@ -258,29 +260,18 @@ class _IntrinsicCarrierGraphViewState extends State<_IntrinsicCarrierGraphView>
         final c = snapshot.data!;
         final curveData = _computeNiCurve(c.h, c.kB, c.m0, c.q);
 
-        return Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildHeader(context),
-              const SizedBox(height: 12),
-              _buildAboutCard(context),
-              const SizedBox(height: 12),
-              _buildObserveCard(context),
-              const SizedBox(height: 12),
-              Expanded(
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final isWide = constraints.maxWidth >= 1100;
-                    return isWide
-                        ? _buildWideLayout(context, c, curveData)
-                        : _buildNarrowLayout(context, c, curveData);
-                  },
-                ),
-              ),
-            ],
+        return StandardGraphPageScaffold(
+          config: const GraphConfig(
+            title: 'Intrinsic Carrier Concentration vs Temperature',
+            subtitle: 'DOS & Statistics',
+            mainEquation:
+                r'n_i = \sqrt{N_c N_v}\,\exp\!\left(-\frac{E_g}{2\,k\,T}\right)',
+            controls: ControlsConfig(children: []),
           ),
+          aboutSection: _buildAboutCard(context),
+          observeSection: _buildObserveCard(context),
+          chartBuilder: (context) => _buildChartArea(context, c, curveData),
+          rightPanelBuilder: (context, config) => _buildRightPanel(c),
         );
       },
     );
@@ -393,7 +384,7 @@ class _IntrinsicCarrierGraphViewState extends State<_IntrinsicCarrierGraphView>
         ),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         children: [
-          _bullet(r'$n_i$ rises exponentially with T; slope ≈ $-E_g/(2k)$ on Arrhenius plot.'),
+          _bullet(r'$n_i$ rises exponentially with T; slope â‰ˆ $-E_g/(2k)$ on Arrhenius plot.'),
           _bullet(r'Larger $E_g$ suppresses $n_i$; $N_c$, $N_v \propto T^{3/2}$ (weaker effect).'),
           _bullet(r'Log scale is essential because $n_i$ spans many decades over temperature range.'),
           const SizedBox(height: 8),
@@ -412,7 +403,7 @@ class _IntrinsicCarrierGraphViewState extends State<_IntrinsicCarrierGraphView>
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('• '),
+          const Text('â€¢ '),
           Expanded(
             child: _parseLatex(text, Theme.of(context).textTheme.bodyMedium),
           ),
@@ -449,68 +440,19 @@ class _IntrinsicCarrierGraphViewState extends State<_IntrinsicCarrierGraphView>
     return Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: parts);
   }
 
-  Widget _buildWideLayout(BuildContext context, _Constants c, List<FlSpot> curveData) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          flex: 2,
-          child: Card(
-            elevation: 1,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: _buildChartArea(context, c, curveData),
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: SingleChildScrollView(
-            child: Column(
-              children: [
-                _buildReadoutsCard(c),
-                const SizedBox(height: 12),
-                _buildPointInspectorCard(c),
-                const SizedBox(height: 12),
-                _buildAnimationCard(),
-                const SizedBox(height: 12),
-                _buildParametersCard(),
-                const SizedBox(height: 12),
-                _buildKeyObservationsCard(c),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildNarrowLayout(BuildContext context, _Constants c, List<FlSpot> curveData) {
+  Widget _buildRightPanel(_Constants c) {
     return SingleChildScrollView(
       child: Column(
         children: [
-          ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 300, maxHeight: 450),
-            child: Card(
-              elevation: 1,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: _buildChartArea(context, c, curveData),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
           _buildReadoutsCard(c),
           const SizedBox(height: 12),
           _buildPointInspectorCard(c),
           const SizedBox(height: 12),
           _buildAnimationCard(),
           const SizedBox(height: 12),
-          _buildParametersCard(),
-          const SizedBox(height: 12),
           _buildKeyObservationsCard(c),
+          const SizedBox(height: 12),
+          _buildParametersCard(),
         ],
       ),
     );
@@ -519,7 +461,7 @@ class _IntrinsicCarrierGraphViewState extends State<_IntrinsicCarrierGraphView>
   Widget _buildReadoutsCard(_Constants c) {
     final ni300 = _computeNi(300, c.h, c.kB, c.m0, c.q);
     final ni300Display = _useCmCubed ? ni300 / 1e6 : ni300;
-    final unit = _useCmCubed ? 'cm⁻³' : 'm⁻³';
+    final unit = _useCmCubed ? 'cmâ»Â³' : 'mâ»Â³';
 
     return ReadoutsCard(
       title: 'Readouts (at 300 K)',
@@ -553,7 +495,7 @@ class _IntrinsicCarrierGraphViewState extends State<_IntrinsicCarrierGraphView>
         final logNi = spot.y;
         final ni = math.pow(10, logNi).toDouble();
         final niFormatted = LatexNumberFormatter.toUnicodeSci(ni, sigFigs: 3);
-        final unit = _useCmCubed ? 'cm⁻³' : 'm⁻³';
+        final unit = _useCmCubed ? 'cmâ»Â³' : 'mâ»Â³';
 
         return [
           'T = ${T.toStringAsFixed(1)} K',
@@ -567,7 +509,7 @@ class _IntrinsicCarrierGraphViewState extends State<_IntrinsicCarrierGraphView>
 
   Widget _buildAnimationCard() {
     return AnimationCard(
-      description: r'Animate $E_g$: 0.6 → 1.6 eV',
+      description: r'Animate $E_g$: 0.6 â†’ 1.6 eV',
       currentValue: 'Current: \$E_g = ${_bandgap.toStringAsFixed(3)}\\,\\mathrm{eV}\$',
       isAnimating: _isAnimating,
       progress: _animationProgress,
@@ -595,10 +537,10 @@ class _IntrinsicCarrierGraphViewState extends State<_IntrinsicCarrierGraphView>
                   setState(() => _bandgap = v);
                   _scheduleChartRefresh();
                 },
-          subtitle: 'Strong (exponential) effect on nᵢ',
+          subtitle: 'Strong (exponential) effect on náµ¢',
         ),
         ParameterSlider(
-          label: r'$m_n^*$ (×$m_0$)',
+          label: r'$m_n^*$ (Ã—$m_0$)',
           value: _mEffElectron,
           min: 0.05,
           max: 2.0,
@@ -609,10 +551,10 @@ class _IntrinsicCarrierGraphViewState extends State<_IntrinsicCarrierGraphView>
                   setState(() => _mEffElectron = v);
                   _scheduleChartRefresh();
                 },
-          subtitle: 'Moderate effect via Nₓ ∝ (m*T)^(3/2)',
+          subtitle: 'Moderate effect via Nâ‚“ âˆ (m*T)^(3/2)',
         ),
         ParameterSlider(
-          label: r'$m_p^*$ (×$m_0$)',
+          label: r'$m_p^*$ (Ã—$m_0$)',
           value: _mEffHole,
           min: 0.05,
           max: 2.0,
@@ -623,11 +565,11 @@ class _IntrinsicCarrierGraphViewState extends State<_IntrinsicCarrierGraphView>
                   setState(() => _mEffHole = v);
                   _scheduleChartRefresh();
                 },
-          subtitle: 'Moderate effect via Nᵥ ∝ (m*T)^(3/2)',
+          subtitle: 'Moderate effect via Náµ¥ âˆ (m*T)^(3/2)',
         ),
         ParameterSwitch(
           label: 'Units',
-          subtitle: _useCmCubed ? 'cm⁻³' : 'm⁻³',
+          subtitle: _useCmCubed ? 'cmâ»Â³' : 'mâ»Â³',
           value: _useCmCubed,
           onChanged: (v) {
             setState(() => _useCmCubed = v);
@@ -715,7 +657,7 @@ class _IntrinsicCarrierGraphViewState extends State<_IntrinsicCarrierGraphView>
 
     final obs = <String>[];
     obs.add(
-        'Between ${_fmtT(first.x)} and ${_fmtT(last.x)}, \$n_i\$ changes ≈ ${deltaLog.toStringAsFixed(2)} decades.');
+        'Between ${_fmtT(first.x)} and ${_fmtT(last.x)}, \$n_i\$ changes â‰ˆ ${deltaLog.toStringAsFixed(2)} decades.');
 
     // Ratio range
     final ni300 = _computeNi(300, c.h, c.kB, c.m0, c.q);
@@ -734,8 +676,8 @@ class _IntrinsicCarrierGraphViewState extends State<_IntrinsicCarrierGraphView>
 
   List<String> _buildStaticObservations(_Constants c) {
     return [
-      r'$n_i$ ∝ $\sqrt{N_c N_v}\,\exp\!\left(-\frac{E_g}{2kT}\right)$; exponential term dominates.',
-      r'Larger $E_g$ → lower $n_i$; key parameter for device design.',
+      r'$n_i$ âˆ $\sqrt{N_c N_v}\,\exp\!\left(-\frac{E_g}{2kT}\right)$; exponential term dominates.',
+      r'Larger $E_g$ â†’ lower $n_i$; key parameter for device design.',
       r'Log scale needed: $n_i$ spans ~10 decades between 200K and 600K.',
     ];
   }
@@ -934,12 +876,12 @@ class _IntrinsicCarrierGraphViewState extends State<_IntrinsicCarrierGraphView>
                 final logNi = s.y;
                 final ni = math.pow(10, logNi).toDouble();
                 final niStr = LatexNumberFormatter.toUnicodeSci(ni, sigFigs: 3);
-                final unit = _useCmCubed ? 'cm⁻³' : 'm⁻³';
+                final unit = _useCmCubed ? 'cmâ»Â³' : 'mâ»Â³';
                 return LineTooltipItem(
                   'T: ${T.toStringAsFixed(1)} K\n',
                   const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
                   children: [
-                    TextSpan(text: 'nᵢ: $niStr $unit\n', style: const TextStyle(fontSize: 11)),
+                    TextSpan(text: 'náµ¢: $niStr $unit\n', style: const TextStyle(fontSize: 11)),
                     TextSpan(
                       text: 'Tap to pin; tap empty to clear',
                       style: TextStyle(fontSize: 9, color: Colors.grey[400]),
@@ -966,3 +908,4 @@ class _Constants {
     required this.latexMap,
   });
 }
+

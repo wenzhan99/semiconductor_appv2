@@ -10,10 +10,11 @@ import '../../widgets/latex_text.dart';
 /// Standard panel stack for graph pages.
 /// 
 /// Enforces fixed panel order:
-/// 1. Point Inspector
-/// 2. Animation Parameters
-/// 3. Insights & Pins
-/// 4. Controls
+/// 1. Readouts
+/// 2. Point Inspector
+/// 3. Animation Parameters
+/// 4. Insights & Pins
+/// 5. Controls
 /// 
 /// All panels are driven by GraphConfig.
 class StandardPanelStack extends StatelessWidget {
@@ -26,38 +27,41 @@ class StandardPanelStack extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final hasReadouts = config.readouts != null && config.readouts!.isNotEmpty;
+    final hasInspector = config.pointInspector != null && config.pointInspector!.enabled;
+    final hasAnimation = config.animation != null;
+    final hasInsights = config.insights != null;
+    final hasControls = config.controls.children.isNotEmpty;
+
     return SingleChildScrollView(
       child: Column(
         children: [
-          // 1. Point Inspector Panel
-          if (config.pointInspector != null && config.pointInspector!.enabled)
-            PointInspectorPanel(config: config.pointInspector!),
-          
-          if (config.pointInspector != null && config.pointInspector!.enabled)
-            const SizedBox(height: 12),
-
-          // 2. Animation Parameters Panel
-          if (config.animation != null)
-            AnimationParametersPanel(config: config.animation!),
-          
-          if (config.animation != null)
-            const SizedBox(height: 12),
-
-          // 3. Insights & Pins Panel
-          if (config.insights != null)
-            InsightsAndPinsPanel(config: config.insights!),
-          
-          if (config.insights != null)
-            const SizedBox(height: 12),
-
-          // 4. Optional Readouts panel (static computed values)
-          if (config.readouts != null && config.readouts!.isNotEmpty) ...[
+          // 1. Readouts panel
+          if (hasReadouts) ...[
             _ReadoutsPanel(items: config.readouts!),
             const SizedBox(height: 12),
           ],
 
-          // 4. Controls Panel
-          ControlsPanel(config: config.controls),
+          // 2. Point Inspector panel
+          if (hasInspector) ...[
+            PointInspectorPanel(config: config.pointInspector!),
+            const SizedBox(height: 12),
+          ],
+
+          // 3. Animation Parameters panel
+          if (hasAnimation) ...[
+            AnimationParametersPanel(config: config.animation!),
+            const SizedBox(height: 12),
+          ],
+
+          // 4. Insights & Pins panel
+          if (hasInsights) ...[
+            InsightsAndPinsPanel(config: config.insights!),
+            const SizedBox(height: 12),
+          ],
+
+          // 5. Controls panel
+          if (hasControls) ControlsPanel(config: config.controls),
         ],
       ),
     );
@@ -105,18 +109,6 @@ class _ReadoutRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    String? mathPart;
-    String? descPart;
-    final label = item.label;
-    final start = label.indexOf(r'\(');
-    final end = label.indexOf(r'\)');
-    if (start != -1 && end != -1 && end > start) {
-      mathPart = label.substring(start, end + 2);
-      descPart = label.substring(end + 2).trim();
-      if (descPart.isEmpty) {
-        descPart = null;
-      }
-    }
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Column(
@@ -126,39 +118,17 @@ class _ReadoutRow extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Expanded(
-                child: Row(
-                  children: [
-                    if (mathPart != null)
-                      LatexText(
-                        mathPart,
-                        style: TextStyle(
-                          fontSize: _Typo.body,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      )
-                    else
-                      Text(
-                        label,
-                        style: TextStyle(
-                          fontSize: _Typo.body,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-          if (descPart != null) ...[
-            const SizedBox(width: 4),
-            Flexible(
-              child: Text(
-                descPart,
-                style: TextStyle(fontSize: _Typo.body),
-              ),
-            ),
-          ]
-                  ],
+                child: _buildLabel(
+                  item.label,
+                  TextStyle(
+                    fontSize: _Typo.body,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
               LatexText(
-                _ensureInlineMath(item.value),
+                item.value,
                 style: TextStyle(
                   fontSize: _Typo.value,
                   fontWeight: item.boldValue ? FontWeight.w700 : FontWeight.w400,
@@ -182,8 +152,18 @@ class _ReadoutRow extends StatelessWidget {
     );
   }
 
-  String _ensureInlineMath(String value) {
-    if (value.startsWith(r'\(') && value.endsWith(r'\)')) return value;
-    return r'\(' + value + r'\)';
+  Widget _buildLabel(String text, TextStyle style) {
+    if (_looksLikeLatex(text)) {
+      return LatexText(text, style: style);
+    }
+    return Text(text, style: style);
+  }
+
+  bool _looksLikeLatex(String text) {
+    return text.contains(r'\') ||
+        text.contains('^') ||
+        text.contains('_') ||
+        text.contains('{') ||
+        text.contains('}');
   }
 }

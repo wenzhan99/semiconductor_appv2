@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
@@ -9,9 +9,14 @@ import '../../core/constants/constants_loader.dart';
 import '../../core/constants/latex_symbols.dart';
 import '../../core/solver/number_formatter.dart';
 import '../graphs/common/enhanced_animation_panel.dart';
+import '../graphs/core/graph_config.dart' show GraphConfig, ControlsConfig;
+import '../graphs/core/standard_graph_page_scaffold.dart';
 import '../graphs/utils/latex_number_formatter.dart';
 import '../graphs/common/latex_readout.dart';
 import '../widgets/latex_text.dart';
+
+// Import typography standards
+typedef _Typo = GraphPanelTextStyles;
 
 enum PlotMode { absolute, delta }
 
@@ -52,8 +57,6 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
   double _mpEff = 0.39; // x m0
   double _kMaxScaled = 0.5; // x1e10 m^-1
   double _points = 400;
-  static const double _inlineLatexScale = 1.15;
-  static const double _inlineLatexScaleSmall = 1.08;
   bool _isAnimating = false;
   double _animSpeed = 1.0;
   double _animProgress = 0.0;
@@ -161,51 +164,22 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
           return const Center(child: CircularProgressIndicator());
         }
         final latexMap = snapshot.data!;
-        return LayoutBuilder(
-          builder: (context, constraints) {
-            final isWide = constraints.maxWidth >= 1100;
-            final chartCard = _buildChartCard(context, latexMap);
-            final rightPanel = _buildRightPanel(context, latexMap);
-
-            return Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildHeader(context),
-                  const SizedBox(height: 12),
-                  _buildAboutCard(context),
-                  const SizedBox(height: 12),
-                  _buildObserveCard(context),
-                  const SizedBox(height: 12),
-                  Expanded(
-                    child: isWide
-                        ? Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(flex: 2, child: chartCard),
-                              const SizedBox(width: 12),
-                              SizedBox(
-                                width: math.min(520, constraints.maxWidth / 2),
-                                child: rightPanel,
-                              ),
-                            ],
-                          )
-                        : Scrollbar(
-                            child: ListView(
-                              padding: EdgeInsets.zero,
-                              children: [
-                                SizedBox(height: 420, child: chartCard),
-                                const SizedBox(height: 12),
-                                rightPanel,
-                              ],
-                            ),
-                          ),
-                  ),
-                ],
-              ),
-            );
-          },
+        return StandardGraphPageScaffold(
+          config: const GraphConfig(
+            title: 'Parabolic Band Dispersion (E-k)',
+            subtitle: 'Band Structure',
+            mainEquation:
+                r'E_c(k)=E_c+\frac{\hbar^{2}k^{2}}{2\,m_n^{*}},\quad E_v(k)=E_v-\frac{\hbar^{2}k^{2}}{2\,m_p^{*}}',
+            controls: ControlsConfig(children: []),
+          ),
+          aboutSection: _buildAboutCard(context),
+          observeSection: _buildObserveCard(context),
+          chartBuilder: (context) => ValueListenableBuilder<_ActivePointState?>(
+            valueListenable: _activePointVN,
+            builder: (_, __, ___) => _buildChartArea(context, latexMap),
+          ),
+          rightPanelBuilder: (context, config) =>
+              _buildRightPanel(context, latexMap),
         );
       },
     );
@@ -233,10 +207,10 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
           child: Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primary.withOpacity(0.05),
+              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.05),
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
-                color: Theme.of(context).colorScheme.primary.withOpacity(0.2),
+                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.2),
               ),
             ),
             child: const LatexText(
@@ -337,7 +311,7 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
             const _InlinePiece.text(' to see how band curvature affects carrier velocity.'),
           ]),
           _infoBulletSegments([
-            const _InlinePiece.text('Use ΔE mode to compare energy offset from band edges directly.'),
+            const _InlinePiece.text('Use Î”E mode to compare energy offset from band edges directly.'),
           ]),
           _infoBulletSegments([
             const _InlinePiece.text('Hover curve to inspect values; double-click to pin for comparison.'),
@@ -444,10 +418,12 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
     ];
     if (_plotMode == PlotMode.absolute) {
       legendEntries.addAll([
-        _legendItem(ecLineColor, _latexSymbol(latexMap, 'E_c'),
-            dashed: true, latex: true),
-        _legendItem(evLineColor, _latexSymbol(latexMap, 'E_v'),
-            dashed: true, latex: true),
+        _legendItem(ecLineColor,
+            _latexSymbol(latexMap, 'Ec', fallback: r'E_c'),
+            dashed: true, latex: true, fontSize: _Typo.body),
+        _legendItem(evLineColor,
+            _latexSymbol(latexMap, 'Ev', fallback: r'E_v'),
+            dashed: true, latex: true, fontSize: _Typo.body),
       ]);
     }
 
@@ -477,6 +453,35 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                           maxX: _kMaxScaled,
                           minY: minY,
                           maxY: maxY,
+                          showingTooltipIndicators: () {
+                            final a = _activePointVN.value;
+                            if (a == null ||
+                                a.barIndex < 0 ||
+                                a.barIndex >= lineBars.length) {
+                              return <ShowingTooltipIndicators>[];
+                            }
+                            return [
+                              ShowingTooltipIndicators([
+                                LineBarSpot(
+                                  lineBars[a.barIndex],
+                                  a.barIndex,
+                                  FlSpot(a.point.kScaled, a.point.yDisplay),
+                                ),
+                              ]),
+                            ];
+                          }(),
+                          rangeAnnotations: _plotMode == PlotMode.absolute
+                              ? RangeAnnotations(horizontalRangeAnnotations: [
+                                  HorizontalRangeAnnotation(
+                                    y1: ecEv.$2,
+                                    y2: ecEv.$1,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .primary
+                                        .withValues(alpha: 0.08),
+                                  ),
+                                ])
+                              : const RangeAnnotations(),
                           extraLinesData: _plotMode == PlotMode.absolute
                               ? ExtraLinesData(
                                   horizontalLines: [
@@ -485,45 +490,28 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                                       color: ecLineColor,
                                       strokeWidth: 1,
                                       dashArray: [4, 4],
-                                      label: HorizontalLineLabel(
-                                        show: true,
-                                        alignment: Alignment.centerRight,
-                                        padding:
-                                            const EdgeInsets.only(right: 6),
-                                        style: TextStyle(
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .onSurfaceVariant,
-                                          fontSize: 12,
-                                        ),
-                                        labelResolver: (_) => 'E_c',
-                                      ),
+                                      label: HorizontalLineLabel(show: false),
                                     ),
                                     HorizontalLine(
                                       y: ecEv.$2,
                                       color: evLineColor,
                                       strokeWidth: 1,
                                       dashArray: [4, 4],
-                                      label: HorizontalLineLabel(
-                                        show: true,
-                                        alignment: Alignment.centerRight,
-                                        padding:
-                                            const EdgeInsets.only(right: 6),
-                                        style: TextStyle(
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .onSurfaceVariant,
-                                          fontSize: 12,
-                                        ),
-                                        labelResolver: (_) => 'E_v',
-                                      ),
+                                      label: HorizontalLineLabel(show: false),
                                     ),
                                   ],
                                 )
                               : const ExtraLinesData(),
                           lineTouchData: LineTouchData(
                             enabled: true,
-                            handleBuiltInTouches: true,
+                            handleBuiltInTouches: false, // Manual control via showingTooltipIndicators
+                            distanceCalculator: (touchPoint, spotLocation) {
+                              // Use Euclidean distance in pixel space (not k-distance)
+                              return math.sqrt(
+                                math.pow(touchPoint.dx - spotLocation.dx, 2) +
+                                    math.pow(touchPoint.dy - spotLocation.dy, 2),
+                              );
+                            },
                             getTouchedSpotIndicator: (barData, spotIndexes) {
                               return spotIndexes.map((i) {
                                 return TouchedSpotIndicatorData(
@@ -556,9 +544,11 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
 
                               // Choose the actual nearest spot (fl_chart returns all touched bars)
                               final spots = response.lineBarSpots!;
-                              final spot = spots.reduce(
-                                (a, b) => a.distance <= b.distance ? a : b,
-                              );
+                              final spot = spots.length == 1
+                                  ? spots.first
+                                  : spots.cast<TouchLineBarSpot>().reduce(
+                                        (a, b) =>
+                                            a.distance <= b.distance ? a : b);
                               final overlayCount = (_overlayPrevious && _overlaySeries.isNotEmpty)
                                   ? _overlaySeries.length
                                   : 0;
@@ -573,7 +563,7 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                               if (pointIndex >= samples.length) return;
                               final point = samples[pointIndex];
                               
-                              // Update inspector with current hover point
+                              // Update inspector with current hover point (single band only)
                               _activePointVN.value = _ActivePointState(
                                 point: _GraphPointWithBand(
                                   band: band,
@@ -586,53 +576,44 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                                   colorIndex: null,
                                 ),
                                 index: pointIndex,
+                                barIndex: spot.barIndex,
                               );
                             },
                             touchTooltipData: LineTouchTooltipData(
+                              fitInsideHorizontally: true,
+                              fitInsideVertically: true,
                               getTooltipItems: (spots) {
-                                final overlayCount = (_overlayPrevious && _overlaySeries.isNotEmpty)
-                                    ? _overlaySeries.length
-                                    : 0;
-                                return spots.map((spot) {
-                                  final mainBarIndex = spot.barIndex - overlayCount;
-                                  if (mainBarIndex < 0 || mainBarIndex >= series.length) {
-                                    return LineTooltipItem('', const TextStyle());
-                                  }
-                                  
-                                  final meta = series[mainBarIndex];
-                                  final band = meta.id;
-                                  final samples = meta.points;
-                                  final pointIndex = spot.spotIndex;
-                                  
-                                  if (pointIndex >= samples.length) {
-                                    return LineTooltipItem('', const TextStyle());
-                                  }
-                                  
-                                  final point = samples[pointIndex];
-                                  final kFormatted = _formatKAxisPlain(point.kScaled);
-                                  final eFormatted = _formatEnergyPlain(point.yDisplay);
-                                  
-                                  final tooltipText = '$band\nk = $kFormatted\nE = $eFormatted';
-                                  if (kDebugMode) {
-                                    assert(
-                                      !tooltipText.contains('\\') &&
-                                          !tooltipText.contains('{') &&
-                                          !tooltipText.contains('}') &&
-                                          !tooltipText.contains('_') &&
-                                          !tooltipText.contains('mathrm'),
-                                      'Tooltip must not contain LaTeX: $tooltipText',
-                                    );
-                                  }
-                                  
-                                  return LineTooltipItem(
+                                // When handleBuiltInTouches=false, we manually control tooltips
+                                // Show tooltip for active point only
+                                final active = _activePointVN.value;
+                                if (active == null) return [];
+                                
+                                final kFormatted = _formatKAxisPlain(active.point.kScaled);
+                                final eFormatted = _formatEnergyPlain(active.point.yDisplay);
+                                final tooltipText =
+                                    '${active.point.band}\nk = $kFormatted\nE = $eFormatted';
+                                
+                                if (kDebugMode) {
+                                  assert(
+                                    !tooltipText.contains('\\') &&
+                                        !tooltipText.contains('{') &&
+                                        !tooltipText.contains('}') &&
+                                        !tooltipText.contains('_') &&
+                                        !tooltipText.contains('mathrm'),
+                                    'Tooltip must not contain LaTeX: $tooltipText',
+                                  );
+                                }
+                                
+                                return [
+                                  LineTooltipItem(
                                     tooltipText,
                                     TextStyle(
                                       color: Colors.white,
                                       fontSize: 11,
                                       fontWeight: FontWeight.w500,
                                     ),
-                                  );
-                                }).toList();
+                                  ),
+                                ];
                               },
                             ),
                           ),
@@ -642,13 +623,15 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                               axisNameWidget: LatexText(
                                   _plotMode == PlotMode.absolute
                                       ? r'E\ \mathrm{(eV)}'
-                                      : r'\Delta E\ \mathrm{(eV)}'),
+                                      : r'\Delta E\ \mathrm{(eV)}',
+                                  style: TextStyle(fontSize: _Typo.body)),
                               sideTitles: const SideTitles(
                                   showTitles: true, reservedSize: 52),
                             ),
                             bottomTitles: AxisTitles(
-                              axisNameWidget: const LatexText(
-                                  r'k\ (\times 10^{10}\,\mathrm{m^{-1}})'),
+                              axisNameWidget: LatexText(
+                                  r'k\ (\times 10^{10}\;\mathrm{m}^{-1})',
+                                  style: TextStyle(fontSize: _Typo.body)),
                               sideTitles: SideTitles(
                                 showTitles: true,
                                 reservedSize: 36,
@@ -684,14 +667,83 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                             painter: _EgMarkerPainter(
                               ec: ecEv.$1,
                               ev: ecEv.$2,
+                              eg: _eg,
                               minX: 0,
                               maxX: _kMaxScaled,
                               minY: minY,
                               maxY: maxY,
                               padding: _chartPadding,
-                              color: valenceColor.withValues(alpha: 0.65),
-                              xFraction: 0.92,
+                              color: valenceColor.withValues(alpha: 0.55),
+                              labelColor: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
+                              xFraction: 0.08,
                             ),
+                          ),
+                        ),
+                      if (_plotMode == PlotMode.absolute)
+                        IgnorePointer(
+                          child: LayoutBuilder(
+                            builder: (context, lbConstraints) {
+                              final w = lbConstraints.maxWidth;
+                              final h = lbConstraints.maxHeight;
+                              final dy = (maxY - minY).abs();
+                              final innerW = w - _chartPadding.horizontal;
+                              final innerH = h - _chartPadding.vertical;
+                              if (dy == 0 || innerW <= 0 || innerH <= 0) {
+                                return const SizedBox.shrink();
+                              }
+                              final px = _chartPadding.left +
+                                  0.965 * innerW;
+                              double yPos(double y) =>
+                                  _chartPadding.top +
+                                  (1 - ((y - minY) / dy).clamp(0.0, 1.0)) *
+                                      innerH;
+                              return Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  const SizedBox.expand(),
+                                  Positioned(
+                                    left: px,
+                                    top: yPos(ecEv.$1) - 10,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: ecLineColor.withValues(alpha: 0.2),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: LatexText(r'E_c',
+                                          style: TextStyle(
+                                              fontSize: _Typo.body,
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .onSurfaceVariant,
+                                              fontWeight: FontWeight.w600)),
+                                    ),
+                                  ),
+                                  Positioned(
+                                    left: px,
+                                    top: yPos(ecEv.$2) - 10,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: evLineColor.withValues(alpha: 0.2),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: LatexText(r'E_v',
+                                          style: TextStyle(
+                                              fontSize: _Typo.body,
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .onSurfaceVariant,
+                                              fontWeight: FontWeight.w600)),
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
                           ),
                         ),
                       // Pinned points overlay
@@ -755,16 +807,20 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           child: ExpansionTile(
             initiallyExpanded: true,
-            title: const Text('Point Inspector',
-                style: TextStyle(fontWeight: FontWeight.w700)),
-            childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-            children: [
-              if (activePoint == null)
-                const Text(
-                    'Hover over a curve to inspect. Double-click to pin or unpin a point.')
-              else ...[
-                Text('${activePoint.band} band',
-                    style: const TextStyle(fontWeight: FontWeight.w700)),
+        title: Text('Point Inspector',
+            style: TextStyle(
+                fontSize: _Typo.title, fontWeight: FontWeight.w700)),
+        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        children: [
+          if (activePoint == null)
+            Text(
+                'Hover over a curve to inspect. Double-click to pin or unpin a point.',
+                style: TextStyle(fontSize: _Typo.hint))
+          else ...[
+            Text('${activePoint.band} band',
+                style: TextStyle(
+                    fontSize: _Typo.sectionLabel,
+                    fontWeight: FontWeight.w700)),
                 const SizedBox(height: 6),
                 _detailRow(
                     labelLatex: r'k',
@@ -803,7 +859,7 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                   alignment: Alignment.centerLeft,
                   child: Text(
                     'Hover to inspect. Double-click to pin/unpin.',
-                    style: Theme.of(context).textTheme.bodySmall,
+                    style: TextStyle(fontSize: _Typo.hint),
                   ),
                 ),
               ],
@@ -852,8 +908,9 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ExpansionTile(
         initiallyExpanded: true,
-        title: const Text('Insights & Pins',
-            style: TextStyle(fontWeight: FontWeight.w700)),
+        title: Text('Insights & Pins',
+            style: TextStyle(
+                fontSize: _Typo.title, fontWeight: FontWeight.w700)),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         children: [
           Align(
@@ -862,7 +919,9 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Dynamic insight',
-                    style: Theme.of(context).textTheme.titleSmall),
+                    style: TextStyle(
+                        fontSize: _Typo.sectionLabel,
+                        fontWeight: FontWeight.w600)),
                 const SizedBox(height: 6),
                 if (resolvedActive == null)
                   _infoBulletSegments(const [
@@ -871,17 +930,17 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                     _InlinePiece.text(' and '),
                     _InlinePiece.latex(r'v_g'),
                     _InlinePiece.text('. Double-click to pin.'),
-                  ], latexScale: _inlineLatexScale)
+                  ])
                 else ...[
-                  const LatexText(
+                  LatexText(
                     r'\Delta E = \frac{\hbar^{2}k^{2}}{2 m^{*}},\quad v_g = \frac{\hbar k}{m^{*}}',
                     displayMode: true,
-                    scale: 1.05,
+                    style: TextStyle(fontSize: _Typo.body),
                   ),
                   const SizedBox(height: 4),
                   LatexText(
                     'k = ${_formatKLatex(resolvedActive.k)},\\quad \\Delta E = ${_formatEnergyLatex(resolvedActive.deltaE)},\\quad v_g = ${_formatVelocityLatex(resolvedActive.velocity)}',
-                    scale: _inlineLatexScaleSmall,
+                    style: TextStyle(fontSize: _Typo.value),
                   ),
                   const SizedBox(height: 6),
                   _infoBulletSegments([
@@ -891,16 +950,15 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                     const _InlinePiece.latex(r'm^{*}'),
                     const _InlinePiece.text(' -> larger'),
                     const _InlinePiece.latex(r'|v_g|'),
-                    const _InlinePiece.text(' and ΔE at this k.'),
+                    const _InlinePiece.text(' and Î”E at this k.'),
                   ]),
-                  _infoBulletSegments(ratioPieces,
-                      latexScale: _inlineLatexScale),
+                  _infoBulletSegments(ratioPieces),
                   _infoBulletSegments([
                     const _InlinePiece.text('Energy relative to band edge:'),
                     _InlinePiece.latex(resolvedActive.band == 'Conduction'
                         ? r'E_c + \Delta E'
                         : r'E_v - \Delta E'),
-                  ], latexScale: _inlineLatexScale),
+                  ]),
                 ],
               ],
             ),
@@ -909,7 +967,9 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
           Row(
             children: [
               Text('Pinned points',
-                  style: Theme.of(context).textTheme.titleSmall),
+                  style: TextStyle(
+                      fontSize: _Typo.sectionLabel,
+                      fontWeight: FontWeight.w600)),
               const Spacer(),
               if (_pins.isNotEmpty)
                 TextButton.icon(
@@ -926,7 +986,7 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
               _InlinePiece.text(', E, and '),
               _InlinePiece.latex(r'v_g'),
               _InlinePiece.text(' across bands.'),
-            ], latexScale: _inlineLatexScale)
+            ])
           else
             Column(
               children: resolvedPins.map((p) {
@@ -957,8 +1017,9 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                             ),
                           ),
                           Text('${p.band} band',
-                              style:
-                                  const TextStyle(fontWeight: FontWeight.w700)),
+                              style: TextStyle(
+                                  fontSize: _Typo.sectionLabel,
+                                  fontWeight: FontWeight.w700)),
                           const Spacer(),
                           IconButton(
                             icon: const Icon(Icons.close),
@@ -979,14 +1040,14 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                               labelLatex: r'k',
                               valueLatex: _formatKLatex(p.k),
                             ),
-                            scale: _inlineLatexScaleSmall,
+                            style: TextStyle(fontSize: _Typo.value),
                           ),
                           LatexText(
                             LatexReadoutFormatter.equation(
                               labelLatex: r'\Delta E(k)',
                               valueLatex: _formatEnergyLatex(p.deltaE),
                             ),
-                            scale: _inlineLatexScaleSmall,
+                            style: TextStyle(fontSize: _Typo.value),
                           ),
                           if (_plotMode == PlotMode.absolute)
                             LatexText(
@@ -994,14 +1055,14 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                                 labelLatex: r'E(k)',
                                 valueLatex: _formatEnergyLatex(p.eAbs),
                               ),
-                              scale: _inlineLatexScaleSmall,
+                              style: TextStyle(fontSize: _Typo.value),
                             ),
                           LatexText(
                             LatexReadoutFormatter.equation(
                               labelLatex: r'v_g(k)',
                               valueLatex: _formatVelocityLatex(p.velocity),
                             ),
-                            scale: _inlineLatexScaleSmall,
+                            style: TextStyle(fontSize: _Typo.value),
                           ),
                         ],
                       ),
@@ -1025,8 +1086,9 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ExpansionTile(
         initiallyExpanded: true,
-        title: const Text('Controls',
-            style: TextStyle(fontWeight: FontWeight.w700)),
+        title: Text('Controls',
+            style: TextStyle(
+                fontSize: _Typo.title, fontWeight: FontWeight.w700)),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         children: [
           Wrap(
@@ -1034,9 +1096,9 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
             runSpacing: 10,
             children: [
               _toggle('Conduction', _showConduction,
-                  (v) => setState(() => _showConduction = v)),
+                  (v) => setState(() => _showConduction = v), _Typo.body),
               _toggle('Valence', _showValence,
-                  (v) => setState(() => _showValence = v)),
+                  (v) => setState(() => _showValence = v), _Typo.body),
             ],
           ),
           const SizedBox(height: 10),
@@ -1047,11 +1109,13 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
             children: [
               SizedBox(
                 width: 260,
-                child: Column(
+                child:                   Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Energy view',
-                        style: TextStyle(fontWeight: FontWeight.w600)),
+                    Text('Energy view',
+                        style: TextStyle(
+                            fontSize: _Typo.sectionLabel,
+                            fontWeight: FontWeight.w600)),
                     const SizedBox(height: 4),
                     SegmentedButton<PlotMode>(
                       segments: const [
@@ -1060,7 +1124,7 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                             label: Text('Absolute E')),
                         ButtonSegment(
                             value: PlotMode.delta,
-                            label: Text('ΔE (relative)')),
+                            label: Text('Î”E (relative)')),
                       ],
                       selected: {_plotMode},
                       onSelectionChanged: (s) =>
@@ -1086,8 +1150,10 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Material preset',
-                    style: TextStyle(fontWeight: FontWeight.w600)),
+                Text('Material preset',
+                    style: TextStyle(
+                        fontSize: _Typo.sectionLabel,
+                        fontWeight: FontWeight.w600)),
                 const SizedBox(height: 4),
                 _materialPresetDropdown(),
               ],
@@ -1169,17 +1235,18 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
             runSpacing: 4,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              const LatexText(
-                r'k\text{-axis: } k\times 10^{10}\ \mathrm{m^{-1}}',
-                scale: _inlineLatexScaleSmall,
+              Text(
+                'k-axis: k × 10^10 m^-1',
+                style: TextStyle(fontSize: _Typo.hint),
               ),
-              const Text('E axis in eV; ΔE if relative mode is selected'),
+              Text('E axis in eV; Î”E if relative mode is selected',
+                  style: TextStyle(fontSize: _Typo.hint)),
             ],
           ),
           const SizedBox(height: 4),
           Text(
             'Parabolic approximation is best near k ~ 0; very large k may be unrealistic.',
-            style: Theme.of(context).textTheme.bodySmall,
+            style: TextStyle(fontSize: _Typo.hint),
           ),
         ],
       ),
@@ -1191,8 +1258,9 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Energy reference',
-            style: TextStyle(fontWeight: FontWeight.w600)),
+        Text('Energy reference',
+            style: TextStyle(
+                fontSize: _Typo.sectionLabel, fontWeight: FontWeight.w600)),
         const SizedBox(height: 4),
         DropdownButton<String>(
           value: _energyReference,
@@ -1203,19 +1271,28 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                   if (v == null) return;
                   setState(() => _energyReference = v);
                 },
-          items: const [
-            DropdownMenuItem(value: 'Midgap = 0', child: Text('Midgap = 0')),
-            DropdownMenuItem(value: 'Ev = 0', child: Text('Ev = 0')),
-            DropdownMenuItem(value: 'Ec = 0', child: Text('Ec = 0')),
+          items: [
+            DropdownMenuItem(
+                value: 'Midgap = 0',
+                child: Text('Midgap = 0',
+                    style: TextStyle(fontSize: _Typo.body))),
+            DropdownMenuItem(
+                value: 'Ev = 0',
+                child: LatexText(r'E_v = 0',
+                    style: TextStyle(fontSize: _Typo.body))),
+            DropdownMenuItem(
+                value: 'Ec = 0',
+                child: LatexText(r'E_c = 0',
+                    style: TextStyle(fontSize: _Typo.body))),
           ],
         ),
         if (isDelta)
           Padding(
             padding: const EdgeInsets.only(top: 4),
             child: Text(
-              'Reference ignored in ΔE mode.',
+              'Reference ignored in Î”E mode.',
               style: TextStyle(
-                fontSize: 12,
+                fontSize: _Typo.hint,
                 color: Colors.redAccent.shade200,
               ),
             ),
@@ -1564,7 +1641,8 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
   // --- UI helpers ---
 
   Widget _legendItem(Color color, String label,
-      {bool dashed = false, bool latex = false}) {
+      {bool dashed = false, bool latex = false, double? fontSize}) {
+    final textSize = fontSize ?? _Typo.body;
     final marker = dashed
         ? Row(
             mainAxisSize: MainAxisSize.min,
@@ -1589,16 +1667,17 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
         SizedBox(width: 26, child: Center(child: marker)),
         const SizedBox(width: 6),
         latex
-            ? LatexText(label, style: const TextStyle(fontSize: 12))
+            ? LatexText(label, style: TextStyle(fontSize: textSize))
             : Text(label,
-                style: const TextStyle(fontSize: 12),
+                style: TextStyle(fontSize: textSize),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis),
       ],
     );
   }
 
-  Widget _toggle(String label, bool value, ValueChanged<bool> onChanged) {
+  Widget _toggle(String label, bool value, ValueChanged<bool> onChanged,
+      double fontSize) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -1609,7 +1688,8 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
           },
         ),
         const SizedBox(width: 4),
-        Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+        Text(label,
+            style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w600)),
       ],
     );
   }
@@ -1633,8 +1713,9 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               LatexText(labelLatex,
-                  style: const TextStyle(fontWeight: FontWeight.w600)),
-              Text(valueText),
+                  style: TextStyle(
+                      fontSize: _Typo.body, fontWeight: FontWeight.w600)),
+              Text(valueText, style: TextStyle(fontSize: _Typo.value)),
             ],
           ),
           Slider(
@@ -1664,14 +1745,13 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
     );
   }
 
-  Widget _infoBulletSegments(List<_InlinePiece> parts,
-      {double latexScale = 1.0}) {
+  Widget _infoBulletSegments(List<_InlinePiece> parts) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('- '),
+          Text('- ', style: TextStyle(fontSize: _Typo.body)),
           Expanded(
             child: Wrap(
               spacing: 6,
@@ -1679,8 +1759,9 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
               crossAxisAlignment: WrapCrossAlignment.center,
               children: parts
                   .map((p) => p.latex
-                      ? LatexText(p.text, scale: latexScale)
-                      : Text(p.text))
+                      ? LatexText(p.text,
+                          style: TextStyle(fontSize: _Typo.body))
+                      : Text(p.text, style: TextStyle(fontSize: _Typo.body)))
                   .toList(),
             ),
           ),
@@ -1713,7 +1794,8 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('Compare pins at similar k',
-            style: Theme.of(context).textTheme.titleSmall),
+            style: TextStyle(
+                fontSize: _Typo.sectionLabel, fontWeight: FontWeight.w600)),
         const SizedBox(height: 4),
         LatexText(
           r'\frac{\Delta E(' +
@@ -1724,7 +1806,7 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
               (ratio.isFinite
                   ? _latexFormatter.formatLatex(ratio)
                   : r'\mathrm{n/a}'),
-          scale: _inlineLatexScaleSmall,
+          style: TextStyle(fontSize: _Typo.value),
         ),
         const SizedBox(height: 2),
         _infoBulletSegments(const [
@@ -1758,7 +1840,7 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
 
   /// Plain Unicode formatters for tooltip only (no LaTeX commands).
   String _formatKAxisPlain(double kScaled) =>
-      '${LatexNumberFormatter.toUnicodeSci(kScaled * 1e10, sigFigs: 3)} m⁻¹';
+      '${LatexNumberFormatter.toUnicodeSci(kScaled * 1e10, sigFigs: 3)} mâ»Â¹';
 
   String _formatEnergyPlain(double e) =>
       '${LatexNumberFormatter.toUnicodeSci(e, sigFigs: 3)} eV';
@@ -2036,8 +2118,10 @@ class _GraphPointWithBand extends _GraphPoint {
 class _ActivePointState {
   final _GraphPointWithBand point;
   final int index;
-  
-  const _ActivePointState({required this.point, required this.index});
+  final int barIndex; // fl_chart lineBars index for single-marker display
+
+  const _ActivePointState(
+      {required this.point, required this.index, required this.barIndex});
 }
 
 class _SeriesMeta {
@@ -2110,9 +2194,10 @@ class _MarkersPainter extends CustomPainter {
       canvas.drawCircle(pos, radius - 3, fillPaint);
     }
 
-    // Draw pinned points
+    // Draw pinned points - color-coded by band (conduction/valence)
     for (final p in pins) {
-      final ringColor = palette[(p.colorIndex ?? 0) % palette.length];
+      final bandColor = p.band == 'Conduction' ? conductionColor : valenceColor;
+      final ringColor = bandColor.withValues(alpha: 0.9);
       drawMarker(p, ringColor: ringColor, radius: 7);
     }
   }
@@ -2134,23 +2219,27 @@ class _MarkersPainter extends CustomPainter {
 class _EgMarkerPainter extends CustomPainter {
   final double ec;
   final double ev;
+  final double eg;
   final double minX;
   final double maxX;
   final double minY;
   final double maxY;
   final EdgeInsets padding;
   final Color color;
+  final Color labelColor;
   final double xFraction;
 
   const _EgMarkerPainter({
     required this.ec,
     required this.ev,
+    required this.eg,
     required this.minX,
     required this.maxX,
     required this.minY,
     required this.maxY,
     required this.padding,
     required this.color,
+    required this.labelColor,
     required this.xFraction,
   });
 
@@ -2162,8 +2251,9 @@ class _EgMarkerPainter extends CustomPainter {
     final innerHeight = size.height - padding.vertical;
     if (dx == 0 || dy == 0 || innerWidth <= 0 || innerHeight <= 0) return;
 
-    final xData = minX + dx * xFraction.clamp(0.05, 0.98);
-    final tx = ((xData - minX) / dx).clamp(0.0, 1.0);
+    // Place bracket slightly inside when minX=0 (per spec: k_ref = 0.02*k_max)
+    final chosenX = minX.abs() < 1e-9 ? 0.02 * maxX : minX + dx * xFraction.clamp(0.05, 0.98);
+    final tx = ((chosenX - minX) / dx).clamp(0.0, 1.0);
     final px = padding.left + tx * innerWidth;
 
     double yToScreen(double y) =>
@@ -2177,52 +2267,36 @@ class _EgMarkerPainter extends CustomPainter {
       ..color = color
       ..strokeWidth = 2;
 
-    // Vertical line
+    // Vertical segment from Ev to Ec only (not full-height)
     canvas.drawLine(Offset(px, pyTop), Offset(px, pyBottom), paintLine);
 
-    void drawArrow(double y, double direction) {
-      const double len = 10;
-      const double head = 6;
-      final path = Path()
-        ..moveTo(px, y)
-        ..lineTo(px, y + len * direction);
-      canvas.drawPath(path, paintLine);
+    void drawBracketEnd(double y, double direction) {
+      const double len = 8;
+      const double head = 4;
+      canvas.drawLine(Offset(px, y), Offset(px, y + len * direction), paintLine);
       canvas.drawLine(Offset(px, y), Offset(px - head, y + head * direction),
           paintLine);
       canvas.drawLine(Offset(px, y), Offset(px + head, y + head * direction),
           paintLine);
     }
 
-    drawArrow(pyTop, 1); // downward from top
-    drawArrow(pyBottom, -1); // upward from bottom
+    drawBracketEnd(pyTop, 1);
+    drawBracketEnd(pyBottom, -1);
 
-    // Label "E_g" using text painter with subscript
+    final labelText = 'Eg = ${eg.toStringAsFixed(3)} eV';
     final textPainter = TextPainter(
       text: TextSpan(
-        style: const TextStyle(
-          color: Colors.black,
-          fontSize: 12,
+        text: labelText,
+        style: TextStyle(
+          color: labelColor,
+          fontSize: 11,
           fontWeight: FontWeight.w600,
         ),
-        children: const [
-          TextSpan(text: 'E'),
-          WidgetSpan(
-            alignment: PlaceholderAlignment.baseline,
-            baseline: TextBaseline.alphabetic,
-            child: Padding(
-              padding: EdgeInsets.only(left: 1),
-              child: Text(
-                'g',
-                style: TextStyle(fontSize: 10),
-              ),
-            ),
-          ),
-        ],
       ),
       textDirection: TextDirection.ltr,
     )..layout();
 
-    final labelOffset = Offset(px + 8, midY - textPainter.height / 2);
+    final labelOffset = Offset(px + 10, midY - textPainter.height / 2);
     final bgRect = RRect.fromRectAndRadius(
       Rect.fromLTWH(
         labelOffset.dx - 4,
@@ -2232,7 +2306,7 @@ class _EgMarkerPainter extends CustomPainter {
       ),
       const Radius.circular(4),
     );
-    final bgPaint = Paint()..color = color.withValues(alpha: 0.18);
+    final bgPaint = Paint()..color = color.withValues(alpha: 0.2);
     canvas.drawRRect(bgRect, bgPaint);
     textPainter.paint(canvas, labelOffset);
   }
@@ -2241,11 +2315,13 @@ class _EgMarkerPainter extends CustomPainter {
   bool shouldRepaint(covariant _EgMarkerPainter oldDelegate) {
     return ec != oldDelegate.ec ||
         ev != oldDelegate.ev ||
+        eg != oldDelegate.eg ||
         minX != oldDelegate.minX ||
         maxX != oldDelegate.maxX ||
         minY != oldDelegate.minY ||
         maxY != oldDelegate.maxY ||
         color != oldDelegate.color ||
+        labelColor != oldDelegate.labelColor ||
         xFraction != oldDelegate.xFraction ||
         padding != oldDelegate.padding;
   }
@@ -2264,3 +2340,5 @@ class _ReadoutCache {
       required this.eAbs,
       required this.v});
 }
+
+

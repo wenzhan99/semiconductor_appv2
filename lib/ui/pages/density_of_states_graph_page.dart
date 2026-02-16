@@ -1,4 +1,4 @@
-import 'dart:math' as math;
+﻿import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
@@ -11,6 +11,8 @@ import '../graphs/common/parameters_card.dart';
 import '../graphs/common/key_observations_card.dart';
 import '../graphs/common/chart_toolbar.dart';
 import '../graphs/common/viewport_state.dart';
+import '../graphs/core/graph_config.dart' show GraphConfig, ControlsConfig;
+import '../graphs/core/standard_graph_page_scaffold.dart';
 
 class DensityOfStatesGraphPage extends StatelessWidget {
   const DensityOfStatesGraphPage({super.key});
@@ -82,29 +84,19 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
       defaultMaxY: (data.maxDos * 1.08).clamp(0.1, double.infinity),
     );
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isWide = constraints.maxWidth >= 1100;
-        return Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildHeader(context),
-              const SizedBox(height: 12),
-              _buildAboutCard(context),
-              const SizedBox(height: 12),
-              _buildObserveCard(context),
-              const SizedBox(height: 12),
-              Expanded(
-                child: isWide
-                    ? _buildWideLayout(context, data, ec, ev)
-                    : _buildNarrowLayout(context, data, ec, ev),
-              ),
-            ],
-          ),
-        );
-      },
+    return StandardGraphPageScaffold(
+      config: const GraphConfig(
+        title: 'Density of States g(E) vs Energy',
+        subtitle: 'DOS & Statistics',
+        mainEquation:
+            r'g_c(E)=\frac{1}{2\pi^{2}}\!\left(\frac{2m_e^{*}}{\hbar^{2}}\right)^{\frac{3}{2}}\!\sqrt{E-E_c},\quad'
+            r'g_v(E)=\frac{1}{2\pi^{2}}\!\left(\frac{2m_h^{*}}{\hbar^{2}}\right)^{\frac{3}{2}}\!\sqrt{E_v-E}',
+        controls: ControlsConfig(children: []),
+      ),
+      aboutSection: _buildAboutCard(context),
+      observeSection: _buildObserveCard(context),
+      chartBuilder: (context) => _buildChartCard(context, data, ec, ev),
+      rightPanelBuilder: (context, config) => _buildRightPanel(ec, ev),
     );
   }
 
@@ -211,7 +203,7 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('• '),
+          const Text('â€¢ '),
           Expanded(child: _parseLatex(text)),
         ],
       ),
@@ -245,50 +237,17 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
     return Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: parts);
   }
 
-  Widget _buildWideLayout(BuildContext context, _DosData data, double ec, double ev) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          flex: 2,
-          child: _buildChartCard(context, data, ec, ev),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: SingleChildScrollView(
-            child: Column(
-              children: [
-                _buildReadoutsCard(ec, ev),
-                const SizedBox(height: 12),
-                _buildPointInspectorCard(),
-                const SizedBox(height: 12),
-                _buildParametersCard(),
-                const SizedBox(height: 12),
-                _buildKeyObservationsCard(ec, ev),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildNarrowLayout(BuildContext context, _DosData data, double ec, double ev) {
+  Widget _buildRightPanel(double ec, double ev) {
     return SingleChildScrollView(
       child: Column(
         children: [
-          ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 300, maxHeight: 450),
-            child: _buildChartCard(context, data, ec, ev),
-          ),
-          const SizedBox(height: 12),
           _buildReadoutsCard(ec, ev),
           const SizedBox(height: 12),
           _buildPointInspectorCard(),
           const SizedBox(height: 12),
-          _buildParametersCard(),
-          const SizedBox(height: 12),
           _buildKeyObservationsCard(ec, ev),
+          const SizedBox(height: 12),
+          _buildParametersCard(),
         ],
       ),
     );
@@ -324,7 +283,7 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
           subtitle: 'Arbitrary units',
         ),
         ReadoutItem(
-          label: r'$g_v$ at $E_v$−0.1eV',
+          label: r'$g_v$ at $E_v$âˆ’0.1eV',
           value: dosAtEv.toStringAsPrecision(3),
           subtitle: 'Arbitrary units',
         ),
@@ -485,7 +444,7 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
     final deltaEf = (_fermiOffset - e).abs();
     if (deltaEf < 0.2) {
       obs.add(
-          r'Selected point is near $E_F$ ($\Delta E_F < 0.2$ eV) → high occupation/depletion probability.');
+          r'Selected point is near $E_F$ ($\Delta E_F < 0.2$ eV) â†’ high occupation/depletion probability.');
     }
 
     return obs;
@@ -493,7 +452,7 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
 
   List<String> _buildStaticObservations() {
     return [
-      r'DOS $\propto (m^*)^{3/2}$; heavier effective mass → more available states.',
+      r'DOS $\propto (m^*)^{3/2}$; heavier effective mass â†’ more available states.',
       r'Conduction DOS: $g_c(E) \propto \sqrt{E - E_c}$ (parabolic band).',
       r'Valence DOS: $g_v(E) \propto \sqrt{E_v - E}$ (parabolic band).',
       r'Carrier concentration $\propto$ DOS $\times$ Fermi-Dirac distribution.',
@@ -605,7 +564,7 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
                 show: true,
                 alignment: Alignment.topRight,
                 padding: const EdgeInsets.only(bottom: 6, right: 4),
-                labelResolver: (_) => 'Eᴄ',
+                labelResolver: (_) => 'Eá´„',
               ),
             ),
             VerticalLine(
@@ -616,7 +575,7 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
                 show: true,
                 alignment: Alignment.topLeft,
                 padding: const EdgeInsets.only(bottom: 6, left: 4),
-                labelResolver: (_) => 'Eᴠ',
+                labelResolver: (_) => 'Eá´ ',
               ),
             ),
             VerticalLine(
@@ -628,7 +587,7 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
                 show: true,
                 alignment: Alignment.bottomRight,
                 padding: const EdgeInsets.only(top: 4, right: 4),
-                labelResolver: (_) => 'Eꜰ',
+                labelResolver: (_) => 'Eêœ°',
               ),
             ),
           ],
@@ -737,3 +696,4 @@ class _DosData {
 
   _DosData({required this.conduction, required this.valence, required this.maxDos});
 }
+
