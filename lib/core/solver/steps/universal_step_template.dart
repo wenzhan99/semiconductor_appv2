@@ -13,6 +13,7 @@ class UniversalStepTemplate {
 
   static List<StepItem> build({
     required String targetLabelLatex,
+    String? targetLabelPlain,
     required List<String> unitConversionLines,
     required List<String> rearrangeLines,
     required List<String> substitutionLines,
@@ -40,6 +41,16 @@ class UniversalStepTemplate {
 
     final steps = <StepItem>[];
 
+    String _plainTarget(String latex) {
+      var text = latex;
+      text = text.replaceAll(RegExp(r'\\mathrm\{([^}]*)\}'), r'$1');
+      text = text.replaceAll(RegExp(r'[{}]'), '');
+      text = text.replaceAll(r'\_', '_');
+      return text.trim();
+    }
+
+    final plainTargetLabel = targetLabelPlain ?? _plainTarget(targetLabelLatex);
+
     // Step 1
     steps.add(const StepItem.text(_step1Title));
     final conversions = unitConversionLines.where((l) => l.trim().isNotEmpty).toList();
@@ -62,6 +73,9 @@ class UniversalStepTemplate {
         steps.add(StepItem.math(line));
       }
     }
+    // Keep the Step 2 text marker for title-based UIs/tests, but place it
+    // after Step 2 math so step-slicing helpers don't terminate early.
+    steps.add(StepItem.text(_step2Prefix + plainTargetLabel));
 
     // Step 3
     steps.add(const StepItem.text(_step3Title));

@@ -1,7 +1,61 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'latex_rich_text.dart';
 import '../../widgets/latex_text.dart';
+import 'enhanced_animation_panel.dart';
+
+typedef _Typo = GraphPanelTextStyles;
+
+String formatSciLatex(double x, {int sigFigs = 3}) {
+  if (x.isNaN || x.isInfinite) return '--';
+  if (x == 0) return '0';
+
+  final absX = x.abs();
+  if (absX >= 1e-3 && absX < 1e4) {
+    final exponent = (math.log(absX) / math.ln10).floor();
+    final decimals = math.max(0, sigFigs - exponent - 1).clamp(0, 12);
+    return _trimTrailingZeros(x.toStringAsFixed(decimals));
+  }
+
+  var exponent = (math.log(absX) / math.ln10).floor();
+  final decimals = math.max(0, sigFigs - 1);
+  var mantissa = x / math.pow(10, exponent);
+  mantissa = double.parse(mantissa.toStringAsFixed(decimals));
+  if (mantissa.abs() >= 10) {
+    mantissa /= 10;
+    exponent += 1;
+  }
+  final mantissaStr = mantissa.toStringAsFixed(decimals);
+  return '$mantissaStr\\times 10^{$exponent}';
+}
+
+String formatSciPlain(double x, {int sigFigs = 3}) {
+  if (x.isNaN || x.isInfinite) return '--';
+  if (x == 0) return '0';
+
+  final absX = x.abs();
+  if (absX >= 1e-3 && absX < 1e4) {
+    return formatSciLatex(x, sigFigs: sigFigs);
+  }
+
+  var exponent = (math.log(absX) / math.ln10).floor();
+  final decimals = math.max(0, sigFigs - 1);
+  var mantissa = x / math.pow(10, exponent);
+  mantissa = double.parse(mantissa.toStringAsFixed(decimals));
+  if (mantissa.abs() >= 10) {
+    mantissa /= 10;
+    exponent += 1;
+  }
+  final mantissaStr = mantissa.toStringAsFixed(decimals);
+  return '${mantissaStr}x10^$exponent';
+}
+
+String _trimTrailingZeros(String value) {
+  if (!value.contains('.')) return value;
+  final trimmed = value.replaceFirst(RegExp(r'\.?0+$'), '');
+  return trimmed == '-0' ? '0' : trimmed;
+}
 
 /// Card for parameter controls with LaTeX labels.
 /// 
@@ -51,9 +105,10 @@ class ParametersCard extends StatelessWidget {
         if (!collapsible) ...[
           Text(
             title,
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+            style: TextStyle(
+              fontSize: _Typo.title,
+              fontWeight: FontWeight.w700,
+            ),
           ),
           const SizedBox(height: 12),
         ],
@@ -68,7 +123,8 @@ class ParametersCard extends StatelessWidget {
           ? ExpansionTile(
               title: Text(
                 title,
-                style: const TextStyle(fontWeight: FontWeight.w700),
+                style: TextStyle(
+                    fontSize: _Typo.title, fontWeight: FontWeight.w700),
               ),
               initiallyExpanded: initiallyExpanded,
               childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
@@ -85,6 +141,7 @@ class ParametersCard extends StatelessWidget {
 /// Slider parameter with LaTeX label
 class ParameterSlider extends StatelessWidget {
   final String label;
+  final String? plainSuffix;
   final double value;
   final double min;
   final double max;
@@ -93,10 +150,14 @@ class ParameterSlider extends StatelessWidget {
   final String? subtitle;
   final bool showValue;
   final String Function(double)? valueFormatter;
+  final String Function(double)? valueLatexFormatter;
+  final bool showRangeLabels;
+  final String Function(double)? rangeLatexFormatter;
 
   const ParameterSlider({
     super.key,
     required this.label,
+    this.plainSuffix,
     required this.value,
     required this.min,
     required this.max,
@@ -105,10 +166,22 @@ class ParameterSlider extends StatelessWidget {
     this.subtitle,
     this.showValue = true,
     this.valueFormatter,
+    this.valueLatexFormatter,
+    this.showRangeLabels = false,
+    this.rangeLatexFormatter,
   });
 
   @override
   Widget build(BuildContext context) {
+    final valueLatex = valueLatexFormatter?.call(value);
+    final sliderValueText = valueFormatter != null
+        ? valueFormatter!(value)
+        : (valueLatexFormatter != null
+              ? formatSciPlain(value)
+              : value.toStringAsFixed(3));
+    final rangeFormatter =
+        rangeLatexFormatter ?? valueLatexFormatter ?? ((double x) => formatSciLatex(x));
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: Column(
@@ -118,19 +191,41 @@ class ParameterSlider extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: LatexRichText.parse(
-                  label,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    LatexText(
+                      label,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    if (plainSuffix != null) ...[
+                      const SizedBox(width: 4),
+                      Text(
+                        plainSuffix!,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ],
                 ),
               ),
               if (showValue) ...[
                 const SizedBox(width: 8),
-                Text(
-                  valueFormatter != null ? valueFormatter!(value) : value.toStringAsFixed(3),
-                  style: const TextStyle(
-                    fontFeatures: [FontFeature.tabularFigures()],
-                  ),
-                ),
+                valueLatex != null
+                    ? LatexText(
+                        valueLatex,
+                        style: TextStyle(
+                          fontSize: _Typo.value,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      )
+                    : Text(
+                        sliderValueText,
+                        style: TextStyle(
+                          fontSize: _Typo.value,
+                          fontWeight: FontWeight.w600,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                      ),
               ],
             ],
           ),
@@ -140,8 +235,41 @@ class ParameterSlider extends StatelessWidget {
             max: max,
             divisions: divisions,
             onChanged: onChanged,
-            label: valueFormatter != null ? valueFormatter!(value) : value.toStringAsFixed(3),
+            label: sliderValueText,
           ),
+          if (showRangeLabels)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: LatexText(
+                        rangeFormatter(min),
+                        style: TextStyle(
+                          fontSize: _Typo.small,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: LatexText(
+                        rangeFormatter(max),
+                        style: TextStyle(
+                          fontSize: _Typo.small,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           if (subtitle != null)
             Padding(
               padding: const EdgeInsets.only(top: 4),
@@ -162,6 +290,7 @@ class ParameterSlider extends StatelessWidget {
 /// Switch parameter with LaTeX label
 class ParameterSwitch extends StatelessWidget {
   final String label;
+  final String? plainSuffix;
   final String? subtitle;
   final bool value;
   final ValueChanged<bool>? onChanged;
@@ -169,6 +298,7 @@ class ParameterSwitch extends StatelessWidget {
   const ParameterSwitch({
     super.key,
     required this.label,
+    this.plainSuffix,
     this.subtitle,
     required this.value,
     this.onChanged,
@@ -177,7 +307,16 @@ class ParameterSwitch extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SwitchListTile(
-      title: LatexRichText.parse(label),
+      title: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          LatexText(label),
+          if (plainSuffix != null) ...[
+            const SizedBox(width: 4),
+            Text(plainSuffix!),
+          ],
+        ],
+      ),
       subtitle: subtitle != null ? Text(subtitle!) : null,
       value: value,
       onChanged: onChanged,
@@ -230,6 +369,7 @@ class ParameterDropdown<T> extends StatelessWidget {
 /// Segmented button parameter with LaTeX label
 class ParameterSegmented<T> extends StatelessWidget {
   final String label;
+  final String? plainSuffix;
   final Set<T> selected;
   final List<ButtonSegment<T>> segments;
   final ValueChanged<Set<T>>? onSelectionChanged;
@@ -237,6 +377,7 @@ class ParameterSegmented<T> extends StatelessWidget {
   const ParameterSegmented({
     super.key,
     required this.label,
+    this.plainSuffix,
     required this.selected,
     required this.segments,
     this.onSelectionChanged,
@@ -250,9 +391,21 @@ class ParameterSegmented<T> extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          LatexRichText.parse(
-            label,
-            style: const TextStyle(fontWeight: FontWeight.w600),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              LatexText(
+                label,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              if (plainSuffix != null) ...[
+                const SizedBox(width: 4),
+                Text(
+                  plainSuffix!,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ],
+            ],
           ),
           const SizedBox(height: 8),
           SegmentedButton<T>(

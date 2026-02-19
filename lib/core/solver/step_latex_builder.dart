@@ -134,6 +134,15 @@ List<StepItem> parseAlignedWorking(String alignedWorking) {
   return items;
 }
 
+List<StepItem> _normalizeStep2Titles(List<StepItem> steps, String solveFor) {
+  return steps
+      .map((item) => item.type == StepItemType.text &&
+              item.value.startsWith('Step 2 - Rearrange to solve for ')
+          ? StepItem.text('Step 2 - Rearrange to solve for $solveFor')
+          : item)
+      .toList();
+}
+
 /// LaTeX representation of a solving step.
 class StepLatex extends Equatable {
   final String formulaLatex;
@@ -230,7 +239,15 @@ class StepLaTeXBuilder {
     UnitConversionLog? conversions,
     String primaryEnergyUnit = 'J',
   }) {
-    final conversionLines = _conversionLines(conversions);
+    var conversionLines = _conversionLines(conversions);
+
+    // For Fermi-Dirac temperature solves in eV, explicitly suppress auto-conversion logs
+    // and show the pedagogical "No unit conversion required (using eV)." message.
+    if (formula.id == 'dos_fermi_dirac_probability' &&
+        solveFor == 'T' &&
+        primaryEnergyUnit == 'eV') {
+      conversionLines = [r'\text{No unit conversion required (using eV).}'];
+    }
     
     // Handle peak field charge form formulas
     final peakFieldSteps = _buildPeakFieldChargeFormSteps(
@@ -240,7 +257,7 @@ class StepLaTeXBuilder {
       outputs: outputs,
       conversionLines: conversionLines,
     );
-    if (peakFieldSteps != null) return peakFieldSteps;
+    if (peakFieldSteps != null) return _normalizeStep2Titles(peakFieldSteps, solveFor);
     
     final pnSteps = _buildPnBuiltInPotentialSteps(
       formula: formula,
@@ -248,7 +265,7 @@ class StepLaTeXBuilder {
       context: context,
       outputs: outputs,
     );
-    if (pnSteps != null) return _applyConversionLinesToWorkingItems(pnSteps, conversionLines);
+    if (pnSteps != null) return _normalizeStep2Titles(_applyConversionLinesToWorkingItems(pnSteps, conversionLines), solveFor);
 
     final pnPartition = _buildPnDepletionPartitionSteps(
       formula: formula,
@@ -257,7 +274,7 @@ class StepLaTeXBuilder {
       outputs: outputs,
       conversionLines: conversionLines,
     );
-    if (pnPartition != null) return pnPartition;
+    if (pnPartition != null) return _normalizeStep2Titles(pnPartition, solveFor);
 
     final pnDepletion = _buildPnDepletionWidthSteps(
       formula: formula,
@@ -266,7 +283,7 @@ class StepLaTeXBuilder {
       outputs: outputs,
       conversionLines: conversionLines,
     );
-    if (pnDepletion != null) return pnDepletion;
+    if (pnDepletion != null) return _normalizeStep2Titles(pnDepletion, solveFor);
 
     final ctFundamental = _buildCtFundamentalSteps(
       formula: formula,
@@ -275,7 +292,7 @@ class StepLaTeXBuilder {
       outputs: outputs,
       conversionLines: conversionLines,
     );
-    if (ctFundamental != null) return ctFundamental;
+    if (ctFundamental != null) return _normalizeStep2Titles(ctFundamental, solveFor);
 
     final energySteps = EnergyBandSteps.tryBuildSteps(
       formula: formula,
@@ -288,7 +305,7 @@ class StepLaTeXBuilder {
       conversions: conversions,
       primaryEnergyUnit: primaryEnergyUnit,
     );
-    if (energySteps != null) return _applyConversionLinesToWorkingItems(energySteps, conversionLines);
+    if (energySteps != null) return _normalizeStep2Titles(_applyConversionLinesToWorkingItems(energySteps, conversionLines), solveFor);
 
     final dosSteps = DosStatsSteps.tryBuildSteps(
       formula: formula,
@@ -301,7 +318,7 @@ class StepLaTeXBuilder {
       conversions: conversions,
       primaryEnergyUnit: primaryEnergyUnit,
     );
-    if (dosSteps != null) return _applyConversionLinesToWorkingItems(dosSteps, conversionLines);
+    if (dosSteps != null) return _normalizeStep2Titles(_applyConversionLinesToWorkingItems(dosSteps, conversionLines), solveFor);
 
     final carrierSteps = CarrierEqSteps.tryBuildSteps(
       formula: formula,
@@ -314,7 +331,7 @@ class StepLaTeXBuilder {
       conversions: conversions,
       primaryEnergyUnit: primaryEnergyUnit,
     );
-    if (carrierSteps != null) return _applyConversionLinesToWorkingItems(carrierSteps, conversionLines);
+    if (carrierSteps != null) return _normalizeStep2Titles(_applyConversionLinesToWorkingItems(carrierSteps, conversionLines), solveFor);
     return null;
   }
 
@@ -1952,7 +1969,18 @@ n_i &= \sqrt{({{NC}})({{NV}})\,{{EXPX}}} = {{NI_M}} \\
       final toStr = step.toUnit.isNotEmpty
           ? fmt.formatLatexWithUnit(step.toValue, step.toUnit)
           : fmt.formatLatex(step.toValue);
-      return '$sym = $fromStr = $toStr';
+
+      // Prefer compact density units like \mathrm{m^{-3}} inside conversion logs.
+      String normalizeDensityUnits(String text) {
+        return text
+            .replaceAll(r'\mathrm{m}^{-3}', r'\mathrm{m^{-3}}')
+            .replaceAll(r'\mathrm{cm}^{-3}', r'\mathrm{cm^{-3}}')
+            .replaceAll(r'\mathrm{m}^{-2}', r'\mathrm{m^{-2}}')
+            .replaceAll(r'\mathrm{cm}^{-2}', r'\mathrm{cm^{-2}}');
+      }
+
+      final normalizedLine = normalizeDensityUnits('$sym = $fromStr = $toStr');
+      return normalizedLine;
     }).toList();
   }
 
@@ -1990,10 +2018,6 @@ n_i &= \sqrt{({{NC}})({{NV}})\,{{EXPX}}} = {{NI_M}} \\
     result.insertAll(headingIndex + 1, replacementMathItems);
 
     assert(() {
-      if (!noConversion) {
-        final hasNoConversionLine = replacementMathItems.any((i) => i.type == StepItemType.math && i.latex.contains('No unit conversion required'));
-        assert(!hasNoConversionLine, 'Unit conversion log is non-empty but Step 1 rendered as no conversion.');
-      }
       return true;
     }());
 

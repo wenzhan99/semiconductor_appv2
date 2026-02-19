@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'latex_rich_text.dart';
 import '../../widgets/latex_text.dart';
 
@@ -8,7 +8,7 @@ import '../../widgets/latex_text.dart';
 /// ```dart
 /// AnimationCard(
 ///   title: 'Animation',
-///   description: r'Animate $E_g$: 0.6 → 1.6 eV',
+///   description: r'Animate $E_g$: 0.6 -> 1.6 eV',
 ///   currentValue: r'Current: $E_g = ${_bandgap.toStringAsFixed(3)}\,\mathrm{eV}$',
 ///   isAnimating: _isAnimating,
 ///   progress: _animationProgress,
@@ -119,3 +119,4 @@ class AnimationCard extends StatelessWidget {
     );
   }
 }
+

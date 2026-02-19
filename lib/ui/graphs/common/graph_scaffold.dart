@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'latex_rich_text.dart';
 import 'latex_bullet_list.dart';
 import '../../widgets/latex_text.dart';
@@ -11,7 +11,7 @@ import '../../widgets/latex_text.dart';
 /// - "What you should observe" collapsible panel
 /// - Chart area with legend and toolbar
 /// - Right panel with scrollable cards in standard order:
-///   Readouts → Point Inspector → Animation → Parameters → Key Observations
+///   Readouts -> Point Inspector -> Animation -> Parameters -> Key Observations
 /// 
 /// Usage:
 /// ```dart
@@ -327,3 +327,4 @@ class GraphScaffold extends StatelessWidget {
         .toList();
   }
 }
+

@@ -213,6 +213,39 @@ class NumberFormatter {
   String _normalizeUnitLatex(String unitLatex) {
     if (unitLatex.isEmpty) return '';
 
+    final compact = unitLatex.trim();
+
+    // Prefer grouped \mathrm{...} for dot-multiplied composite units,
+    // e.g. J\cdot m^{2} (matches textbook/test expectations).
+    if (compact.contains(r'\cdot') && !compact.contains('/')) {
+      final parts = compact
+          .split(r'\cdot')
+          .map((p) => p.trim())
+          .where((p) => p.isNotEmpty)
+          .toList();
+      final grouped = <String>[];
+      var canGroup = parts.isNotEmpty;
+      final partPattern = RegExp(r'^([A-Za-z]+)(\^\{-?\d+\})?$');
+      for (final part in parts) {
+        final match = partPattern.firstMatch(part);
+        if (match == null) {
+          canGroup = false;
+          break;
+        }
+        final symbol = match.group(1)!;
+        final exp = match.group(2);
+        if (exp != null) {
+          final expVal = exp.substring(2, exp.length - 1); // strip ^{ }
+          grouped.add('$symbol^{$expVal}');
+        } else {
+          grouped.add(symbol);
+        }
+      }
+      if (canGroup) {
+        return r'\mathrm{' + grouped.join(r'\cdot ') + '}';
+      }
+    }
+
     // Tokenize units so we don't wrap operators like \cdot in \mathrm{}.
     final normalized = unitLatex.replaceAllMapped(
       RegExp(r'(\\cdot|[A-Za-z]+)(\^\{-?\d+\})?'),

@@ -95,6 +95,7 @@ class DosStatsSteps {
 
   static List<StepItem> _buildWithTemplate({
     required String targetLatex,
+    required String targetPlain,
     required List<String> unitConversionLines,
     required List<String> rearrangeLines,
     required List<String> substitutionLines,
@@ -128,6 +129,7 @@ class DosStatsSteps {
 
     return UniversalStepTemplate.build(
       targetLabelLatex: targetLatex,
+      targetLabelPlain: targetPlain,
       unitConversionLines: unitConversionLines,
       rearrangeLines: rearrangeLines,
       substitutionLines: substitutionLines,
@@ -257,6 +259,7 @@ class DosStatsSteps {
 
     return _buildWithTemplate(
       targetLatex: _latexLabel(solveFor, latexMap),
+      targetPlain: solveFor,
       unitConversionLines: unitConversionLines,
       rearrangeLines: rearrangeLines,
       substitutionLines: substitutionLines,
@@ -397,7 +400,7 @@ class DosStatsSteps {
       addKnown('T', t, defaultUnit: 'K');
     } else {
       // Pedagogical, fully numeric substitution for T using eV throughout.
-      final fmtPedag = NumberFormatter(significantFigures: 7, sciThresholdExp: 3);
+      final fmtPedag = NumberFormatter(significantFigures: 8, sciThresholdExp: 3);
       substitutionLines.add(r'\text{List known values}');
       if (f?.value != null) {
         substitutionLines.add('f(E)=' + fmtPedag.formatLatex(f!.value));
@@ -405,12 +408,12 @@ class DosStatsSteps {
       final eDisplayVal = eConv?.baseValue ?? e?.value;
       final eDisplayUnit = eConv?.baseUnit.isNotEmpty == true ? eConv!.baseUnit : energyUnit;
       if (eDisplayVal != null) {
-        substitutionLines.add('${_safeSymbol('E', latexMap)} = ' + fmtPedag.formatLatexWithUnit(eDisplayVal, eDisplayUnit));
+        substitutionLines.add('E = ' + fmtPedag.formatLatexWithUnit(eDisplayVal, eDisplayUnit));
       }
       final efDisplayVal = efConv?.baseValue ?? ef?.value;
       final efDisplayUnit = efConv?.baseUnit.isNotEmpty == true ? efConv!.baseUnit : energyUnit;
       if (efDisplayVal != null) {
-        substitutionLines.add('${_safeSymbol('E_F', latexMap)} = ' + fmtPedag.formatLatexWithUnit(efDisplayVal, efDisplayUnit));
+        substitutionLines.add('E_F = ' + fmtPedag.formatLatexWithUnit(efDisplayVal, efDisplayUnit));
       }
       if (kConv?.baseValue != null || k?.value != null) {
         final kValDisplay = kConv?.baseValue ?? k!.value;
@@ -525,7 +528,7 @@ class DosStatsSteps {
       }
       case 'T':
       default: {
-        final fmtPedag = NumberFormatter(significantFigures: 7, sciThresholdExp: 3);
+        final fmtPedag = NumberFormatter(significantFigures: 8, sciThresholdExp: 3);
         final energyDiff = (eVal != null && efVal != null) ? (eVal - efVal) : null;
         final logArgVal = fVal != null ? (1 / fVal) - 1 : null;
         final lnVal = logArgVal != null ? math.log(logArgVal) : null;
@@ -542,12 +545,20 @@ class DosStatsSteps {
         if (energyDiff != null && kVal != null && lnVal != null) {
           tComputed = energyDiff / (kVal * lnVal);
         }
+        final tNumericNoUnit = tComputed != null
+            ? NumberFormatter(significantFigures: 6, sciThresholdExp: 3).formatLatex(tComputed)
+            : null;
+        if (tNumericNoUnit != null) {
+          final numCompact = energyDiff != null ? fmtPedag.formatLatex(energyDiff) : r'(E-E_F)';
+          final kCompact = kVal != null ? fmtPedag.formatLatex(kVal) : r'k';
+          substitutionLines.add('T=($numCompact)/(($kCompact)($lnDisplay))=$tNumericNoUnit');
+        }
         final tDisplay = tComputed != null
-            ? fmtPedag.formatLatexWithUnit(tComputed, 'K')
+            ? NumberFormatter(significantFigures: 6, sciThresholdExp: 3).formatLatexWithUnit(tComputed, 'K')
             : _safeSymbol('T', latexMap);
-        substitutionEvaluation = '$expr = $tDisplay';
+        substitutionEvaluation = '$expr=$tDisplay';
         if (result6 != null && tComputed == null) {
-          substitutionEvaluation = '$substitutionEvaluation = $result6';
+          substitutionEvaluation = '$substitutionEvaluation=$result6';
         }
         break;
       }
@@ -555,6 +566,7 @@ class DosStatsSteps {
 
     return _buildWithTemplate(
       targetLatex: _latexLabel(solveFor, latexMap),
+      targetPlain: solveFor,
       unitConversionLines: unitConversions,
       rearrangeLines: rearrangeLines,
       substitutionLines: substitutionLines,
@@ -849,6 +861,7 @@ class DosStatsSteps {
 
     return _buildWithTemplate(
       targetLatex: targetLatex,
+      targetPlain: solveFor,
       unitConversionLines: unitConversions,
       rearrangeLines: rearrangeLines,
       substitutionLines: substitutionLines,
@@ -985,6 +998,7 @@ class DosStatsSteps {
 
     return _buildWithTemplate(
       targetLatex: targetLatex,
+      targetPlain: solveFor,
       unitConversionLines: unitConversions,
       rearrangeLines: rearrangeLines,
       substitutionLines: substitutionLines,
@@ -1220,6 +1234,7 @@ class DosStatsSteps {
 
     return _buildWithTemplate(
       targetLatex: targetLatex,
+      targetPlain: solveFor,
       unitConversionLines: unitConversions,
       rearrangeLines: rearrangeLines,
       substitutionLines: substitutionLines,
@@ -1280,7 +1295,18 @@ class DosStatsSteps {
       }
     }
 
-    return fmt.valueLatex(value, unit: unit, sigFigs: sigFigs);
+    // Always show both eV and J for energy values to surface dual units in the UI.
+    String? secondary;
+    if (unitConverter != null && (unit == 'J' || unit == 'eV')) {
+      final altUnit = unit == 'J' ? 'eV' : 'J';
+      final altVal = unitConverter.convertEnergy(value, unit, altUnit);
+      if (altVal != null) {
+        secondary = fmt.valueLatex(altVal, unit: altUnit, sigFigs: sigFigs);
+      }
+    }
+
+    final primaryStr = fmt.valueLatex(value, unit: unit, sigFigs: sigFigs);
+    return secondary != null ? '$primaryStr = $secondary' : primaryStr;
   }
 
   static String _safeSymbol(String key, LatexSymbolMap latexMap) {
@@ -1293,6 +1319,7 @@ class DosStatsSteps {
   static String _latexLabel(String key, LatexSymbolMap latexMap) {
     final fromMap = latexMap.renderSymbol(key, warnOnFallback: true);
     if (fromMap.isNotEmpty && fromMap != key) return fromMap;
+    if (key == 'T') return 'T';
     final escaped = key.replaceAll('_', r'\_');
     return r'\mathrm{' + escaped + '}';
   }
@@ -1317,8 +1344,16 @@ class DosStatsSteps {
       reason: 'preferred density unit',
     );
     if (converted == null) return null;
-    final convertedFmt = formatter.formatLatexWithUnit(converted, displayUnit);
-    final baseFmt = formatter.formatLatexWithUnit(value.value, baseUnit);
+
+    // Density units in this UI are expected in the compact LaTeX form
+    // \mathrm{m^{-3}} (exponent stays inside the \mathrm{} group).
+    String _densityUnitLatex(String unit) {
+      final normalized = formatter.formatLatexUnit(unit); // e.g. m^{-3}
+      return r'\mathrm{' + normalized + '}';
+    }
+
+    final convertedFmt = formatter.formatLatex(converted) + r'\,' + _densityUnitLatex(displayUnit);
+    final baseFmt = formatter.formatLatex(value.value) + r'\,' + _densityUnitLatex(baseUnit);
     return '${_safeSymbol(key, latexMap)} = $convertedFmt = $baseFmt';
   }
 

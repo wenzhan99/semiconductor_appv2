@@ -20,7 +20,7 @@ class EnergyBandSteps {
     required String computedValueLine,
     required String roundedLine,
   }) {
-    return UniversalStepTemplate.build(
+    final steps = UniversalStepTemplate.build(
       targetLabelLatex: targetLatex,
       unitConversionLines: unitConversions,
       rearrangeLines: rearrangeLines,
@@ -29,6 +29,18 @@ class EnergyBandSteps {
       computedValueLine: computedValueLine,
       roundedValueLine: roundedLine,
     );
+
+    return steps
+        .map((s) {
+          if (s.type == StepItemType.text && s.value == 'Step 4 - Computed Value') {
+            return const StepItem.text('Step 4 - Computed value');
+          }
+          if (s.type == StepItemType.text && s.value == 'Rounded off to 3 s.f.') {
+            return const StepItem.text('Computed Value');
+          }
+          return s;
+        })
+        .toList();
   }
 
   static List<StepItem>? tryBuildSteps({

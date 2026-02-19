@@ -9,7 +9,7 @@ import '../common/enhanced_animation_panel.dart';
 typedef _Typo = GraphPanelTextStyles;
 
 /// Animation Parameters panel for StandardGraphPageScaffold.
-/// 
+///
 /// Displays:
 /// - List of animatable parameters with enable checkboxes
 /// - Global animation controls (Play/Pause, Reverse, Loop, Speed)
@@ -23,7 +23,8 @@ class AnimationParametersPanel extends StatefulWidget {
   });
 
   @override
-  State<AnimationParametersPanel> createState() => _AnimationParametersPanelState();
+  State<AnimationParametersPanel> createState() =>
+      _AnimationParametersPanelState();
 }
 
 class _AnimationParametersPanelState extends State<AnimationParametersPanel> {
@@ -103,6 +104,39 @@ class _AnimationParametersPanelState extends State<AnimationParametersPanel> {
     return unit.isEmpty ? formatted : '$formatted\\,$unit';
   }
 
+  List<AnimatableParameter> _enabledParams(List<AnimatableParameter> params) {
+    return params.where((p) => p.enabled).toList();
+  }
+
+  String _summaryItemTex(AnimatableParameter param) {
+    final symbol = param.symbol.trim().isEmpty ? param.label : param.symbol;
+    final unit = param.unit.trim();
+    if (unit.isEmpty) return symbol;
+    return '$symbol\\,($unit)';
+  }
+
+  Widget _buildAnimationSummary(List<AnimatableParameter> params) {
+    final enabled = _enabledParams(params);
+    final baseStyle = TextStyle(
+      fontSize: _Typo.hint,
+      fontStyle: FontStyle.normal,
+      fontWeight: FontWeight.w600,
+    );
+
+    if (enabled.isEmpty) {
+      return Text('Animating: none', style: baseStyle);
+    }
+
+    final summaryTex = enabled.map(_summaryItemTex).join(r',\ ');
+    return Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        Text('Animating: ', style: baseStyle),
+        LatexText(summaryTex, style: baseStyle),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = widget.config.state;
@@ -136,40 +170,61 @@ class _AnimationParametersPanelState extends State<AnimationParametersPanel> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // List of animatable parameters
-              if (hasParameters)
-                ...[
-                  DropdownButtonFormField<String>(
-                    isExpanded: true,
-                    value: selectedParameterId,
-                    decoration: InputDecoration(
-                      labelText: 'Active parameter',
-                      labelStyle: TextStyle(
-                        fontSize: _Typo.body,
-                        fontStyle: FontStyle.normal,
-                      ),
-                      border: const OutlineInputBorder(),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
-                      ),
+              if (hasParameters) ...[
+                DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  value: selectedParameterId,
+                  decoration: InputDecoration(
+                    labelText: 'Active parameter',
+                    labelStyle: TextStyle(
+                      fontSize: _Typo.body,
+                      fontStyle: FontStyle.normal,
                     ),
-                    items: parameters
-                        .map(
-                          (param) => DropdownMenuItem<String>(
-                            value: param.id,
-                            child: _ParamLabelRow(param: param),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (value) {
-                      if (value == null) return;
-                      widget.config.onParameterSelected(value);
-                    },
+                    border: const OutlineInputBorder(),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
                   ),
-                  const SizedBox(height: 10),
-                  ...parameters.map((param) => _buildParameterRow(param)),
-                ]
-              else
+                  items: parameters
+                      .map(
+                        (param) => DropdownMenuItem<String>(
+                          value: param.id,
+                          child: _ParamLabelRow(param: param),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    if (value == null) return;
+                    widget.config.onParameterSelected(value);
+                    AnimatableParameter? selected;
+                    for (final param in parameters) {
+                      if (param.id == value) {
+                        selected = param;
+                        break;
+                      }
+                    }
+                    if (selected != null &&
+                        !selected.enabled &&
+                        selected.onEnabledChanged != null) {
+                      selected.onEnabledChanged!(true);
+                    }
+                  },
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Only checked parameters animate. Dropdown sets the focused parameter.',
+                  style: TextStyle(
+                    fontSize: _Typo.hint,
+                    fontStyle: FontStyle.normal,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                _buildAnimationSummary(parameters),
+                const SizedBox(height: 10),
+                ...parameters.map((param) => _buildParameterRow(param)),
+              ] else
                 Text(
                   'No animatable parameters available for this graph.',
                   style: TextStyle(
@@ -179,7 +234,7 @@ class _AnimationParametersPanelState extends State<AnimationParametersPanel> {
                   ),
                 ),
               const Divider(height: 24),
-              
+
               // Speed control
               Text(
                 'Speed',
@@ -217,7 +272,7 @@ class _AnimationParametersPanelState extends State<AnimationParametersPanel> {
                 ),
               ),
               const SizedBox(height: 12),
-              
+
               // Global animation switches
               SwitchListTile(
                 title: Text(
@@ -255,7 +310,7 @@ class _AnimationParametersPanelState extends State<AnimationParametersPanel> {
                 contentPadding: EdgeInsets.zero,
               ),
               const SizedBox(height: 12),
-              
+
               // Animation control buttons
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -264,8 +319,12 @@ class _AnimationParametersPanelState extends State<AnimationParametersPanel> {
                     child: ElevatedButton.icon(
                       onPressed: !hasParameters
                           ? null
-                          : (state.isPlaying ? callbacks.onPause : callbacks.onPlay),
-                      icon: Icon(state.isPlaying ? Icons.pause : Icons.play_arrow, size: 18),
+                          : (state.isPlaying
+                              ? callbacks.onPause
+                              : callbacks.onPlay),
+                      icon: Icon(
+                          state.isPlaying ? Icons.pause : Icons.play_arrow,
+                          size: 18),
                       label: Text(
                         state.isPlaying ? 'Pause' : 'Play',
                         style: TextStyle(
@@ -302,9 +361,8 @@ class _AnimationParametersPanelState extends State<AnimationParametersPanel> {
                 Builder(
                   builder: (_) {
                     final progress = state.progress;
-                    final safeProgress = (progress == null)
-                        ? null
-                        : progress.clamp(0.0, 1.0);
+                    final safeProgress =
+                        (progress == null) ? null : progress.clamp(0.0, 1.0);
                     return LinearProgressIndicator(value: safeProgress);
                   },
                 ),
@@ -331,7 +389,13 @@ class _AnimationParametersPanelState extends State<AnimationParametersPanel> {
           Checkbox(
             value: param.enabled,
             onChanged: onEnabledChanged != null
-                ? (value) => onEnabledChanged(value ?? false)
+                ? (value) {
+                    final enabled = value ?? false;
+                    onEnabledChanged(enabled);
+                    if (enabled) {
+                      widget.config.onParameterSelected(param.id);
+                    }
+                  }
                 : null,
           ),
           Expanded(

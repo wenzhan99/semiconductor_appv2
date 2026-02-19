@@ -1,6 +1,9 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'latex_rich_text.dart';
+import 'enhanced_animation_panel.dart';
+
+typedef _Typo = GraphPanelTextStyles;
 
 /// Card displaying numeric readouts with LaTeX labels.
 /// 
@@ -10,7 +13,7 @@ import 'latex_rich_text.dart';
 ///   title: 'Key Values',
 ///   readouts: [
 ///     ReadoutItem(label: r'$E_g$', value: '1.12 eV'),
-///     ReadoutItem(label: r'$n_i$', value: '1.45×10¹⁰ cm⁻³'),
+///     ReadoutItem(label: r'$n_i$', value: '1.45x10^10 cm^-3'),
 ///   ],
 /// )
 /// ```
@@ -37,9 +40,10 @@ class ReadoutsCard extends StatelessWidget {
         if (!collapsible) ...[
           Text(
             title,
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+            style: TextStyle(
+              fontSize: _Typo.title,
+              fontWeight: FontWeight.w700,
+            ),
           ),
           const SizedBox(height: 8),
         ],
@@ -54,7 +58,8 @@ class ReadoutsCard extends StatelessWidget {
           ? ExpansionTile(
               title: Text(
                 title,
-                style: const TextStyle(fontWeight: FontWeight.w700),
+                style: TextStyle(
+                    fontSize: _Typo.title, fontWeight: FontWeight.w700),
               ),
               initiallyExpanded: initiallyExpanded,
               childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
@@ -111,15 +116,17 @@ class _ReadoutRow extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Flexible(
-                child: LatexRichText.parse(
-                  item.label,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
+                child:               LatexRichText.parse(
+                item.label,
+                style: TextStyle(
+                    fontSize: _Typo.body, fontWeight: FontWeight.w600),
+              ),
               ),
               const SizedBox(width: 8),
               Text(
                 item.value,
                 style: TextStyle(
+                  fontSize: _Typo.value,
                   fontWeight: item.boldValue ? FontWeight.w700 : FontWeight.normal,
                   color: item.valueColor,
                   fontFeatures: const [FontFeature.tabularFigures()],
@@ -131,10 +138,10 @@ class _ReadoutRow extends StatelessWidget {
             const SizedBox(height: 2),
             Text(
               item.subtitle!,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    fontSize: 10,
-                    color: Colors.grey[600],
-                  ),
+              style: TextStyle(
+                fontSize: _Typo.small,
+                color: Colors.grey[600],
+              ),
             ),
           ],
         ],
@@ -142,3 +149,5 @@ class _ReadoutRow extends StatelessWidget {
     );
   }
 }
+
+

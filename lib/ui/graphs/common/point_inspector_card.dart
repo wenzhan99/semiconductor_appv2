@@ -1,5 +1,8 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'latex_rich_text.dart';
+import 'enhanced_animation_panel.dart';
+
+typedef _Typo = GraphPanelTextStyles;
 
 /// Card for inspecting selected/hovered points on the graph.
 /// 
@@ -10,7 +13,7 @@ import 'latex_rich_text.dart';
 ///   onClear: () => setState(() => _selectedPoint = null),
 ///   builder: (point) => [
 ///     'Band: ${point.band}',
-///     'k = ${point.k.toStringAsFixed(3)} ×10¹⁰ m⁻¹',
+///     'k = ${point.k.toStringAsFixed(3)} x10^10 m^-1',
 ///     'E = ${point.energy.toStringAsFixed(4)} eV',
 ///   ],
 /// )
@@ -48,9 +51,10 @@ class PointInspectorCard<T> extends StatelessWidget {
             children: [
               Text(
                 'Point Inspector',
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+                style: TextStyle(
+                  fontSize: _Typo.title,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               const Spacer(),
               if (hasPoint && onClear != null)
@@ -69,7 +73,7 @@ class PointInspectorCard<T> extends StatelessWidget {
         if (!hasPoint)
           Text(
             emptyMessage,
-            style: Theme.of(context).textTheme.bodySmall,
+            style: TextStyle(fontSize: _Typo.hint),
           )
         else if (customBuilder != null)
           customBuilder!(selectedPoint as T)
@@ -79,7 +83,7 @@ class PointInspectorCard<T> extends StatelessWidget {
               padding: const EdgeInsets.symmetric(vertical: 2),
               child: LatexRichText.parse(
                 line,
-                style: Theme.of(context).textTheme.bodyMedium,
+                style: TextStyle(fontSize: _Typo.value),
               ),
             );
           }),
@@ -93,9 +97,10 @@ class PointInspectorCard<T> extends StatelessWidget {
           ? ExpansionTile(
               title: Row(
                 children: [
-                  const Text(
+                  Text(
                     'Point Inspector',
-                    style: TextStyle(fontWeight: FontWeight.w700),
+                    style: TextStyle(
+                        fontSize: _Typo.title, fontWeight: FontWeight.w700),
                   ),
                   const Spacer(),
                   if (hasPoint && onClear != null)
@@ -121,3 +126,5 @@ class PointInspectorCard<T> extends StatelessWidget {
     );
   }
 }
+
+

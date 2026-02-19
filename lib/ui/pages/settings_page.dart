@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+﻿import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -103,7 +103,7 @@ class _SettingsPageState extends State<SettingsPage> {
               subtitle: const Text('Watch solutions unfold line-by-line'),
               value: appState.animateSteps,
               onChanged: (value) {
-                debugPrint('🎬 Settings toggle changed to: $value');
+                debugPrint('ðŸŽ¬ Settings toggle changed to: $value');
                 appState.setAnimateSteps(value);
               },
             ),
@@ -432,7 +432,7 @@ class _SettingsPageState extends State<SettingsPage> {
                       return Card(
                         margin: const EdgeInsets.symmetric(vertical: 6),
                         child: ListTile(
-                          title: Text('${r.formulaName} • ${r.solveFor}'),
+                          title: Text('${r.formulaName} - ${r.solveFor}'),
                           subtitle: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -462,3 +462,4 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 }
+

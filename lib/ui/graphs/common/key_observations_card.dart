@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'latex_bullet_list.dart';
+import 'enhanced_animation_panel.dart';
+
+typedef _Typo = GraphPanelTextStyles;
 
 /// Card for displaying key observations with dynamic and static sections.
 /// 
@@ -61,9 +64,10 @@ class KeyObservationsCard extends StatelessWidget {
         if (!collapsible) ...[
           Text(
             title,
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+            style: TextStyle(
+              fontSize: _Typo.title,
+              fontWeight: FontWeight.w700,
+            ),
           ),
           const SizedBox(height: 8),
         ],
@@ -76,22 +80,23 @@ class KeyObservationsCard extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(4),
               ),
               child: Text(
                 dynamicTitle!,
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
+                style: TextStyle(
+                  fontSize: _Typo.sectionLabel,
+                  fontWeight: FontWeight.w700,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
               ),
             ),
             const SizedBox(height: 8),
           ],
           LatexBulletList(
             bullets: dynamicObservations!,
-            style: Theme.of(context).textTheme.bodyMedium,
+            style: TextStyle(fontSize: _Typo.body),
           ),
         ],
         if (hasDynamic && hasStatic) const SizedBox(height: 12),
@@ -99,15 +104,16 @@ class KeyObservationsCard extends StatelessWidget {
           if (staticTitle != null) ...[
             Text(
               staticTitle!,
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+              style: TextStyle(
+                fontSize: _Typo.sectionLabel,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             const SizedBox(height: 8),
           ],
           LatexBulletList(
             bullets: staticObservations!,
-            style: Theme.of(context).textTheme.bodySmall,
+            style: TextStyle(fontSize: _Typo.body),
           ),
         ],
       ],
@@ -121,7 +127,8 @@ class KeyObservationsCard extends StatelessWidget {
           ? ExpansionTile(
               title: Text(
                 title,
-                style: const TextStyle(fontWeight: FontWeight.w700),
+                style: TextStyle(
+                    fontSize: _Typo.title, fontWeight: FontWeight.w700),
               ),
               initiallyExpanded: initiallyExpanded,
               childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),

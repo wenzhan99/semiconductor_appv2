@@ -63,12 +63,18 @@ class PointInspectorPanel extends StatelessWidget {
               config.customBuilder!()
             else if (config.builder != null)
               ...config.builder!().map((line) {
+                final isMath = _looksLikeMath(line);
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 2),
-                  child: LatexText(
-                    line,
-                    style: TextStyle(fontSize: _Typo.value),
-                  ),
+                  child: isMath
+                      ? LatexText(
+                          line,
+                          style: TextStyle(fontSize: _Typo.value),
+                        )
+                      : Text(
+                          line,
+                          style: TextStyle(fontSize: _Typo.value),
+                        ),
                 );
               }),
           ],
@@ -107,4 +113,12 @@ class _StateChip extends StatelessWidget {
       ),
     );
   }
+}
+
+bool _looksLikeMath(String line) {
+  return line.contains(r'\') ||
+      line.contains('^') ||
+      line.contains('_') ||
+      line.contains('{') ||
+      line.contains('}');
 }

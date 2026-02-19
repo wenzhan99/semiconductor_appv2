@@ -1,4 +1,4 @@
-﻿import 'dart:math' as math;
+import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
@@ -17,8 +17,8 @@ import '../graphs/core/animation_engine.dart';
 // Standardized components
 import '../graphs/common/graph_controller.dart';
 import '../graphs/common/parameters_card.dart';
-import '../graphs/common/plot_selector.dart';
 import '../graphs/utils/latex_number_formatter.dart';
+import '../graphs/utils/pn_latex.dart';
 import '../graphs/common/enhanced_animation_panel.dart';
 
 // Typography standards
@@ -56,16 +56,30 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
   bool _showOutside = true;
 
   // Plot selection
-  String _selectedPlot = 'Ï(x)';
+  String _selectedPlot = 'rho(x)';
+  static const List<String> _plotOptions = ['rho(x)', 'E(x)', 'V(x)', 'All'];
 
   // Interactive
   FlSpot? _selectedPoint;
+  String? _selectedPointPlot;
+  int? _selectedPointIndex;
+  Offset? _selectedPointLocalPosition;
+  FlSpot? _hoverPoint;
+  String? _hoverPointPlot;
+  int? _hoverPointIndex;
+  Offset? _hoverPointLocalPosition;
+  double _lastComputedVbi = 0.8;
+  bool _pendingVaClamp = false;
+
+  static const double _hoverThresholdPx = 14.0;
+  static const double _biasSafetyMargin = 1e-4;
 
   // Animation state
   late AnimationEngine _animationEngine;
   bool _vaAnimEnabled = false;
   bool _naAnimEnabled = false;
   bool _ndAnimEnabled = false;
+  String _selectedAnimParamId = 'va';
   double _vaAnimMin = -5.0;
   double _vaAnimMax = 1.0;
   double _naAnimMin = 1e14;
@@ -123,14 +137,22 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
       _useCmUnits = true;
       _showMarkers = true;
       _showOutside = true;
-      _selectedPlot = 'Ï(x)';
+      _selectedPlot = 'rho(x)';
       _selectedPoint = null;
+      _selectedPointPlot = null;
+      _selectedPointIndex = null;
+      _selectedPointLocalPosition = null;
+      _hoverPoint = null;
+      _hoverPointPlot = null;
+      _hoverPointIndex = null;
+      _hoverPointLocalPosition = null;
+      _selectedAnimParamId = 'va';
       _animationEngine.pause();
     });
   }
 
   List<AnimatableParameter> _getAnimatableParameters() {
-    final dopingUnit = _useCmUnits ? 'cm^{-3}' : 'm^{-3}';
+    final dopingUnit = _useCmUnits ? PnLatex.unitCmNeg3 : PnLatex.unitMNeg3;
     // Ensure ranges are valid and non-degenerate before building parameter specs
     final vaRange = _normalizeVaRange(_vaAnimMin, _vaAnimMax);
     _vaAnimMin = vaRange.$1;
@@ -147,9 +169,9 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
     return [
       AnimatableParameter(
         id: 'va',
-        label: r'V_a (Applied Voltage)',
+        label: r'V_a (applied bias)',
         symbol: r'V_a',
-        unit: 'V',
+        unit: PnLatex.unitV,
         currentValue: _va,
         rangeMin: _vaAnimMin,
         rangeMax: _vaAnimMax,
@@ -157,17 +179,22 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
         absoluteMax: 2.0,
         enabled: _vaAnimEnabled,
         onEnabledChanged: (enabled) => setState(() => _vaAnimEnabled = enabled),
-        onValueChanged: (value) => setState(() => _va = value),
+        onValueChanged: (value) {
+          final clamped = _clampVaToSafeBarrier(value, _lastComputedVbi);
+          setState(() => _va = clamped);
+        },
         onRangeChanged: (min, max) => setState(() {
           final clamped = _normalizeVaRange(min, max);
           _vaAnimMin = clamped.$1;
           _vaAnimMax = clamped.$2;
+          _va = _clampVaToSafeBarrier(_va, _lastComputedVbi);
         }),
-        physicsNote: 'Forward bias (Va > 0) shrinks depletion width; reverse bias (Va < 0) widens it.',
+        physicsNote:
+            'Forward bias (Va > 0) shrinks depletion width; reverse bias (Va < 0) widens it.',
       ),
       AnimatableParameter(
         id: 'na',
-        label: r'N_A (Acceptor Concentration)',
+        label: r'N_A (acceptor concentration)',
         symbol: r'N_A',
         unit: dopingUnit,
         currentValue: _naDisplay,
@@ -187,7 +214,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
       ),
       AnimatableParameter(
         id: 'nd',
-        label: r'N_D (Donor Concentration)',
+        label: r'N_D (donor concentration)',
         symbol: r'N_D',
         unit: dopingUnit,
         currentValue: _ndDisplay,
@@ -209,7 +236,8 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
   }
 
   /// Option 3 around-current sweep with clamping to safe bounds.
-  (double, double) _normalizeDopingRange(double n0Display, double minIn, double maxIn) {
+  (double, double) _normalizeDopingRange(
+      double n0Display, double minIn, double maxIn) {
     final boundsMin = _useCmUnits ? 1e14 : 1e20;
     final boundsMax = _useCmUnits ? 1e19 : 1e25;
 
@@ -217,7 +245,10 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
     double max = maxIn;
 
     // If degenerate or uninitialized, derive from current value.
-    if (min <= 0 || max <= 0 || min >= max || (min == boundsMin && max >= boundsMax * 0.99)) {
+    if (min <= 0 ||
+        max <= 0 ||
+        min >= max ||
+        (min == boundsMin && max >= boundsMax * 0.99)) {
       min = n0Display / 10;
       max = n0Display * 10;
     }
@@ -254,12 +285,48 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
     min = min.clamp(-10.0, 2.0);
     max = max.clamp(-10.0, 2.0);
 
+    // Keep animation range in physically valid depletion regime when Vbi is known.
+    final safeMax = _safeVaUpperBound(_lastComputedVbi);
+    if (safeMax > min) {
+      max = math.min(max, safeMax);
+    }
+
     if (min >= max) {
       min = defaultMin;
-      max = defaultMax;
+      max = math.min(defaultMax, _safeVaUpperBound(_lastComputedVbi));
+      if (min >= max) {
+        max = min + 0.1;
+      }
     }
 
     return (min, max);
+  }
+
+  double _safeVaUpperBound(double vbi) {
+    final capped = (vbi - _biasSafetyMargin).clamp(-10.0, 2.0);
+    return capped.toDouble();
+  }
+
+  double _clampVaToSafeBarrier(double va, double vbi) {
+    final upper = _safeVaUpperBound(vbi);
+    if (upper <= -10.0) return -10.0;
+    return va.clamp(-10.0, upper).toDouble();
+  }
+
+  void _scheduleVaClamp(double clampedVa) {
+    if (_pendingVaClamp) return;
+    _pendingVaClamp = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _pendingVaClamp = false;
+      if (!mounted) return;
+      if ((_va - clampedVa).abs() < 1e-9) return;
+      setState(() {
+        _va = double.parse(clampedVa.toStringAsFixed(3));
+      });
+      if (_animationEngine.isPlaying) {
+        _animationEngine.pause();
+      }
+    });
   }
 
   _PnCurves _buildCurves(_Constants c) {
@@ -277,13 +344,23 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
       mpEffRatio: _mpStar,
     );
 
-    final vbi = (c.kB * _temperature / c.q) * math.log((naSi * ndSi) / (ni * ni));
-    final biasTerm = vbi - _va;
-    final invalid = biasTerm <= 0;
-    final effectiveBias = invalid ? 1e-6 : biasTerm;
+    final vbi =
+        (c.kB * _temperature / c.q) * math.log((naSi * ndSi) / (ni * ni));
+    _lastComputedVbi = vbi;
+
+    final rawBiasTerm = vbi - _va;
+    final invalid = rawBiasTerm <= 0;
+    final safeVa = _clampVaToSafeBarrier(_va, vbi);
+    if ((safeVa - _va).abs() > 1e-9) {
+      _scheduleVaClamp(safeVa);
+    }
+
+    final biasTerm = vbi - safeVa;
+    final effectiveBias = biasTerm <= 0 ? _biasSafetyMargin : biasTerm;
 
     final epsS = _epsR * c.eps0;
-    final W = math.sqrt((2 * epsS / c.q) * (1 / naSi + 1 / ndSi) * effectiveBias);
+    final W =
+        math.sqrt((2 * epsS / c.q) * (1 / naSi + 1 / ndSi) * effectiveBias);
     final xn = (naSi / (naSi + ndSi)) * W;
     final xp = (ndSi / (naSi + ndSi)) * W;
 
@@ -343,7 +420,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
     final vPad = (maxV - minV).abs() * 0.08 + 0.05;
 
     final eMax = -(c.q * naSi / epsS) * xp;
-    
+
     return _PnCurves(
       rho: rhoSpots,
       eField: eSpots,
@@ -374,7 +451,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
         }
         final constants = snapshot.data!;
         final curves = _buildCurves(constants);
-        
+
         final config = _buildGraphConfig(curves);
 
         return StandardGraphPageScaffold(
@@ -391,17 +468,37 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
     return GraphConfig(
       title: 'PN Junction Depletion Profiles',
       subtitle: 'PN Junction',
-      mainEquation: r'W = \sqrt{\frac{2 \varepsilon_s}{q}\left(\frac{1}{N_A} + \frac{1}{N_D}\right)(V_{bi}-V_a)}',
+      mainEquation:
+          r'W = \sqrt{\frac{2 \varepsilon_s}{q}\left(\frac{1}{N_A} + \frac{1}{N_D}\right)(V_{bi}-V_a)}',
       pointInspector: PointInspectorConfig(
         enabled: true,
-        builder: _selectedPoint != null ? () => _buildPointInspectorLines(curves) : null,
-        onClear: () => updateChart(() => _selectedPoint = null),
+        builder:
+            _activeInspectorPoint != null ? _buildPointInspectorLines : null,
+        onClear: () => updateChart(() {
+          _selectedPoint = null;
+          _selectedPointPlot = null;
+          _selectedPointIndex = null;
+          _selectedPointLocalPosition = null;
+          _hoverPoint = null;
+          _hoverPointPlot = null;
+          _hoverPointIndex = null;
+          _hoverPointLocalPosition = null;
+        }),
         isPinned: _selectedPoint != null,
       ),
       animation: AnimationConfig(
         parameters: _getAnimatableParameters(),
-        selectedParameterId: 'va',
-        onParameterSelected: (id) => setState(() {}),
+        selectedParameterId: _selectedAnimParamId,
+        onParameterSelected: (id) => setState(() {
+          _selectedAnimParamId = id;
+          if (id == 'va') {
+            _vaAnimEnabled = true;
+          } else if (id == 'na') {
+            _naAnimEnabled = true;
+          } else if (id == 'nd') {
+            _ndAnimEnabled = true;
+          }
+        }),
         state: AnimationState(
           isPlaying: _animationEngine.isPlaying,
           speed: _animationEngine.speed,
@@ -431,32 +528,136 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
     );
   }
 
-  List<String> _buildPointInspectorLines(_PnCurves curves) {
-    if (_selectedPoint == null) return [];
-    
-    final x = _selectedPoint!.x; // in micrometers
-    final y = _selectedPoint!.y;
-    
-    final xLine = r'x = ' + x.toStringAsFixed(3) + r'\,\mu m';
-    
+  FlSpot? get _activeInspectorPoint => _selectedPoint ?? _hoverPoint;
+
+  String get _activeInspectorPlotId {
+    if (_selectedPoint != null) {
+      return _selectedPointPlot ?? _selectedPlot;
+    }
+    return _hoverPointPlot ?? _selectedPlot;
+  }
+
+  int? _activeSpotIndexForPlot(String plotId) {
+    if (_selectedPoint != null && _selectedPointPlot == plotId) {
+      return _selectedPointIndex;
+    }
+    if (_hoverPoint != null && _hoverPointPlot == plotId) {
+      return _hoverPointIndex;
+    }
+    return null;
+  }
+
+  Offset? _activeLocalPositionForPlot(String plotId) {
+    if (_selectedPoint != null && _selectedPointPlot == plotId) {
+      return _selectedPointLocalPosition;
+    }
+    if (_hoverPoint != null && _hoverPointPlot == plotId) {
+      return _hoverPointLocalPosition;
+    }
+    return null;
+  }
+
+  List<String> _buildPointInspectorLines() {
+    final point = _activeInspectorPoint;
+    if (point == null) return [];
+
+    final x = point.x; // in micrometers
+    final y = point.y;
+    final plotId = _activeInspectorPlotId;
+    final xLine = r'x = ' + x.toStringAsFixed(3) + r'\,' + PnLatex.unitUm;
+
     String yLine;
-    if (_selectedPlot == 'Ï(x)') {
-      final val =
-          LatexNumberFormatter.valueWithUnit(y, unitLatex: r'C/m^{3}', sigFigs: 3);
-      yLine = r'\rho(x) = ' + val;
-    } else if (_selectedPlot == 'E(x)') {
-      final val = LatexNumberFormatter.valueWithUnit(y, unitLatex: r'V/m', sigFigs: 3);
-      yLine = r'E(x) = ' + val;
+    if (plotId == 'rho(x)') {
+      final val = LatexNumberFormatter.valueWithUnit(y,
+          unitLatex: PnLatex.unitCPerM3, sigFigs: 3);
+      yLine = '${PnLatex.rhoPlot} = $val';
+    } else if (plotId == 'E(x)') {
+      final val = LatexNumberFormatter.valueWithUnit(y,
+          unitLatex: PnLatex.unitVPerM, sigFigs: 3);
+      yLine = '${PnLatex.ePlot} = $val';
     } else {
       yLine =
-          r'V(x) = ' + LatexNumberFormatter.valueWithUnit(y, unitLatex: r'V', sigFigs: 3);
+          '${PnLatex.vPlot} = ${LatexNumberFormatter.valueWithUnit(y, unitLatex: PnLatex.unitV, sigFigs: 3)}';
     }
 
     return [
-      'Plot: $_selectedPlot',
+      r'Plot:\ ' + PnLatex.depletionPlotTex(plotId),
       xLine,
       yLine,
     ];
+  }
+
+  List<String> _buildHoverTooltipLines(String plotId, FlSpot point) {
+    final xLine = r'x = ' + point.x.toStringAsFixed(3) + r'\,' + PnLatex.unitUm;
+
+    if (plotId == 'rho(x)') {
+      return [
+        xLine,
+        '${PnLatex.rhoPlot} = ${LatexNumberFormatter.valueWithUnit(point.y, unitLatex: PnLatex.unitCPerM3, sigFigs: 3)}',
+      ];
+    }
+    if (plotId == 'E(x)') {
+      return [
+        xLine,
+        '${PnLatex.ePlot} = ${LatexNumberFormatter.valueWithUnit(point.y, unitLatex: PnLatex.unitVPerM, sigFigs: 3)}',
+      ];
+    }
+    return [
+      xLine,
+      '${PnLatex.vPlot} = ${LatexNumberFormatter.valueWithUnit(point.y, unitLatex: PnLatex.unitV, sigFigs: 3)}',
+    ];
+  }
+
+  Widget _buildHoverTooltip(
+    BuildContext context, {
+    required String plotId,
+    required double maxWidth,
+  }) {
+    final point = (_selectedPoint != null && _selectedPointPlot == plotId)
+        ? _selectedPoint
+        : (_hoverPoint != null && _hoverPointPlot == plotId
+            ? _hoverPoint
+            : null);
+    final local = _activeLocalPositionForPlot(plotId);
+    if (point == null || local == null) {
+      return const SizedBox.shrink();
+    }
+
+    const estimatedHeight = 78.0;
+    const tooltipWidth = 210.0;
+    final width = math.min(tooltipWidth, maxWidth - 8);
+    final left = (local.dx + 12)
+        .clamp(4.0, math.max(4.0, maxWidth - width - 4))
+        .toDouble();
+    final top = (local.dy - estimatedHeight - 12).clamp(4.0, 160.0).toDouble();
+    final lines = _buildHoverTooltipLines(plotId, point);
+
+    return Positioned(
+      left: left,
+      top: top,
+      child: Material(
+        elevation: 4,
+        borderRadius: BorderRadius.circular(8),
+        color: Theme.of(context).colorScheme.surface,
+        child: Container(
+          width: width,
+          padding: const EdgeInsets.all(10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: lines
+                .map((line) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 1),
+                      child: LatexText(
+                        line,
+                        style: TextStyle(fontSize: _Typo.hint),
+                      ),
+                    ))
+                .toList(),
+          ),
+        ),
+      ),
+    );
   }
 
   List<String> _buildDynamicObservations(_PnCurves curves) {
@@ -482,10 +683,10 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
     final ratio = naSi / ndSi;
     if (ratio > 10) {
       obs.add(
-          r'Highly asymmetric doping: $N_A \gg N_D$ â†’ depletion extends mostly into n-side ($x_n \gg x_p$).');
+          r'Highly asymmetric doping: $N_A \gg N_D$ -> depletion extends mostly into n-side ($x_n \gg x_p$).');
     } else if (ratio < 0.1) {
       obs.add(
-          r'Highly asymmetric doping: $N_D \gg N_A$ â†’ depletion extends mostly into p-side ($x_p \gg x_n$).');
+          r'Highly asymmetric doping: $N_D \gg N_A$ -> depletion extends mostly into p-side ($x_p \gg x_n$).');
     } else {
       obs.add(r'Moderate doping asymmetry: depletion regions fairly balanced.');
     }
@@ -498,7 +699,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
       r'Depletion width $W \propto \sqrt{V_{bi} - V_a}$; sensitive to bias.',
       r'Peak field $E_{max} = -q N_A x_p / \varepsilon_s = q N_D x_n / \varepsilon_s$ at junction.',
       r'Charge neutrality: $N_A x_p = N_D x_n$ (equal charge on both sides).',
-      r'Higher doping â†’ narrower depletion on that side (one-sided junction approximation).',
+      r'Higher doping -> narrower depletion on that side (one-sided junction approximation).',
     ];
   }
 
@@ -507,9 +708,9 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
   }
 
   List<ReadoutItem> _buildReadouts(_PnCurves curves) {
-    const lengthUnit = r'\mu m';
-    const voltageUnit = r'V';
-    const eFieldUnit = r'V/m';
+    const lengthUnit = PnLatex.unitUm;
+    const voltageUnit = PnLatex.unitV;
+    const eFieldUnit = PnLatex.unitVPerM;
 
     return [
       ReadoutItem(
@@ -537,7 +738,8 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
   }
 
   List<Widget> _buildControlsChildren(_PnCurves curves) {
-    final dopingUnitTex = _useCmUnits ? r'cm^{-3}' : r'm^{-3}';
+    final dopingUnitTex = _useCmUnits ? PnLatex.unitCmNeg3 : PnLatex.unitMNeg3;
+    final safeVaMax = _safeVaUpperBound(curves.vbi);
 
     return [
       Text(
@@ -549,7 +751,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
       ),
       const SizedBox(height: 12),
       ParameterSlider(
-        label: r'T\,(K)',
+        label: PnLatex.withUnit(r'T', PnLatex.unitK),
         value: _temperature,
         min: 200,
         max: 500,
@@ -560,7 +762,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
         },
       ),
       ParameterSlider(
-        label: 'N_A\\,($dopingUnitTex)',
+        label: PnLatex.withUnit(r'N_A', dopingUnitTex),
         value: _naDisplay,
         min: 1e14,
         max: 1e20,
@@ -576,7 +778,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
         subtitle: 'Acceptor concentration',
       ),
       ParameterSlider(
-        label: 'N_D\\,($dopingUnitTex)',
+        label: PnLatex.withUnit(r'N_D', dopingUnitTex),
         value: _ndDisplay,
         min: 1e14,
         max: 1e20,
@@ -592,13 +794,14 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
         subtitle: 'Donor concentration',
       ),
       ParameterSlider(
-        label: r'V_a\,(V)',
+        label: PnLatex.withUnit(r'V_a', PnLatex.unitV),
         value: _va,
         min: -5.0,
-        max: 1.0,
+        max: safeVaMax > -5.0 ? safeVaMax : -4.9,
         divisions: 600,
         onChanged: (v) {
-          setState(() => _va = double.parse(v.toStringAsFixed(2)));
+          final clamped = _clampVaToSafeBarrier(v, curves.vbi);
+          setState(() => _va = double.parse(clamped.toStringAsFixed(3)));
           bumpChart();
         },
         subtitle: 'Applied bias',
@@ -623,10 +826,12 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
         segments: [
           ButtonSegment(
               value: true,
-              label: LatexText(r'cm^{-3}', style: TextStyle(fontSize: _Typo.body))),
+              label: LatexText(PnLatex.unitCmNeg3,
+                  style: TextStyle(fontSize: _Typo.body))),
           ButtonSegment(
               value: false,
-              label: LatexText(r'm^{-3}', style: TextStyle(fontSize: _Typo.body))),
+              label: LatexText(PnLatex.unitMNeg3,
+                  style: TextStyle(fontSize: _Typo.body))),
         ],
         onSelectionChanged: (s) {
           final naSi = _dopingToSi(_naDisplay);
@@ -736,17 +941,24 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
         ),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         children: [
-          _bullet(r'Charge density $\rho(x)$ is piecewise constant inside depletion region.'),
-          _bullet(r'Electric field $E(x)$ is triangular and peaks at junction.'),
-          _bullet(r'Potential $V(x)$ is parabolic; rises from 0 to $V_{bi}$ across depletion width.'),
-          _bullet(r'Depletion width $W$ widens under reverse bias ($V_a < 0$).'),
+          _bullet(
+              r'Charge density $\rho(x)$ is piecewise constant inside depletion region.'),
+          _bullet(
+              r'Electric field $E(x)$ is triangular and peaks at junction.'),
+          _bullet(
+              r'Potential $V(x)$ is parabolic; rises from 0 to $V_{bi}$ across depletion width.'),
+          _bullet(
+              r'Depletion width $W$ widens under reverse bias ($V_a < 0$).'),
           const SizedBox(height: 8),
           Text('Try this:',
               style: TextStyle(
                   fontSize: _Typo.sectionLabel, fontWeight: FontWeight.w700)),
-          _bullet(r'Change $N_A$ and $N_D$ to see asymmetric depletion (higher doping â†’ narrower side).'),
-          _bullet(r'Apply forward bias ($V_a > 0$) to shrink $W$; reverse bias to widen.'),
-          _bullet('Use plot selector to view one profile at a time or all together.'),
+          _bullet(
+              r'Change $N_A$ and $N_D$ to see asymmetric depletion (higher doping -> narrower side).'),
+          _bullet(
+              r'Apply forward bias ($V_a > 0$) to shrink $W$; reverse bias to widen.'),
+          _bullet(
+              'Use plot selector to view one profile at a time or all together.'),
         ],
       ),
     );
@@ -758,7 +970,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('â€¢ '),
+          const Text('- '),
           Expanded(child: _parseLatex(text)),
         ],
       ),
@@ -776,7 +988,8 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
         if (buffer.isNotEmpty) {
           parts.add(inLatex
               ? LatexText(buffer.toString(), scale: 1.0)
-              : Text(buffer.toString(), style: Theme.of(context).textTheme.bodyMedium));
+              : Text(buffer.toString(),
+                  style: Theme.of(context).textTheme.bodyMedium));
           buffer.clear();
         }
         inLatex = !inLatex;
@@ -787,9 +1000,68 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
     if (buffer.isNotEmpty) {
       parts.add(inLatex
           ? LatexText(buffer.toString(), scale: 1.0)
-          : Text(buffer.toString(), style: Theme.of(context).textTheme.bodyMedium));
+          : Text(buffer.toString(),
+              style: Theme.of(context).textTheme.bodyMedium));
     }
     return Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: parts);
+  }
+
+  Widget _buildPlotSelectorLabel(String option) {
+    if (option == 'All') {
+      return Text(
+        'All',
+        style: TextStyle(fontSize: _Typo.body),
+      );
+    }
+    return LatexText(
+      PnLatex.depletionPlotTex(option),
+      style: TextStyle(fontSize: _Typo.body),
+    );
+  }
+
+  Widget _buildPlotSelectorCard() {
+    return Card(
+      elevation: 1,
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Select Plot',
+              style: TextStyle(
+                fontSize: _Typo.sectionLabel,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _plotOptions.map((option) {
+                final isSelected = option == _selectedPlot;
+                return ChoiceChip(
+                  label: _buildPlotSelectorLabel(option),
+                  selected: isSelected,
+                  onSelected: (_) => updateChart(() {
+                    _selectedPlot = option;
+                    _selectedPoint = null;
+                    _selectedPointPlot = null;
+                    _selectedPointIndex = null;
+                    _selectedPointLocalPosition = null;
+                    _hoverPoint = null;
+                    _hoverPointPlot = null;
+                    _hoverPointIndex = null;
+                    _hoverPointLocalPosition = null;
+                  }),
+                );
+              }).toList(),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildChartArea(BuildContext context, _PnCurves curves) {
@@ -805,21 +1077,12 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
               color: Colors.orange.withValues(alpha: 0.2),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: Text(
-              r'Invalid: $V_{bi} - V_a$ must be positive for depletion approximation.',
+            child: LatexText(
+              r'V_{bi} - V_a > 0\ \mathrm{required\ for\ depletion\ approximation}',
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
           ),
-        PlotSelector(
-          options: const ['Ï(x)', 'E(x)', 'V(x)', 'All'],
-          selected: _selectedPlot,
-          onChanged: (value) {
-            updateChart(() {
-              _selectedPlot = value;
-              _selectedPoint = null;
-            });
-          },
-        ),
+        _buildPlotSelectorCard(),
         const SizedBox(height: 12),
         Expanded(child: _buildChart(context, curves)),
       ],
@@ -843,7 +1106,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
             alignment: Alignment.bottomLeft,
             padding: const EdgeInsets.only(left: 4, bottom: 4),
             style: TextStyle(fontSize: _Typo.small),
-            labelResolver: (_) => '-xâ‚š',
+            labelResolver: (_) => '-x_p',
           ),
         ),
         VerticalLine(
@@ -869,7 +1132,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
             alignment: Alignment.bottomRight,
             padding: const EdgeInsets.only(right: 4, bottom: 4),
             style: TextStyle(fontSize: _Typo.small),
-            labelResolver: (_) => 'xâ‚™',
+            labelResolver: (_) => 'x_n',
           ),
         ),
       ]);
@@ -879,14 +1142,17 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(child: _buildRhoChart(context, curves, xMin, xMax, markerLines)),
+          Expanded(
+              child: _buildRhoChart(context, curves, xMin, xMax, markerLines)),
           const SizedBox(height: 8),
-          Expanded(child: _buildEChart(context, curves, xMin, xMax, markerLines)),
+          Expanded(
+              child: _buildEChart(context, curves, xMin, xMax, markerLines)),
           const SizedBox(height: 8),
-          Expanded(child: _buildVChart(context, curves, xMin, xMax, markerLines)),
+          Expanded(
+              child: _buildVChart(context, curves, xMin, xMax, markerLines)),
         ],
       );
-    } else if (_selectedPlot == 'Ï(x)') {
+    } else if (_selectedPlot == 'rho(x)') {
       return _buildRhoChart(context, curves, xMin, xMax, markerLines);
     } else if (_selectedPlot == 'E(x)') {
       return _buildEChart(context, curves, xMin, xMax, markerLines);
@@ -895,220 +1161,345 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
     }
   }
 
-  Widget _buildRhoChart(BuildContext context, _PnCurves curves, double xMin, double xMax, List<VerticalLine> markers) {
-    return LineChart(
-      key: ValueKey('pn-rho-$chartVersion'),
-      LineChartData(
-        minX: xMin,
-        maxX: xMax,
-        minY: curves.minRho,
-        maxY: curves.maxRho,
-        gridData: const FlGridData(show: true, drawVerticalLine: true),
-        titlesData: FlTitlesData(
-          leftTitles: AxisTitles(
-            axisNameWidget: Text('Ï (C/mÂ³)',
-                style: TextStyle(
-                    fontSize: _Typo.sectionLabel, fontWeight: FontWeight.w600)),
-            axisNameSize: 32,
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 70,
-              getTitlesWidget: (v, _) => Text(
-                LatexNumberFormatter.toUnicodeSci(v, sigFigs: 2),
-                style: TextStyle(fontSize: _Typo.small),
-              ),
-            ),
-          ),
-          bottomTitles: AxisTitles(
-            axisNameWidget: const Text('x (Âµm)'),
-            axisNameSize: 32,
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 28,
-              getTitlesWidget: (v, _) => Text(v.toStringAsFixed(2),
-                  style: TextStyle(fontSize: _Typo.small)),
-            ),
-          ),
-          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        ),
-        extraLinesData: ExtraLinesData(verticalLines: markers),
-        borderData: FlBorderData(show: true),
-        lineBarsData: [
-          LineChartBarData(
-            spots: curves.rho,
-            isCurved: false,
-            color: Theme.of(context).colorScheme.primary,
-            barWidth: 2,
-            dotData: const FlDotData(show: false),
-          ),
-        ],
-        lineTouchData: LineTouchData(
-          enabled: true,
-          touchCallback: (event, response) {
-            if (event is FlTapUpEvent && response?.lineBarSpots != null && response!.lineBarSpots!.isNotEmpty) {
-              final spot = response.lineBarSpots!.first;
-              setState(() => _selectedPoint = FlSpot(spot.x, spot.y));
-            }
-          },
-          touchTooltipData: LineTouchTooltipData(
-            getTooltipItems: (spots) => spots
-                .map((s) => LineTooltipItem(
-                      'x=${s.x.toStringAsFixed(3)} Âµm\nÏ=${LatexNumberFormatter.toUnicodeSci(s.y, sigFigs: 3)} C/mÂ³',
-                      TextStyle(
-                        fontSize: _Typo.hint,
-                        color: Colors.white,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ))
-                .toList(),
-          ),
-        ),
-      ),
+  void _handleSingleSeriesTouch(
+    String plotId,
+    FlTouchEvent event,
+    LineTouchResponse? response,
+  ) {
+    if (event is FlPointerExitEvent ||
+        response == null ||
+        (response.lineBarSpots?.isEmpty ?? true)) {
+      if (_hoverPoint != null || _hoverPointPlot != null) {
+        setState(() {
+          _hoverPoint = null;
+          _hoverPointPlot = null;
+          _hoverPointIndex = null;
+          _hoverPointLocalPosition = null;
+        });
+      }
+      return;
+    }
+
+    final spots = response.lineBarSpots!;
+    final nearest = spots.length == 1
+        ? spots.first
+        : spots.cast<TouchLineBarSpot>().reduce(
+              (a, b) => a.distance <= b.distance ? a : b,
+            );
+
+    if (nearest.distance > _hoverThresholdPx && event is! FlTapUpEvent) {
+      if (_hoverPoint != null || _hoverPointPlot != null) {
+        setState(() {
+          _hoverPoint = null;
+          _hoverPointPlot = null;
+          _hoverPointIndex = null;
+          _hoverPointLocalPosition = null;
+        });
+      }
+      return;
+    }
+
+    if (event is FlTapUpEvent) {
+      setState(() {
+        _selectedPoint = FlSpot(nearest.x, nearest.y);
+        _selectedPointPlot = plotId;
+        _selectedPointIndex = nearest.spotIndex;
+        _selectedPointLocalPosition = event.localPosition;
+      });
+      return;
+    }
+
+    setState(() {
+      _hoverPoint = FlSpot(nearest.x, nearest.y);
+      _hoverPointPlot = plotId;
+      _hoverPointIndex = nearest.spotIndex;
+      if (event.localPosition != null) {
+        _hoverPointLocalPosition = event.localPosition!;
+      }
+    });
+  }
+
+  List<TouchedSpotIndicatorData> _singleSpotIndicator(
+    String plotId,
+    List<int> spotIndexes,
+    Color color,
+  ) {
+    final activeIndex = _activeSpotIndexForPlot(plotId);
+    return spotIndexes
+        .map(
+          (index) => index == activeIndex
+              ? TouchedSpotIndicatorData(
+                  FlLine(
+                    color: color.withValues(alpha: 0.4),
+                    strokeWidth: 1.5,
+                    dashArray: [4, 4],
+                  ),
+                  FlDotData(
+                    show: true,
+                    getDotPainter: (_, __, ___, ____) => FlDotCirclePainter(
+                      radius: 3.5,
+                      color: color,
+                      strokeWidth: 1,
+                      strokeColor: Colors.white,
+                    ),
+                  ),
+                )
+              : const TouchedSpotIndicatorData(
+                  FlLine(color: Colors.transparent, strokeWidth: 0),
+                  FlDotData(show: false),
+                ),
+        )
+        .toList();
+  }
+
+  LineTouchTooltipData _hiddenTooltipData() {
+    return LineTouchTooltipData(
+      getTooltipItems: (spots) =>
+          List<LineTooltipItem?>.filled(spots.length, null),
     );
   }
 
-  Widget _buildEChart(BuildContext context, _PnCurves curves, double xMin, double xMax, List<VerticalLine> markers) {
-    return LineChart(
-      key: ValueKey('pn-e-$chartVersion'),
-      LineChartData(
-        minX: xMin,
-        maxX: xMax,
-        minY: curves.minE,
-        maxY: curves.maxE,
-        gridData: const FlGridData(show: true, drawVerticalLine: true),
-        titlesData: FlTitlesData(
-          leftTitles: AxisTitles(
-            axisNameWidget: Text('E (V/m)',
-                style: TextStyle(
-                    fontSize: _Typo.sectionLabel, fontWeight: FontWeight.w600)),
-            axisNameSize: 32,
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 60,
-              getTitlesWidget: (v, _) => Text(
-                LatexNumberFormatter.toUnicodeSci(v, sigFigs: 2),
-                style: TextStyle(fontSize: _Typo.small),
+  Widget _buildRhoChart(BuildContext context, _PnCurves curves, double xMin,
+      double xMax, List<VerticalLine> markers) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Stack(
+          children: [
+            LineChart(
+              key: ValueKey('pn-rho-$chartVersion'),
+              LineChartData(
+                minX: xMin,
+                maxX: xMax,
+                minY: curves.minRho,
+                maxY: curves.maxRho,
+                gridData: const FlGridData(show: true, drawVerticalLine: true),
+                titlesData: FlTitlesData(
+                  leftTitles: AxisTitles(
+                    axisNameWidget: LatexText(
+                      PnLatex.withUnit(PnLatex.rhoPlot, PnLatex.unitCPerM3),
+                      style: TextStyle(
+                          fontSize: _Typo.sectionLabel,
+                          fontWeight: FontWeight.w600),
+                    ),
+                    axisNameSize: 32,
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 70,
+                      getTitlesWidget: (v, _) => Text(
+                        PnLatex.unicodeScientific(v, sigFigs: 2),
+                        style: TextStyle(fontSize: _Typo.small),
+                      ),
+                    ),
+                  ),
+                  bottomTitles: AxisTitles(
+                    axisNameWidget:
+                        LatexText(PnLatex.withUnit(r'x', PnLatex.unitUm)),
+                    axisNameSize: 32,
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 28,
+                      getTitlesWidget: (v, _) => Text(v.toStringAsFixed(2),
+                          style: TextStyle(fontSize: _Typo.small)),
+                    ),
+                  ),
+                  rightTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false)),
+                  topTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false)),
+                ),
+                extraLinesData: ExtraLinesData(verticalLines: markers),
+                borderData: FlBorderData(show: true),
+                lineBarsData: [
+                  LineChartBarData(
+                    spots: curves.rho,
+                    isCurved: false,
+                    color: Theme.of(context).colorScheme.primary,
+                    barWidth: 2,
+                    dotData: const FlDotData(show: false),
+                  ),
+                ],
+                lineTouchData: LineTouchData(
+                  enabled: true,
+                  touchSpotThreshold: _hoverThresholdPx,
+                  getTouchedSpotIndicator: (barData, spotIndexes) =>
+                      _singleSpotIndicator('rho(x)', spotIndexes,
+                          Theme.of(context).colorScheme.primary),
+                  touchCallback: (event, response) =>
+                      _handleSingleSeriesTouch('rho(x)', event, response),
+                  touchTooltipData: _hiddenTooltipData(),
+                ),
               ),
             ),
-          ),
-          bottomTitles: AxisTitles(
-            axisNameWidget: const Text('x (Âµm)'),
-            axisNameSize: 32,
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 28,
-              getTitlesWidget: (v, _) => Text(v.toStringAsFixed(2),
-                  style: TextStyle(fontSize: _Typo.small)),
+            _buildHoverTooltip(
+              context,
+              plotId: 'rho(x)',
+              maxWidth: constraints.maxWidth,
             ),
-          ),
-          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        ),
-        extraLinesData: ExtraLinesData(verticalLines: markers),
-        borderData: FlBorderData(show: true),
-        lineBarsData: [
-          LineChartBarData(
-            spots: curves.eField,
-            isCurved: false,
-            color: Theme.of(context).colorScheme.secondary,
-            barWidth: 2,
-            dotData: const FlDotData(show: false),
-          ),
-        ],
-        lineTouchData: LineTouchData(
-          enabled: true,
-          touchCallback: (event, response) {
-            if (event is FlTapUpEvent && response?.lineBarSpots != null && response!.lineBarSpots!.isNotEmpty) {
-              final spot = response.lineBarSpots!.first;
-              setState(() => _selectedPoint = FlSpot(spot.x, spot.y));
-            }
-          },
-          touchTooltipData: LineTouchTooltipData(
-            getTooltipItems: (spots) => spots
-                .map((s) => LineTooltipItem(
-                      'x=${s.x.toStringAsFixed(3)} Âµm\nE=${LatexNumberFormatter.toUnicodeSci(s.y, sigFigs: 3)} V/m',
-                      TextStyle(
-                        fontSize: _Typo.hint,
-                        color: Colors.white,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ))
-                .toList(),
-          ),
-        ),
-      ),
+          ],
+        );
+      },
     );
   }
 
-  Widget _buildVChart(BuildContext context, _PnCurves curves, double xMin, double xMax, List<VerticalLine> markers) {
-    return LineChart(
-      key: ValueKey('pn-v-$chartVersion'),
-      LineChartData(
-        minX: xMin,
-        maxX: xMax,
-        minY: curves.minV,
-        maxY: curves.maxV,
-        gridData: const FlGridData(show: true, drawVerticalLine: true),
-        titlesData: FlTitlesData(
-          leftTitles: AxisTitles(
-            axisNameWidget: Text('V (V)',
-                style: TextStyle(
-                    fontSize: _Typo.sectionLabel, fontWeight: FontWeight.w600)),
-            axisNameSize: 32,
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 60,
-              getTitlesWidget: (v, _) => Text(v.toStringAsFixed(2),
-                  style: TextStyle(fontSize: _Typo.small)),
-            ),
-          ),
-          bottomTitles: AxisTitles(
-            axisNameWidget: const Text('x (Âµm)'),
-            axisNameSize: 32,
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 28,
-              getTitlesWidget: (v, _) => Text(v.toStringAsFixed(2),
-                  style: TextStyle(fontSize: _Typo.small)),
-            ),
-          ),
-          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        ),
-        extraLinesData: ExtraLinesData(verticalLines: markers),
-        borderData: FlBorderData(show: true),
-        lineBarsData: [
-          LineChartBarData(
-            spots: curves.potential,
-            isCurved: false,
-            color: Theme.of(context).colorScheme.tertiary,
-            barWidth: 2,
-            dotData: const FlDotData(show: false),
-          ),
-        ],
-        lineTouchData: LineTouchData(
-          enabled: true,
-          touchCallback: (event, response) {
-            if (event is FlTapUpEvent && response?.lineBarSpots != null && response!.lineBarSpots!.isNotEmpty) {
-              final spot = response.lineBarSpots!.first;
-              setState(() => _selectedPoint = FlSpot(spot.x, spot.y));
-            }
-          },
-          touchTooltipData: LineTouchTooltipData(
-            getTooltipItems: (spots) => spots
-                .map((s) => LineTooltipItem(
-                      'x=${s.x.toStringAsFixed(3)} Âµm\nV=${s.y.toStringAsFixed(3)} V',
-                      TextStyle(
-                        fontSize: _Typo.hint,
-                        color: Colors.white,
-                        fontWeight: FontWeight.w500,
+  Widget _buildEChart(BuildContext context, _PnCurves curves, double xMin,
+      double xMax, List<VerticalLine> markers) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Stack(
+          children: [
+            LineChart(
+              key: ValueKey('pn-e-$chartVersion'),
+              LineChartData(
+                minX: xMin,
+                maxX: xMax,
+                minY: curves.minE,
+                maxY: curves.maxE,
+                gridData: const FlGridData(show: true, drawVerticalLine: true),
+                titlesData: FlTitlesData(
+                  leftTitles: AxisTitles(
+                    axisNameWidget: LatexText(
+                      PnLatex.withUnit(PnLatex.ePlot, PnLatex.unitVPerM),
+                      style: TextStyle(
+                          fontSize: _Typo.sectionLabel,
+                          fontWeight: FontWeight.w600),
+                    ),
+                    axisNameSize: 32,
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 60,
+                      getTitlesWidget: (v, _) => Text(
+                        PnLatex.unicodeScientific(v, sigFigs: 2),
+                        style: TextStyle(fontSize: _Typo.small),
                       ),
-                    ))
-                .toList(),
-          ),
-        ),
-      ),
+                    ),
+                  ),
+                  bottomTitles: AxisTitles(
+                    axisNameWidget:
+                        LatexText(PnLatex.withUnit(r'x', PnLatex.unitUm)),
+                    axisNameSize: 32,
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 28,
+                      getTitlesWidget: (v, _) => Text(v.toStringAsFixed(2),
+                          style: TextStyle(fontSize: _Typo.small)),
+                    ),
+                  ),
+                  rightTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false)),
+                  topTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false)),
+                ),
+                extraLinesData: ExtraLinesData(verticalLines: markers),
+                borderData: FlBorderData(show: true),
+                lineBarsData: [
+                  LineChartBarData(
+                    spots: curves.eField,
+                    isCurved: false,
+                    color: Theme.of(context).colorScheme.secondary,
+                    barWidth: 2,
+                    dotData: const FlDotData(show: false),
+                  ),
+                ],
+                lineTouchData: LineTouchData(
+                  enabled: true,
+                  touchSpotThreshold: _hoverThresholdPx,
+                  getTouchedSpotIndicator: (barData, spotIndexes) =>
+                      _singleSpotIndicator('E(x)', spotIndexes,
+                          Theme.of(context).colorScheme.secondary),
+                  touchCallback: (event, response) =>
+                      _handleSingleSeriesTouch('E(x)', event, response),
+                  touchTooltipData: _hiddenTooltipData(),
+                ),
+              ),
+            ),
+            _buildHoverTooltip(
+              context,
+              plotId: 'E(x)',
+              maxWidth: constraints.maxWidth,
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildVChart(BuildContext context, _PnCurves curves, double xMin,
+      double xMax, List<VerticalLine> markers) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Stack(
+          children: [
+            LineChart(
+              key: ValueKey('pn-v-$chartVersion'),
+              LineChartData(
+                minX: xMin,
+                maxX: xMax,
+                minY: curves.minV,
+                maxY: curves.maxV,
+                gridData: const FlGridData(show: true, drawVerticalLine: true),
+                titlesData: FlTitlesData(
+                  leftTitles: AxisTitles(
+                    axisNameWidget: LatexText(
+                      PnLatex.withUnit(PnLatex.vPlot, PnLatex.unitV),
+                      style: TextStyle(
+                          fontSize: _Typo.sectionLabel,
+                          fontWeight: FontWeight.w600),
+                    ),
+                    axisNameSize: 32,
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 60,
+                      getTitlesWidget: (v, _) => Text(v.toStringAsFixed(2),
+                          style: TextStyle(fontSize: _Typo.small)),
+                    ),
+                  ),
+                  bottomTitles: AxisTitles(
+                    axisNameWidget:
+                        LatexText(PnLatex.withUnit(r'x', PnLatex.unitUm)),
+                    axisNameSize: 32,
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 28,
+                      getTitlesWidget: (v, _) => Text(v.toStringAsFixed(2),
+                          style: TextStyle(fontSize: _Typo.small)),
+                    ),
+                  ),
+                  rightTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false)),
+                  topTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false)),
+                ),
+                extraLinesData: ExtraLinesData(verticalLines: markers),
+                borderData: FlBorderData(show: true),
+                lineBarsData: [
+                  LineChartBarData(
+                    spots: curves.potential,
+                    isCurved: false,
+                    color: Theme.of(context).colorScheme.tertiary,
+                    barWidth: 2,
+                    dotData: const FlDotData(show: false),
+                  ),
+                ],
+                lineTouchData: LineTouchData(
+                  enabled: true,
+                  touchSpotThreshold: _hoverThresholdPx,
+                  getTouchedSpotIndicator: (barData, spotIndexes) =>
+                      _singleSpotIndicator('V(x)', spotIndexes,
+                          Theme.of(context).colorScheme.tertiary),
+                  touchCallback: (event, response) =>
+                      _handleSingleSeriesTouch('V(x)', event, response),
+                  touchTooltipData: _hiddenTooltipData(),
+                ),
+              ),
+            ),
+            _buildHoverTooltip(
+              context,
+              plotId: 'V(x)',
+              maxWidth: constraints.maxWidth,
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -1164,4 +1555,3 @@ class _Constants {
     required this.latexMap,
   });
 }
-

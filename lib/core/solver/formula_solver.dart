@@ -336,7 +336,23 @@ class FormulaSolver {
       );
 
       if (canonicalWorking != null) {
-        final aligned = canonicalWorking
+        String? aligned;
+        try {
+          final detailedAligned = builder.buildAlignedWorking(
+            formula,
+            solveFor,
+            context,
+            outputs,
+            unitConverter,
+            primaryEnergyUnit: primaryEnergyUnit,
+          );
+          if (detailedAligned.trim().isNotEmpty) {
+            aligned = detailedAligned;
+          }
+        } catch (_) {
+          // Fall back to canonical math-line join below.
+        }
+        aligned ??= canonicalWorking
             .where((item) => item.type == StepItemType.math)
             .map((item) => item.latex)
             .join(r'\\');
