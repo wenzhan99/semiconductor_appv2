@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/app_state.dart';
-import '../core/models/workspace.dart';
 import 'pages/topics_page.dart';
-import 'pages/workspace_page.dart';
 import 'pages/constants_units_page.dart';
 import 'pages/settings_page.dart';
 import 'pages/graphs_page.dart';
@@ -80,40 +78,6 @@ class _MainAppState extends State<MainApp> with SingleTickerProviderStateMixin {
     );
   }
 
-  Future<void> _createNewWorkspace(BuildContext context) async {
-    final appState = context.read<AppState>();
-    final controller = TextEditingController();
-
-    final result = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('New Workspace'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            labelText: 'Workspace Name',
-            hintText: 'Enter workspace name',
-          ),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, controller.text),
-            child: const Text('Create'),
-          ),
-        ],
-      ),
-    );
-
-    if (result != null && result.isNotEmpty) {
-      final workspace = await appState.createWorkspace(result);
-      appState.setCurrentWorkspace(workspace);
-    }
-  }
 }
 
 /// Placeholder page for tabs not yet implemented.

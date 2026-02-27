@@ -1,4 +1,4 @@
-﻿import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -110,7 +110,8 @@ class _SettingsPageState extends State<SettingsPage> {
             SwitchListTile(
               secondary: const Icon(Icons.play_circle_fill),
               title: const Text('Auto-play visualizations'),
-              subtitle: const Text('Start graph animations automatically (respects reduced motion)'),
+              subtitle: const Text(
+                  'Start graph animations automatically (respects reduced motion)'),
               value: appState.autoPlayVisualizations,
               onChanged: (value) => appState.setAutoPlayVisualizations(value),
             ),
@@ -201,47 +202,34 @@ class _SettingsPageState extends State<SettingsPage> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Choose Theme'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            RadioListTile<ThemeMode>(
-              value: ThemeMode.system,
-              groupValue: appState.themeMode,
-              title: const Text('Auto (Follow system)'),
-              subtitle: const Text('Automatically match device theme'),
-              secondary: const Icon(Icons.brightness_auto),
-              onChanged: (mode) {
-                if (mode != null) {
-                  appState.setThemeMode(mode);
-                  Navigator.pop(context);
-                }
-              },
-            ),
-            RadioListTile<ThemeMode>(
-              value: ThemeMode.light,
-              groupValue: appState.themeMode,
-              title: const Text('Light'),
-              secondary: const Icon(Icons.brightness_high),
-              onChanged: (mode) {
-                if (mode != null) {
-                  appState.setThemeMode(mode);
-                  Navigator.pop(context);
-                }
-              },
-            ),
-            RadioListTile<ThemeMode>(
-              value: ThemeMode.dark,
-              groupValue: appState.themeMode,
-              title: const Text('Dark'),
-              secondary: const Icon(Icons.brightness_2),
-              onChanged: (mode) {
-                if (mode != null) {
-                  appState.setThemeMode(mode);
-                  Navigator.pop(context);
-                }
-              },
-            ),
-          ],
+        content: RadioGroup<ThemeMode>(
+          groupValue: appState.themeMode,
+          onChanged: (mode) {
+            if (mode == null) return;
+            appState.setThemeMode(mode);
+            Navigator.pop(context);
+          },
+          child: const Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              RadioListTile<ThemeMode>(
+                value: ThemeMode.system,
+                title: Text('Auto (Follow system)'),
+                subtitle: Text('Automatically match device theme'),
+                secondary: Icon(Icons.brightness_auto),
+              ),
+              RadioListTile<ThemeMode>(
+                value: ThemeMode.light,
+                title: Text('Light'),
+                secondary: Icon(Icons.brightness_high),
+              ),
+              RadioListTile<ThemeMode>(
+                value: ThemeMode.dark,
+                title: Text('Dark'),
+                secondary: Icon(Icons.brightness_2),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -356,7 +344,8 @@ class _SettingsPageState extends State<SettingsPage> {
             ListTile(
               leading: const Icon(Icons.rule),
               title: const Text('Audit Step 3 (PN Junction)'),
-              subtitle: const Text('Runs substitution audit across all PN formulas'),
+              subtitle:
+                  const Text('Runs substitution audit across all PN formulas'),
               trailing: const Icon(Icons.play_arrow),
               onTap: () => _runPnAudit(context),
             ),
@@ -401,7 +390,8 @@ class _SettingsPageState extends State<SettingsPage> {
 
   void _showAuditReport(BuildContext context, List<Step3AuditResult> results) {
     final passCount = results.where((r) => r.passed).length;
-    final failCount = results.length - passCount;    showModalBottomSheet(
+    final failCount = results.length - passCount;
+    showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       builder: (_) => DraggableScrollableSheet(
@@ -462,4 +452,3 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 }
-

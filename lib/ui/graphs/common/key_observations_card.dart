@@ -5,10 +5,10 @@ import 'enhanced_animation_panel.dart';
 typedef _Typo = GraphPanelTextStyles;
 
 /// Card for displaying key observations with dynamic and static sections.
-/// 
+///
 /// Dynamic observations are computed from current selection/pins/parameters.
 /// Static observations are always shown.
-/// 
+///
 /// Usage:
 /// ```dart
 /// KeyObservationsCard(
@@ -50,8 +50,12 @@ class KeyObservationsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasDynamic = dynamicObservations != null && dynamicObservations!.isNotEmpty;
-    final hasStatic = staticObservations != null && staticObservations!.isNotEmpty;
+    final hasDynamic =
+        dynamicObservations != null && dynamicObservations!.isNotEmpty;
+    final hasStatic =
+        staticObservations != null && staticObservations!.isNotEmpty;
+    final bodyBase = Theme.of(context).textTheme.bodyMedium ??
+        TextStyle(fontSize: _Typo.body);
 
     if (!hasDynamic && !hasStatic) {
       return const SizedBox.shrink();
@@ -80,7 +84,10 @@ class KeyObservationsCard extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
+                color: Theme.of(context)
+                    .colorScheme
+                    .primary
+                    .withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(4),
               ),
               child: Text(
@@ -96,7 +103,7 @@ class KeyObservationsCard extends StatelessWidget {
           ],
           LatexBulletList(
             bullets: dynamicObservations!,
-            style: TextStyle(fontSize: _Typo.body),
+            style: bodyBase,
           ),
         ],
         if (hasDynamic && hasStatic) const SizedBox(height: 12),
@@ -113,7 +120,7 @@ class KeyObservationsCard extends StatelessWidget {
           ],
           LatexBulletList(
             bullets: staticObservations!,
-            style: TextStyle(fontSize: _Typo.body),
+            style: bodyBase,
           ),
         ],
       ],
@@ -121,7 +128,8 @@ class KeyObservationsCard extends StatelessWidget {
 
     return Card(
       elevation: 1,
-      color: backgroundColor ?? Theme.of(context).colorScheme.surfaceContainerHighest,
+      color: backgroundColor ??
+          Theme.of(context).colorScheme.surfaceContainerHighest,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: collapsible
           ? ExpansionTile(

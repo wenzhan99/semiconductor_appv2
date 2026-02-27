@@ -1,4 +1,5 @@
-﻿import 'dart:math' as math;
+import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
@@ -13,7 +14,6 @@ import '../graphs/utils/semiconductor_models.dart';
 import '../widgets/latex_text.dart';
 import '../graphs/core/graph_config.dart';
 import '../graphs/core/standard_graph_page_scaffold.dart';
-import '../graphs/core/standard_panel_stack.dart';
 
 class CarrierConcentrationGraphPage extends StatelessWidget {
   const CarrierConcentrationGraphPage({super.key});
@@ -39,6 +39,10 @@ enum SeriesMode { nOnly, pOnly, both }
 
 class _CarrierConcentrationGraphViewState
     extends State<CarrierConcentrationGraphView> {
+  static const int _maxPins = 2;
+  static const Color _pinBlue = Color(0xFF1E88E5);
+  static const Color _pinRed = Color(0xFFE53935);
+
   int _chartVersion = 0;
   // Controls
   double _temperature = 300; // K
@@ -60,9 +64,70 @@ class _CarrierConcentrationGraphViewState
   static const _fixedRangeCm = (min: 0.0, max: 22.0);
   static const _fixedRangeM = (min: 6.0, max: 28.0);
 
+  _CarrierPointRef? _hoverPoint;
+  final List<_CarrierPointRef> _pinnedPoints = [];
+
+  // Animation panel state
+  Timer? _animationTimer;
+  bool _animationPlaying = false;
+  double _animationSpeed = 1.0;
+  bool _animationReverse = false;
+  bool _animationLoop = true;
+  double _animationProgress = 0.0;
+  String _selectedAnimationParam = 'ef';
+  final Map<String, bool> _animationEnabled = <String, bool>{
+    'temperature': false,
+    'bandgap': false,
+    'mn': false,
+    'mp': false,
+    'ef': false,
+  };
+  final Map<String, _AnimRange> _animationRanges = <String, _AnimRange>{
+    'temperature': const _AnimRange(100, 800),
+    'bandgap': const _AnimRange(0.5, 1.6),
+    'mn': const _AnimRange(0.1, 2.0),
+    'mp': const _AnimRange(0.1, 2.0),
+    'ef': const _AnimRange(_efMin, _efMaxBase),
+  };
+
+  String get _densityUnitLatex =>
+      _useCmUnits ? r'\mathrm{cm^{-3}}' : r'\mathrm{m^{-3}}';
+
+  Color _pinColorForIndex(int index) => index.isEven ? _pinBlue : _pinRed;
+
+  Color _hoverColorForSeries(String series) =>
+      series == 'n' ? _pinBlue : _pinRed;
+
+  String _seriesLatex(String series) =>
+      series == 'n' ? r'n(E_{F})' : r'p(E_{F})';
+
+  String _seriesTitle(String series) =>
+      series == 'n' ? 'Electrons (n)' : 'Holes (p)';
+
+  String _inlineMath(String tex) => '\$$tex\$';
+
+  bool _samePointRef(_CarrierPointRef a, _CarrierPointRef b) =>
+      a.series == b.series &&
+      (a.spot.x - b.spot.x).abs() < 1e-6 &&
+      (a.spot.y - b.spot.y).abs() < 1e-6;
+
+  void _togglePinnedPoint(_CarrierPointRef point) {
+    final existing = _pinnedPoints.indexWhere((p) => _samePointRef(p, point));
+    if (existing >= 0) {
+      _pinnedPoints.removeAt(existing);
+      return;
+    }
+    _pinnedPoints.add(point);
+    if (_pinnedPoints.length > _maxPins) {
+      _pinnedPoints.removeAt(0);
+    }
+  }
+
   void _update(VoidCallback fn) {
     setState(() {
       fn();
+      _hoverPoint = null;
+      _pinnedPoints.clear();
       _chartVersion++;
     });
   }
@@ -80,6 +145,12 @@ class _CarrierConcentrationGraphViewState
   void initState() {
     super.initState();
     _constants = _loadConstants();
+  }
+
+  @override
+  void dispose() {
+    _animationTimer?.cancel();
+    super.dispose();
   }
 
   Future<
@@ -213,6 +284,7 @@ class _CarrierConcentrationGraphViewState
   double _efMax() => math.max(_efMaxBase, _bandgap + 0.5);
 
   void _resetSilicon() {
+    _animationTimer?.cancel();
     setState(() {
       _temperature = 300;
       _bandgap = 1.12;
@@ -225,8 +297,241 @@ class _CarrierConcentrationGraphViewState
       _showIntrinsicMarker = true;
       _autoScaleY = false;
       _seriesMode = SeriesMode.both;
+      _animationPlaying = false;
+      _animationProgress = 0.0;
       _chartVersion++;
     });
+  }
+
+  void _setAnimationRange(String id, double min, double max) {
+    final bounds = _absoluteBoundsForParam(id);
+    final safeMin = min.clamp(bounds.min, bounds.max).toDouble();
+    final safeMax = max.clamp(bounds.min, bounds.max).toDouble();
+    final normalizedMin = math.min(safeMin, safeMax);
+    final normalizedMax = math.max(safeMin, safeMax);
+    setState(() {
+      _animationRanges[id] = _AnimRange(normalizedMin, normalizedMax);
+      _chartVersion++;
+    });
+  }
+
+  _AnimRange _absoluteBoundsForParam(String id) {
+    switch (id) {
+      case 'temperature':
+        return const _AnimRange(100, 800);
+      case 'bandgap':
+        return const _AnimRange(0.5, 1.6);
+      case 'mn':
+      case 'mp':
+        return const _AnimRange(0.1, 2.0);
+      case 'ef':
+        return _AnimRange(_efMin, _efMax());
+      default:
+        return const _AnimRange(0, 1);
+    }
+  }
+
+  void _setAnimatedParamValue(String id, double value) {
+    switch (id) {
+      case 'temperature':
+        _temperature = value.clamp(100, 800).toDouble();
+        break;
+      case 'bandgap':
+        _bandgap = value.clamp(0.5, 1.6).toDouble();
+        _fermiLevel = _fermiLevel.clamp(_efMin, _efMax()).toDouble();
+        break;
+      case 'mn':
+        _mnStar = value.clamp(0.1, 2.0).toDouble();
+        break;
+      case 'mp':
+        _mpStar = value.clamp(0.1, 2.0).toDouble();
+        break;
+      case 'ef':
+        _fermiLevel = value.clamp(_efMin, _efMax()).toDouble();
+        break;
+    }
+  }
+
+  void _applyAnimationFrame(double progress) {
+    for (final entry in _animationEnabled.entries) {
+      if (!entry.value) continue;
+      final id = entry.key;
+      final range = _animationRanges[id] ?? _absoluteBoundsForParam(id);
+      final value = range.min + (range.max - range.min) * progress;
+      _setAnimatedParamValue(id, value);
+    }
+  }
+
+  void _playAnimation() {
+    final hasEnabled = _animationEnabled.values.any((v) => v);
+    if (!hasEnabled) return;
+    if (_animationPlaying) return;
+    _animationTimer?.cancel();
+    setState(() {
+      _animationPlaying = true;
+      _hoverPoint = null;
+      _pinnedPoints.clear();
+    });
+    _animationTimer = Timer.periodic(const Duration(milliseconds: 16), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        final signedStep =
+            0.004 * _animationSpeed * (_animationReverse ? -1 : 1);
+        var next = _animationProgress + signedStep;
+        if (_animationLoop) {
+          while (next > 1.0) next -= 1.0;
+          while (next < 0.0) next += 1.0;
+        } else {
+          if (next >= 1.0 || next <= 0.0) {
+            next = next.clamp(0.0, 1.0);
+            _animationPlaying = false;
+            timer.cancel();
+          }
+        }
+        _animationProgress = next;
+        _applyAnimationFrame(_animationProgress);
+        _chartVersion++;
+      });
+    });
+  }
+
+  void _pauseAnimation() {
+    _animationTimer?.cancel();
+    setState(() {
+      _animationPlaying = false;
+    });
+  }
+
+  void _restartAnimation() {
+    _animationTimer?.cancel();
+    setState(() {
+      _animationProgress = _animationReverse ? 1.0 : 0.0;
+      _hoverPoint = null;
+      _pinnedPoints.clear();
+      _applyAnimationFrame(_animationProgress);
+      _chartVersion++;
+    });
+    _playAnimation();
+  }
+
+  AnimationConfig _buildAnimationConfig() {
+    AnimatableParameter param({
+      required String id,
+      required String label,
+      required String symbol,
+      required String unit,
+      required double value,
+      required _AnimRange absolute,
+      String? physicsNote,
+    }) {
+      final range = _animationRanges[id] ?? absolute;
+      return AnimatableParameter(
+        id: id,
+        label: label,
+        symbol: symbol,
+        unit: unit,
+        currentValue: value,
+        rangeMin: range.min,
+        rangeMax: range.max,
+        absoluteMin: absolute.min,
+        absoluteMax: absolute.max,
+        enabled: _animationEnabled[id] ?? false,
+        onEnabledChanged: (enabled) {
+          setState(() {
+            _animationEnabled[id] = enabled;
+            if (!enabled &&
+                !_animationEnabled.values.any((v) => v) &&
+                _animationPlaying) {
+              _pauseAnimation();
+            }
+          });
+        },
+        onValueChanged: (v) {
+          setState(() {
+            _setAnimatedParamValue(id, v);
+            _hoverPoint = null;
+            _pinnedPoints.clear();
+            _chartVersion++;
+          });
+        },
+        onRangeChanged: (min, max) => _setAnimationRange(id, min, max),
+        physicsNote: physicsNote,
+      );
+    }
+
+    return AnimationConfig(
+      parameters: [
+        param(
+          id: 'temperature',
+          label: r'T (temperature)',
+          symbol: r'T',
+          unit: r'\mathrm{K}',
+          value: _temperature,
+          absolute: const _AnimRange(100, 800),
+          physicsNote: r'Sets thermal energy scale $kT$.',
+        ),
+        param(
+          id: 'bandgap',
+          label: r'E_g (bandgap)',
+          symbol: r'E_g',
+          unit: r'\mathrm{eV}',
+          value: _bandgap,
+          absolute: const _AnimRange(0.5, 1.6),
+          physicsNote: r'Controls separation between $E_c$ and $E_v$.',
+        ),
+        param(
+          id: 'mn',
+          label: r'm_n^{*} (electron mass)',
+          symbol: r'm_n^{*}',
+          unit: r'm_0',
+          value: _mnStar,
+          absolute: const _AnimRange(0.1, 2.0),
+          physicsNote: r'Affects $N_c$ and therefore $n(E_F)$.',
+        ),
+        param(
+          id: 'mp',
+          label: r'm_p^{*} (hole mass)',
+          symbol: r'm_p^{*}',
+          unit: r'm_0',
+          value: _mpStar,
+          absolute: const _AnimRange(0.1, 2.0),
+          physicsNote: r'Affects $N_v$ and therefore $p(E_F)$.',
+        ),
+        param(
+          id: 'ef',
+          label: r'E_F (Fermi level)',
+          symbol: r'E_F',
+          unit: r'\mathrm{eV}',
+          value: _fermiLevel,
+          absolute: _AnimRange(_efMin, _efMax()),
+          physicsNote:
+              r'Sweeps occupancy between valence and conduction sides.',
+        ),
+      ],
+      selectedParameterId: _selectedAnimationParam,
+      onParameterSelected: (id) {
+        setState(() => _selectedAnimationParam = id);
+      },
+      state: AnimationState(
+        isPlaying: _animationPlaying,
+        speed: _animationSpeed,
+        reverse: _animationReverse,
+        loop: _animationLoop,
+        progress: _animationProgress,
+      ),
+      callbacks: AnimationCallbacks(
+        onPlay: _playAnimation,
+        onPause: _pauseAnimation,
+        onRestart: _restartAnimation,
+        onSpeedChanged: (speed) => setState(() => _animationSpeed = speed),
+        onReverseChanged: (reverse) =>
+            setState(() => _animationReverse = reverse),
+        onLoopChanged: (loop) => setState(() => _animationLoop = loop),
+      ),
+    );
   }
 
   @override
@@ -247,66 +552,51 @@ class _CarrierConcentrationGraphViewState
             _calcP(_fermiLevel, curves.Nv, constants.q, constants.kB) *
                 _densityDisplayFactor;
         final currentNi = curves.ni * _densityDisplayFactor;
-        final panelConfig = _buildPanelConfig(context, currentN, currentP, currentNi);
+        final panelConfig = _buildPanelConfig(context, curves);
 
         return StandardGraphPageScaffold(
-          config: const GraphConfig(
+          config: panelConfig.copyWith(
             title: 'Carrier Concentration vs Fermi Level',
             subtitle: 'Carrier Concentration',
             mainEquation:
                 r'n = N_c e^{-\frac{E_c - E_F}{kT}},\quad p = N_v e^{-\frac{E_F - E_v}{kT}}',
-            controls: ControlsConfig(children: []),
           ),
           aboutSection: _buildAboutCard(context),
           observeSection: _buildInfoPanel(context),
-          chartBuilder: (context) =>
-              _buildChartContent(context, curves, currentN, currentP, currentNi),
-          rightPanelBuilder: (context, config) =>
-              StandardPanelStack(config: panelConfig),
+          placeSectionsInWideLeftColumn: true,
+          useTwoColumnRightPanelInWide: true,
+          wideLeftColumnSectionIds: const ['point_inspector', 'animation'],
+          wideRightColumnSectionIds: const ['notes', 'controls'],
+          chartBuilder: (context) => _buildChartContent(
+              context, curves, currentN, currentP, currentNi),
         );
       },
     );
   }
 
-  GraphConfig _buildPanelConfig(
-    BuildContext context,
-    double n,
-    double p,
-    double ni,
-  ) {
-    final unitLabel = _useCmUnits ? 'cm^-3' : 'm^-3';
-    final readouts = <ReadoutItem>[
-      ReadoutItem(label: r'T', value: '${_temperature.toStringAsFixed(0)} K'),
-      ReadoutItem(label: r'E_F', value: '${_fermiLevel.toStringAsFixed(3)} eV'),
-      if (_seriesMode != SeriesMode.pOnly)
-        ReadoutItem(
-          label: r'n(E_F)',
-          value: '${LatexNumberFormatter.toUnicodeSci(n, sigFigs: 3)} $unitLabel',
-        ),
-      if (_seriesMode != SeriesMode.nOnly)
-        ReadoutItem(
-          label: r'p(E_F)',
-          value: '${LatexNumberFormatter.toUnicodeSci(p, sigFigs: 3)} $unitLabel',
-        ),
-      if (_showNiLine)
-        ReadoutItem(
-          label: r'n_i(T)',
-          value: '${LatexNumberFormatter.toUnicodeSci(ni, sigFigs: 3)} $unitLabel',
-        ),
-    ];
-
+  GraphConfig _buildPanelConfig(BuildContext context, _CarrierCurves curves) {
+    final dynamicObs = _buildDynamicObservations();
     return GraphConfig(
-      readouts: readouts,
-      pointInspector: const PointInspectorConfig(
-        enabled: true,
-        emptyMessage: 'Use chart hover tooltips to inspect n(E_F), p(E_F), and n_i(T).',
-      ),
-      insights: const InsightsConfig(
-        dynamicObservations: [
-          'n increases as E_F approaches E_c',
-          'p increases as E_F approaches E_v',
-          'n_i marks intrinsic condition where n and p are comparable',
+      pointInspector: _buildPointInspectorConfig(),
+      animation: _buildAnimationConfig(),
+      insights: InsightsConfig(
+        dynamicObservations: dynamicObs.isEmpty ? null : dynamicObs,
+        staticObservations: const [
+          r'n increases as $E_F$ approaches $E_c$.',
+          r'p increases as $E_F$ approaches $E_v$.',
+          r'$n_i$ marks intrinsic condition where $n$ and $p$ are comparable.',
         ],
+        dynamicTitle: _pinnedPoints.isNotEmpty
+            ? 'From Your Pins'
+            : (_hoverPoint == null ? 'Current Configuration' : 'Current Hover'),
+        pinnedCount: _pinnedPoints.length,
+        maxPins: _maxPins,
+        onClearPins: _pinnedPoints.isEmpty
+            ? null
+            : () => _update(() {
+                  _pinnedPoints.clear();
+                  _hoverPoint = null;
+                }),
       ),
       controls: ControlsConfig(
         children: [_buildControls(context)],
@@ -316,6 +606,82 @@ class _CarrierConcentrationGraphViewState
     );
   }
 
+  PointInspectorConfig _buildPointInspectorConfig() {
+    final pinned = _pinnedPoints.isNotEmpty ? _pinnedPoints.last : null;
+    final hover = _hoverPoint;
+    return PointInspectorConfig(
+      enabled: true,
+      emptyMessage:
+          'Hover the chart to inspect n(E_F), p(E_F); tap curve to pin.',
+      isPinned: pinned != null,
+      interactionHint:
+          'Tap curve to pin/unpin (max $_maxPins); tap empty area to clear.',
+      onClear: () => _update(() {
+        _hoverPoint = null;
+        _pinnedPoints.clear();
+      }),
+      builder: (pinned == null && hover == null)
+          ? null
+          : () {
+              final lines = <String>[];
+              if (pinned != null) {
+                final conc = math.pow(10, pinned.spot.y).toDouble();
+                lines.add('Pinned: ${_seriesTitle(pinned.series)}');
+                lines.add(
+                    'E_{F} = ${pinned.spot.x.toStringAsFixed(3)}\\,\\mathrm{eV}');
+                lines.add(
+                    '${_seriesLatex(pinned.series)} = ${LatexNumberFormatter.valueWithUnit(conc, unitLatex: _densityUnitLatex, sigFigs: 3)}');
+                lines.add(
+                    '\\log_{10}(${_seriesLatex(pinned.series)}) = ${pinned.spot.y.toStringAsFixed(2)}');
+              }
+              if (hover != null) {
+                final conc = math.pow(10, hover.spot.y).toDouble();
+                lines.add('Hover: ${_seriesTitle(hover.series)}');
+                lines.add(
+                    'E_{F} = ${hover.spot.x.toStringAsFixed(3)}\\,\\mathrm{eV}');
+                lines.add(
+                    '${_seriesLatex(hover.series)} = ${LatexNumberFormatter.valueWithUnit(conc, unitLatex: _densityUnitLatex, sigFigs: 3)}');
+                lines.add(
+                    '\\log_{10}(${_seriesLatex(hover.series)}) = ${hover.spot.y.toStringAsFixed(2)}');
+              }
+              return lines;
+            },
+    );
+  }
+
+  List<String> _buildDynamicObservations() {
+    final obs = <String>[];
+    for (var i = 0; i < _pinnedPoints.length; i++) {
+      final pin = _pinnedPoints[i];
+      final conc = math.pow(10, pin.spot.y).toDouble();
+      final efLatex = r'E_{F}';
+      final pointLatex = _seriesLatex(pin.series);
+      final concLatex = LatexNumberFormatter.valueWithUnit(
+        conc,
+        unitLatex: _densityUnitLatex,
+        sigFigs: 3,
+      );
+      obs.add(
+        'Pin ${i + 1}: ${_inlineMath(pointLatex)} at '
+        '${_inlineMath('$efLatex = ${pin.spot.x.toStringAsFixed(3)}\\,\\mathrm{eV}')}, '
+        '${_inlineMath(concLatex)}.',
+      );
+    }
+    if (_pinnedPoints.length >= 2) {
+      final a = _pinnedPoints[_pinnedPoints.length - 2];
+      final b = _pinnedPoints.last;
+      final deltaEf = (b.spot.x - a.spot.x).abs();
+      final deltaDecades = (b.spot.y - a.spot.y).abs();
+      obs.add(
+        'Between latest pins: '
+        '${_inlineMath(r'\Delta E_{F} = ' + deltaEf.toStringAsFixed(3) + r'\,\mathrm{eV}')}, '
+        '${_inlineMath(r'\Delta\log_{10}(n,p) = ' + deltaDecades.toStringAsFixed(2))} decades.',
+      );
+    }
+    return obs;
+  }
+
+  // ignore: unused_element
   Widget _buildHeader(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -369,9 +735,9 @@ class _CarrierConcentrationGraphViewState
             style: TextStyle(fontWeight: FontWeight.w700)),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         children: const [
-          _InfoBullet('n rises as E_F moves toward E_c'),
-          _InfoBullet('p rises as E_F moves toward E_v'),
-          _InfoBullet('At intrinsic conditions, n approximately equals p and n_i'),
+          _InfoBullet(r'$n$ rises as $E_F$ moves toward $E_c$.'),
+          _InfoBullet(r'$p$ rises as $E_F$ moves toward $E_v$.'),
+          _InfoBullet(r'At intrinsic conditions, $n \approx p \approx n_i$.'),
         ],
       ),
     );
@@ -394,6 +760,7 @@ class _CarrierConcentrationGraphViewState
     );
   }
 
+  // ignore: unused_element
   Widget _buildRightPanel(BuildContext context) {
     return SingleChildScrollView(
       child: Column(
@@ -435,7 +802,7 @@ class _CarrierConcentrationGraphViewState
 
   Widget _buildChart(BuildContext context, _CarrierCurves curves) {
     final unitLatex = _useCmUnits ? r'\mathrm{cm^{-3}}' : r'\mathrm{m^{-3}}';
-    final unitUnicode = _useCmUnits ? 'cm^-3' : 'm^-3';
+    final unitUnicode = _useCmUnits ? 'cm\u207b\u00b3' : 'm\u207b\u00b3';
     final legendColorN = Theme.of(context).colorScheme.primary;
     final legendColorP = Theme.of(context).colorScheme.tertiary;
     final intrinsicMarker = _computeIntrinsicMarker(curves);
@@ -525,16 +892,55 @@ class _CarrierConcentrationGraphViewState
       );
     }
 
-    final bars =
+    final int? nBarIndex = _seriesMode != SeriesMode.pOnly ? 0 : null;
+    final int? pBarIndex = switch (_seriesMode) {
+      SeriesMode.nOnly => null,
+      SeriesMode.pOnly => 0,
+      SeriesMode.both => 1,
+    };
+    final baseBars =
         _buildSeries(curves, legendColorN, legendColorP, intrinsicMarker);
-    final barLabels = <String>[];
-    if (_seriesMode != SeriesMode.pOnly) barLabels.add('n');
-    if (_seriesMode != SeriesMode.nOnly) barLabels.add('p');
-    if (intrinsicMarker != null &&
-        _showIntrinsicMarker &&
-        _seriesMode == SeriesMode.both) {
-      barLabels.add('n=p');
-    }
+    final hoverPoint = _hoverPoint;
+    final bars = <LineChartBarData>[
+      ...baseBars,
+      ..._pinnedPoints.asMap().entries.map(
+            (entry) => LineChartBarData(
+              spots: [entry.value.spot],
+              isCurved: false,
+              color: Colors.transparent,
+              barWidth: 0,
+              dotData: FlDotData(
+                show: true,
+                checkToShowDot: (_, __) => true,
+                getDotPainter: (_, __, ___, ____) => FlDotCirclePainter(
+                  color: _pinColorForIndex(entry.key),
+                  radius: 4.9,
+                  strokeColor: Colors.white,
+                  strokeWidth: 2,
+                ),
+              ),
+            ),
+          ),
+      if (hoverPoint != null &&
+          !_pinnedPoints.any((pin) => _samePointRef(pin, hoverPoint)))
+        LineChartBarData(
+          spots: [hoverPoint.spot],
+          isCurved: false,
+          color: Colors.transparent,
+          barWidth: 0,
+          dotData: FlDotData(
+            show: true,
+            checkToShowDot: (_, __) => true,
+            getDotPainter: (_, __, ___, ____) => FlDotCirclePainter(
+              color: _hoverColorForSeries(hoverPoint.series)
+                  .withValues(alpha: 0.22),
+              radius: 5.8,
+              strokeColor: _hoverColorForSeries(hoverPoint.series),
+              strokeWidth: 2.4,
+            ),
+          ),
+        ),
+    ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -545,9 +951,9 @@ class _CarrierConcentrationGraphViewState
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             if (_seriesMode != SeriesMode.pOnly)
-              _legend(legendColorN, r'n(E_F)'),
+              _legend(legendColorN, r'n(E_{F})'),
             if (_seriesMode != SeriesMode.nOnly)
-              _legend(legendColorP, r'p(E_F)'),
+              _legend(legendColorP, r'p(E_{F})'),
             if (_showNiLine) _legend(Colors.grey, r'n_i(T)', dashed: true),
           ],
         ),
@@ -623,27 +1029,93 @@ class _CarrierConcentrationGraphViewState
               borderData: FlBorderData(show: true),
               lineBarsData: bars,
               lineTouchData: LineTouchData(
+                enabled: true,
+                touchSpotThreshold: 28,
                 handleBuiltInTouches: true,
+                getTouchedSpotIndicator: (barData, spotIndexes) {
+                  return spotIndexes
+                      .map(
+                        (_) => const TouchedSpotIndicatorData(
+                          FlLine(color: Colors.transparent, strokeWidth: 0),
+                          FlDotData(show: false),
+                        ),
+                      )
+                      .toList();
+                },
+                touchCallback: (event, response) {
+                  final spots = response?.lineBarSpots;
+                  if (spots == null || spots.isEmpty) {
+                    if (event is FlTapUpEvent) {
+                      if (_hoverPoint != null || _pinnedPoints.isNotEmpty) {
+                        setState(() {
+                          _hoverPoint = null;
+                          _pinnedPoints.clear();
+                        });
+                      }
+                      return;
+                    }
+                    if (event is FlPointerExitEvent && _hoverPoint != null) {
+                      setState(() => _hoverPoint = null);
+                    }
+                    return;
+                  }
+
+                  final candidates = spots
+                      .where(
+                        (s) =>
+                            s.barIndex == nBarIndex || s.barIndex == pBarIndex,
+                      )
+                      .toList();
+                  if (candidates.isEmpty) return;
+
+                  final chosen = candidates.first;
+                  final series = chosen.barIndex == nBarIndex ? 'n' : 'p';
+                  final nextHover = _CarrierPointRef(
+                    series: series,
+                    spot: FlSpot(chosen.x, chosen.y),
+                  );
+
+                  if (event is FlTapUpEvent) {
+                    setState(() {
+                      _hoverPoint = nextHover;
+                      _togglePinnedPoint(nextHover);
+                    });
+                    return;
+                  }
+
+                  if (_hoverPoint != null &&
+                      _samePointRef(_hoverPoint!, nextHover)) {
+                    return;
+                  }
+                  setState(() => _hoverPoint = nextHover);
+                },
                 touchTooltipData: LineTouchTooltipData(
                   fitInsideHorizontally: true,
                   fitInsideVertically: true,
+                  getTooltipColor: (_) => Colors.white.withValues(alpha: 0.98),
+                  tooltipBorder: BorderSide(
+                    color: Colors.black.withValues(alpha: 0.16),
+                    width: 1,
+                  ),
                   getTooltipItems: (touched) {
-                    if (touched.isEmpty) return [];
-
-                    // Show E_F once at the top
-                    final efValue = touched.first.x;
+                    final candidates = touched
+                        .where(
+                          (spot) =>
+                              spot.barIndex == nBarIndex ||
+                              spot.barIndex == pBarIndex,
+                        )
+                        .toList();
+                    if (candidates.isEmpty) return [];
+                    final efValue = candidates.first.x;
                     final items = <LineTooltipItem>[];
-
-                    for (int i = 0; i < touched.length; i++) {
-                      final spot = touched[i];
+                    for (int i = 0; i < candidates.length; i++) {
+                      final spot = candidates[i];
                       final yVal = spot.y;
                       final conc = math.pow(10, yVal).toDouble();
-                      final label = spot.barIndex < barLabels.length
-                          ? barLabels[spot.barIndex]
-                          : '';
+                      final label =
+                          spot.barIndex == nBarIndex ? r'n(E_F)' : r'p(E_F)';
 
                       if (i == 0) {
-                        // First item: show E_F
                         items.add(LineTooltipItem(
                           '',
                           const TextStyle(),
@@ -651,22 +1123,29 @@ class _CarrierConcentrationGraphViewState
                             TextSpan(
                                 text: 'E_F: ${efValue.toStringAsFixed(3)} eV\n',
                                 style: const TextStyle(
-                                    fontSize: 11, fontWeight: FontWeight.bold)),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.black87,
+                                )),
                             TextSpan(
                               text:
                                   '$label: ${LatexNumberFormatter.toUnicodeSci(conc, sigFigs: 3)} $unitUnicode\n',
-                              style: const TextStyle(fontSize: 11),
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: Colors.black87,
+                              ),
                             ),
                             TextSpan(
                               text:
                                   'log10($label) = ${yVal.toStringAsFixed(2)}',
                               style: TextStyle(
-                                  fontSize: 10, color: Colors.grey[300]),
+                                fontSize: 10,
+                                color: Colors.grey[700],
+                              ),
                             ),
                           ],
                         ));
                       } else {
-                        // Subsequent items: show only concentration
                         items.add(LineTooltipItem(
                           '',
                           const TextStyle(),
@@ -674,19 +1153,23 @@ class _CarrierConcentrationGraphViewState
                             TextSpan(
                               text:
                                   '$label: ${LatexNumberFormatter.toUnicodeSci(conc, sigFigs: 3)} $unitUnicode\n',
-                              style: const TextStyle(fontSize: 11),
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: Colors.black87,
+                              ),
                             ),
                             TextSpan(
                               text:
                                   'log10($label) = ${yVal.toStringAsFixed(2)}',
                               style: TextStyle(
-                                  fontSize: 10, color: Colors.grey[300]),
+                                fontSize: 10,
+                                color: Colors.grey[700],
+                              ),
                             ),
                           ],
                         ));
                       }
                     }
-
                     return items;
                   },
                 ),
@@ -874,11 +1357,9 @@ class _CarrierConcentrationGraphViewState
               SegmentedButton<SeriesMode>(
                 segments: const [
                   ButtonSegment(
-                      value: SeriesMode.nOnly,
-                      label: const Text('n only')),
+                      value: SeriesMode.nOnly, label: const Text('n only')),
                   ButtonSegment(
-                      value: SeriesMode.pOnly,
-                      label: const Text('p only')),
+                      value: SeriesMode.pOnly, label: const Text('p only')),
                   ButtonSegment(value: SeriesMode.both, label: Text('n & p')),
                 ],
                 selected: {_seriesMode},
@@ -948,9 +1429,10 @@ class _CarrierConcentrationGraphViewState
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               children: const [
-                _InfoBullet('n increases as E_F approaches E_c'),
-                _InfoBullet('p increases as E_F approaches E_v'),
-                _InfoBullet('n_i marks the intrinsic point where n equals p'),
+                _InfoBullet(r'$n$ increases as $E_F$ approaches $E_c$.'),
+                _InfoBullet(r'$p$ increases as $E_F$ approaches $E_v$.'),
+                _InfoBullet(
+                    r'$n_i$ marks the intrinsic point where $n \approx p$.'),
               ],
             ),
           ],
@@ -1055,6 +1537,16 @@ class _CarrierConcentrationGraphViewState
   }
 }
 
+class _CarrierPointRef {
+  final String series; // 'n' or 'p'
+  final FlSpot spot;
+
+  const _CarrierPointRef({
+    required this.series,
+    required this.spot,
+  });
+}
+
 class _CarrierCurves {
   final List<FlSpot> nSpots;
   final List<FlSpot> pSpots;
@@ -1083,10 +1575,15 @@ class _Range {
   const _Range(this.min, this.max);
 }
 
+class _AnimRange {
+  final double min;
+  final double max;
+  const _AnimRange(this.min, this.max);
+}
+
 class _InfoBullet extends StatelessWidget {
   final String text;
-  final bool useLatex;
-  const _InfoBullet(this.text, {this.useLatex = false});
+  const _InfoBullet(this.text);
 
   @override
   Widget build(BuildContext context) {
@@ -1097,14 +1594,69 @@ class _InfoBullet extends StatelessWidget {
         children: [
           const Text('- '),
           Expanded(
-            child: useLatex ? LatexText(text, scale: 0.95) : Text(text),
+            child: _buildLatexAwareText(text),
           ),
         ],
       ),
     );
   }
+
+  Widget _buildLatexAwareText(String line) {
+    if (line.contains(r'$')) {
+      return _InlineLatexText(line);
+    }
+    return _looksLikeStandaloneLatex(line)
+        ? LatexText(line, scale: 0.95)
+        : Text(line);
+  }
+
+  bool _looksLikeStandaloneLatex(String line) {
+    return line.contains(r'\') ||
+        (!line.contains(' ') && (line.contains('^') || line.contains('_')));
+  }
 }
 
+class _InlineLatexText extends StatelessWidget {
+  final String text;
+  const _InlineLatexText(this.text);
 
+  @override
+  Widget build(BuildContext context) {
+    final parts = <_InlinePart>[];
+    final buffer = StringBuffer();
+    var inLatex = false;
 
+    for (var i = 0; i < text.length; i++) {
+      final ch = text[i];
+      if (ch == r'$') {
+        if (buffer.isNotEmpty) {
+          parts.add(_InlinePart(buffer.toString(), inLatex));
+          buffer.clear();
+        }
+        inLatex = !inLatex;
+      } else {
+        buffer.write(ch);
+      }
+    }
+    if (buffer.isNotEmpty) {
+      parts.add(_InlinePart(buffer.toString(), inLatex));
+    }
 
+    if (parts.length == 1 && !parts.first.isLatex) {
+      return Text(parts.first.text);
+    }
+
+    return Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: parts
+          .map((p) => p.isLatex ? LatexText(p.text, scale: 0.95) : Text(p.text))
+          .toList(growable: false),
+    );
+  }
+}
+
+class _InlinePart {
+  final String text;
+  final bool isLatex;
+  const _InlinePart(this.text, this.isLatex);
+}

@@ -1,4 +1,5 @@
-﻿import 'dart:math' as math;
+import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
@@ -9,12 +10,13 @@ import '../widgets/latex_text.dart';
 
 // Standardized components
 import '../graphs/common/graph_controller.dart';
+import '../graphs/common/graph_scaffold_tokens.dart';
+import '../graphs/common/latex_rich_text.dart';
 import '../graphs/common/parameters_card.dart';
 import '../graphs/common/plot_selector.dart';
 import '../graphs/utils/latex_number_formatter.dart';
 import '../graphs/core/graph_config.dart';
 import '../graphs/core/standard_graph_page_scaffold.dart';
-import '../graphs/core/standard_panel_stack.dart';
 
 class DriftDiffusionGraphPage extends StatelessWidget {
   const DriftDiffusionGraphPage({super.key});
@@ -32,11 +34,15 @@ class _DriftDiffusionGraphView extends StatefulWidget {
   const _DriftDiffusionGraphView();
 
   @override
-  State<_DriftDiffusionGraphView> createState() => _DriftDiffusionGraphViewState();
+  State<_DriftDiffusionGraphView> createState() =>
+      _DriftDiffusionGraphViewState();
 }
 
 enum CarrierMode { electrons, holes, both }
+
 enum ProfileType { linear, exponential }
+
+enum _AnimTarget { temperature, electricField, gradient, mobility }
 
 class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
     with GraphController {
@@ -57,6 +63,21 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
   bool _showComponents = true;
   double _manualD = 0.0035; // m^2/s (used when Einstein toggle is off)
 
+  // Animation
+  bool _isAnimating = false;
+  double _animSpeed = 1.0;
+  double _animProgress = 0.0;
+  bool _loopEnabled = true;
+  bool _reverseDirection = false;
+  _AnimTarget _animTarget = _AnimTarget.electricField;
+  final Map<_AnimTarget, RangeValues> _animRanges = {
+    _AnimTarget.temperature: const RangeValues(220, 460),
+    _AnimTarget.electricField: const RangeValues(-150000, 150000),
+    _AnimTarget.gradient: const RangeValues(-1.8, 1.8),
+    _AnimTarget.mobility: const RangeValues(200, 1800),
+  };
+  Timer? _animTimer;
+
   // Interactive system
   FlSpot? _hoverSpot;
   String? _hoverPlotId; // 'density' or 'current'
@@ -70,6 +91,12 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
   void initState() {
     super.initState();
     _constants = _loadConstants();
+  }
+
+  @override
+  void dispose() {
+    _animTimer?.cancel();
+    super.dispose();
   }
 
   Future<({double q, double kB})> _loadConstants() async {
@@ -198,16 +225,19 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
       case ProfileType.linear:
         final slope = _gradientStrength * n0 / length;
         final density = n0 + slope * (x - center);
-        return _ProfileSample(density: math.max(density, _densityFloor), derivative: slope);
+        return _ProfileSample(
+            density: math.max(density, _densityFloor), derivative: slope);
       case ProfileType.exponential:
         final g = _gradientStrength / length;
         final density = n0 * math.exp(g * (x - center));
         final derivative = density * g;
-        return _ProfileSample(density: math.max(density, _densityFloor), derivative: derivative);
+        return _ProfileSample(
+            density: math.max(density, _densityFloor), derivative: derivative);
     }
   }
 
   void _resetDefaults() {
+    _stopAnimation();
     updateChart(() {
       _carrierMode = CarrierMode.electrons;
       _profileType = ProfileType.linear;
@@ -226,6 +256,196 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
     });
   }
 
+  String _animTargetId(_AnimTarget target) => target.name;
+
+  _AnimTarget _animTargetFromId(String id) {
+    return _AnimTarget.values.firstWhere(
+      (target) => target.name == id,
+      orElse: () => _AnimTarget.electricField,
+    );
+  }
+
+  double _currentAnimValue(_AnimTarget target) {
+    return switch (target) {
+      _AnimTarget.temperature => _temperature,
+      _AnimTarget.electricField => _electricField,
+      _AnimTarget.gradient => _gradientStrength,
+      _AnimTarget.mobility => _mobilityCm2,
+    };
+  }
+
+  void _applyAnimValue(_AnimTarget target, double value) {
+    switch (target) {
+      case _AnimTarget.temperature:
+        _temperature = value;
+        break;
+      case _AnimTarget.electricField:
+        _electricField = value;
+        break;
+      case _AnimTarget.gradient:
+        _gradientStrength = value;
+        break;
+      case _AnimTarget.mobility:
+        _mobilityCm2 = value;
+        break;
+    }
+  }
+
+  void _startAnimation() {
+    if (_isAnimating) return;
+    final activeRange = _animRanges[_animTarget]!;
+    final span = activeRange.end - activeRange.start;
+    if (span.abs() < 1e-12) return;
+
+    _animTimer?.cancel();
+    setState(() {
+      _isAnimating = true;
+      _animProgress = _reverseDirection ? 1.0 : 0.0;
+    });
+
+    final stepMs = (1000 / (60 * _animSpeed.clamp(0.5, 4.0))).round();
+    _animTimer = Timer.periodic(Duration(milliseconds: stepMs), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        final delta = (1 / 240) * (_reverseDirection ? -1.0 : 1.0);
+        _animProgress += delta;
+
+        if (_animProgress >= 1.0) {
+          if (_loopEnabled) {
+            _animProgress = 0.0;
+          } else {
+            _animProgress = 1.0;
+            _isAnimating = false;
+            timer.cancel();
+          }
+        } else if (_animProgress <= 0.0) {
+          if (_loopEnabled) {
+            _animProgress = 1.0;
+          } else {
+            _animProgress = 0.0;
+            _isAnimating = false;
+            timer.cancel();
+          }
+        }
+
+        final t = _animProgress.clamp(0.0, 1.0);
+        _applyAnimValue(
+          _animTarget,
+          activeRange.start + span * t,
+        );
+        bumpChart();
+      });
+    });
+  }
+
+  void _stopAnimation() {
+    _animTimer?.cancel();
+    _animTimer = null;
+    if (!_isAnimating) return;
+    setState(() {
+      _isAnimating = false;
+    });
+  }
+
+  void _restartAnimation() {
+    _stopAnimation();
+    setState(() {
+      _animProgress = _reverseDirection ? 1.0 : 0.0;
+    });
+    _startAnimation();
+  }
+
+  AnimationConfig _buildAnimationConfig() {
+    AnimatableParameter parameterFor(_AnimTarget target) {
+      final range = _animRanges[target]!;
+      final current = _currentAnimValue(target);
+      return AnimatableParameter(
+        id: _animTargetId(target),
+        label: switch (target) {
+          _AnimTarget.temperature => r'T (temperature)',
+          _AnimTarget.electricField => r'E (electric field)',
+          _AnimTarget.gradient => r'\nabla n (gradient)',
+          _AnimTarget.mobility => r'\mu (mobility)',
+        },
+        symbol: switch (target) {
+          _AnimTarget.temperature => r'T',
+          _AnimTarget.electricField => r'E',
+          _AnimTarget.gradient => r'\nabla n',
+          _AnimTarget.mobility => r'\mu',
+        },
+        unit: switch (target) {
+          _AnimTarget.temperature => r'\mathrm{K}',
+          _AnimTarget.electricField => r'\mathrm{V\,m^{-1}}',
+          _AnimTarget.gradient => '',
+          _AnimTarget.mobility => r'\mathrm{cm^2\,V^{-1}\,s^{-1}}',
+        },
+        currentValue: current,
+        rangeMin: range.start,
+        rangeMax: range.end,
+        absoluteMin: switch (target) {
+          _AnimTarget.temperature => 200,
+          _AnimTarget.electricField => -200000,
+          _AnimTarget.gradient => -2,
+          _AnimTarget.mobility => 50,
+        },
+        absoluteMax: switch (target) {
+          _AnimTarget.temperature => 500,
+          _AnimTarget.electricField => 200000,
+          _AnimTarget.gradient => 2,
+          _AnimTarget.mobility => 2000,
+        },
+        enabled: _animTarget == target,
+        onEnabledChanged: (enabled) {
+          if (!enabled) return;
+          setState(() {
+            _animTarget = target;
+          });
+        },
+        onValueChanged: (value) {
+          if (_isAnimating) _stopAnimation();
+          setState(() {
+            _applyAnimValue(target, value);
+            bumpChart();
+          });
+        },
+        onRangeChanged: (min, max) {
+          setState(() {
+            _animRanges[target] = RangeValues(min, max);
+          });
+        },
+      );
+    }
+
+    return AnimationConfig(
+      parameters: _AnimTarget.values.map(parameterFor).toList(growable: false),
+      selectedParameterId: _animTargetId(_animTarget),
+      onParameterSelected: (id) {
+        setState(() {
+          _animTarget = _animTargetFromId(id);
+        });
+      },
+      state: AnimationState(
+        isPlaying: _isAnimating,
+        speed: _animSpeed,
+        reverse: _reverseDirection,
+        loop: _loopEnabled,
+        progress: _isAnimating ? _animProgress : null,
+      ),
+      callbacks: AnimationCallbacks(
+        onPlay: _startAnimation,
+        onPause: _stopAnimation,
+        onRestart: _restartAnimation,
+        onSpeedChanged: (speed) => setState(() => _animSpeed = speed),
+        onReverseChanged: (reverse) =>
+            setState(() => _reverseDirection = reverse),
+        onLoopChanged: (loop) => setState(() => _loopEnabled = loop),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder(
@@ -236,26 +456,28 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
         }
         final constants = snapshot.data!;
         final profiles = _buildProfiles(constants.kB, constants.q);
-        final panelConfig = _buildPanelConfig(constants, profiles);
+        final panelConfig = _buildPanelConfig(context, constants, profiles);
 
         return StandardGraphPageScaffold(
-          config: const GraphConfig(
+          config: panelConfig.copyWith(
             title: 'Drift vs Diffusion Current (1D)',
             subtitle: 'Carrier Transport Fundamentals',
             mainEquation:
                 r'J_n = q n \mu_n E + q D_n \frac{dn}{dx},\quad J_p = q p \mu_p E - q D_p \frac{dp}{dx}',
-            controls: ControlsConfig(children: []),
           ),
           aboutSection: _buildAboutCard(context),
           observeSection: _buildObserveCard(context),
+          placeSectionsInWideLeftColumn: true,
+          useTwoColumnRightPanelInWide: true,
+          wideLeftColumnSectionIds: const ['point_inspector', 'animation'],
+          wideRightColumnSectionIds: const ['notes', 'controls'],
           chartBuilder: (context) => _buildChartContent(context, profiles),
-          rightPanelBuilder: (context, config) =>
-              StandardPanelStack(config: panelConfig),
         );
       },
     );
   }
 
+  // ignore: unused_element
   Widget _buildHeader(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -278,10 +500,14 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
           child: Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primary.withOpacity(0.05),
+              color:
+                  Theme.of(context).colorScheme.primary.withValues(alpha: 0.05),
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
-                color: Theme.of(context).colorScheme.primary.withOpacity(0.2),
+                color: Theme.of(context)
+                    .colorScheme
+                    .primary
+                    .withValues(alpha: 0.2),
               ),
             ),
             child: const Column(
@@ -356,8 +582,10 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
         ),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         children: [
-          _bullet(r'Drift term follows electric field: $J_{\mathrm{drift}} \propto n\mu E$.'),
-          _bullet(r'Diffusion term follows concentration gradient: $J_{\mathrm{diff}} \propto D\,dn/dx$.'),
+          _bullet(
+              r'Drift term follows electric field: $J_{\mathrm{drift}} \propto n\mu E$.'),
+          _bullet(
+              r'Diffusion term follows concentration gradient: $J_{\mathrm{diff}} \propto D\,dn/dx$.'),
           _bullet('Net current is the sum of drift and diffusion components.'),
         ],
       ),
@@ -370,9 +598,9 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('• '),
+          const Text('- '),
           Expanded(
-            child: Text(
+            child: LatexRichText.parse(
               text,
               style: Theme.of(context).textTheme.bodyMedium,
             ),
@@ -401,24 +629,26 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
   }
 
   GraphConfig _buildPanelConfig(
+    BuildContext context,
     ({double q, double kB}) constants,
     _ProfileData profiles,
   ) {
     return GraphConfig(
-      readouts: _buildReadouts(profiles),
       pointInspector: _buildPointInspectorConfig(),
+      animation: _buildAnimationConfig(),
       insights: InsightsConfig(
         dynamicObservations: _buildDynamicObservations(profiles),
         staticObservations: _buildStaticObservations(),
       ),
       controls: ControlsConfig(
-        children: _buildControlsChildren(constants),
+        children: _buildControlsChildren(context, constants),
         collapsible: true,
         initiallyExpanded: true,
       ),
     );
   }
 
+  // ignore: unused_element
   List<ReadoutItem> _buildReadouts(_ProfileData profiles) {
     final densityUnit = _useCmUnits ? 'cm^-3' : 'm^-3';
     final mu = profiles.mu * 1e4; // back to cm^2/Vs for display
@@ -497,187 +727,217 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
     );
   }
 
-  List<Widget> _buildControlsChildren(({double q, double kB}) constants) {
+  List<Widget> _buildControlsChildren(
+    BuildContext context,
+    ({double q, double kB}) constants,
+  ) {
+    final tokens = GraphScaffoldTokens.of(context);
     final d = _diffusivity(constants.kB, constants.q);
 
     return [
-        // Carrier mode dropdown
-        Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Carrier Type', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-              const SizedBox(height: 4),
-              DropdownButton<CarrierMode>(
-                value: _carrierMode,
-                isExpanded: true,
-                onChanged: (v) => updateChart(() => _carrierMode = v ?? CarrierMode.electrons),
-                items: const [
-                  DropdownMenuItem(value: CarrierMode.electrons, child: Text('Electrons (n)')),
-                  DropdownMenuItem(value: CarrierMode.holes, child: Text('Holes (p)')),
-                  DropdownMenuItem(value: CarrierMode.both, child: Text('Both')),
-                ],
-              ),
-            ],
-          ),
-        ),
-        // Profile type dropdown
-        Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Profile Type', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-              const SizedBox(height: 4),
-              DropdownButton<ProfileType>(
-                value: _profileType,
-                isExpanded: true,
-                onChanged: (v) => updateChart(() => _profileType = v ?? ProfileType.linear),
-                items: const [
-                  DropdownMenuItem(value: ProfileType.linear, child: Text('Linear gradient')),
-                  DropdownMenuItem(value: ProfileType.exponential, child: Text('Exponential gradient')),
-                ],
-              ),
-            ],
-          ),
-        ),
-        ParameterSlider(
-          label: r'$T$ (K)',
-          value: _temperature,
-          min: 200,
-          max: 500,
-          divisions: 300,
-          onChanged: (v) {
-            setState(() => _temperature = v);
-            updateChart(() {});
-          },
-        ),
-        ParameterSlider(
-          label: r'Length $L$ (um)',
-          value: _lengthUm,
-          min: 1,
-          max: 50,
-          divisions: 98,
-          onChanged: (v) {
-            setState(() => _lengthUm = v);
-            updateChart(() {});
-          },
-        ),
-        ParameterSlider(
-          label: r'$E$ (V/m)',
-          value: _electricField,
-          min: -200000,
-          max: 200000,
-          divisions: 400,
-          onChanged: (v) {
-            setState(() => _electricField = v);
-            updateChart(() {});
-          },
-          subtitle: 'Electric field strength',
-        ),
-        ParameterSlider(
-          label: r'$n_0$ (base density)',
-          value: _n0Display,
-          min: 1e14,
-          max: 1e22,
-          onChanged: (v) {
-            setState(() => _n0Display = v);
-            updateChart(() {});
-          },
-          subtitle: _useCmUnits ? 'cm^-3' : 'm^-3',
-        ),
-        ParameterSlider(
-          label: r'Gradient strength',
-          value: _gradientStrength,
-          min: -2,
-          max: 2,
-          divisions: 400,
-          onChanged: (v) {
-            setState(() => _gradientStrength = v);
-            updateChart(() {});
-          },
-          subtitle: 'Controls dn/dx magnitude',
-        ),
-        ParameterSlider(
-          label: r'$\mu$ (cm^2/Vs)',
-          value: _mobilityCm2,
-          min: 50,
-          max: 2000,
-          divisions: 195,
-          onChanged: (v) {
-            setState(() => _mobilityCm2 = v);
-            updateChart(() {});
-          },
-          subtitle: 'Carrier mobility',
-        ),
-        const SizedBox(height: 8),
-        ParameterSegmented<bool>(
-          label: 'Density units',
-          selected: {_useCmUnits},
-          segments: const [
-            ButtonSegment(value: true, label: Text('cm^-3')),
-            ButtonSegment(value: false, label: Text('m^-3')),
+      // Carrier mode dropdown
+      Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Carrier Type',
+              style: tokens.label.copyWith(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 4),
+            DropdownButton<CarrierMode>(
+              value: _carrierMode,
+              isExpanded: true,
+              onChanged: (v) =>
+                  updateChart(() => _carrierMode = v ?? CarrierMode.electrons),
+              items: const [
+                DropdownMenuItem(
+                    value: CarrierMode.electrons, child: Text('Electrons (n)')),
+                DropdownMenuItem(
+                    value: CarrierMode.holes, child: Text('Holes (p)')),
+                DropdownMenuItem(value: CarrierMode.both, child: Text('Both')),
+              ],
+            ),
           ],
-          onSelectionChanged: (s) {
-            final siDensity = _toSiDensity(_n0Display);
-            updateChart(() {
-              _useCmUnits = s.first;
-              _n0Display = _useCmUnits ? siDensity / 1e6 : siDensity;
-            });
+        ),
+      ),
+      // Profile type dropdown
+      Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Profile Type',
+              style: tokens.label.copyWith(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 4),
+            DropdownButton<ProfileType>(
+              value: _profileType,
+              isExpanded: true,
+              onChanged: (v) =>
+                  updateChart(() => _profileType = v ?? ProfileType.linear),
+              items: const [
+                DropdownMenuItem(
+                    value: ProfileType.linear, child: Text('Linear gradient')),
+                DropdownMenuItem(
+                    value: ProfileType.exponential,
+                    child: Text('Exponential gradient')),
+              ],
+            ),
+          ],
+        ),
+      ),
+      ParameterSlider(
+        label: r'$T$ (K)',
+        value: _temperature,
+        min: 200,
+        max: 500,
+        divisions: 300,
+        onChanged: (v) {
+          setState(() => _temperature = v);
+          updateChart(() {});
+        },
+      ),
+      ParameterSlider(
+        label: r'Length $L$ (um)',
+        value: _lengthUm,
+        min: 1,
+        max: 50,
+        divisions: 98,
+        onChanged: (v) {
+          setState(() => _lengthUm = v);
+          updateChart(() {});
+        },
+      ),
+      ParameterSlider(
+        label: r'$E$ (V/m)',
+        value: _electricField,
+        min: -200000,
+        max: 200000,
+        divisions: 400,
+        onChanged: (v) {
+          setState(() => _electricField = v);
+          updateChart(() {});
+        },
+        subtitle: 'Electric field strength',
+      ),
+      ParameterSlider(
+        label: r'$n_0$ (base density)',
+        value: _n0Display,
+        min: 1e14,
+        max: 1e22,
+        onChanged: (v) {
+          setState(() => _n0Display = v);
+          updateChart(() {});
+        },
+        subtitle: _useCmUnits ? 'cm^-3' : 'm^-3',
+      ),
+      ParameterSlider(
+        label: r'Gradient strength',
+        value: _gradientStrength,
+        min: -2,
+        max: 2,
+        divisions: 400,
+        onChanged: (v) {
+          setState(() => _gradientStrength = v);
+          updateChart(() {});
+        },
+        subtitle: 'Controls dn/dx magnitude',
+      ),
+      ParameterSlider(
+        label: r'$\mu$ (cm^2/Vs)',
+        value: _mobilityCm2,
+        min: 50,
+        max: 2000,
+        divisions: 195,
+        onChanged: (v) {
+          setState(() => _mobilityCm2 = v);
+          updateChart(() {});
+        },
+        subtitle: 'Carrier mobility',
+      ),
+      const SizedBox(height: 8),
+      ParameterSegmented<bool>(
+        label: 'Density units',
+        selected: {_useCmUnits},
+        segments: const [
+          ButtonSegment(value: true, label: Text('cm^-3')),
+          ButtonSegment(value: false, label: Text('m^-3')),
+        ],
+        onSelectionChanged: (s) {
+          final siDensity = _toSiDensity(_n0Display);
+          updateChart(() {
+            _useCmUnits = s.first;
+            _n0Display = _useCmUnits ? siDensity / 1e6 : siDensity;
+          });
+        },
+      ),
+      ParameterSwitch(
+        label: r'Use Einstein relation ($D = \mu kT/q$)',
+        value: _useEinstein,
+        onChanged: (v) => updateChart(() => _useEinstein = v),
+      ),
+      if (!_useEinstein)
+        ParameterSlider(
+          label: r'$D$ override (m^2/s)',
+          value: _manualD,
+          min: 1e-4,
+          max: 0.05,
+          onChanged: (v) {
+            setState(() => _manualD = v);
+            updateChart(() {});
           },
+          subtitle: 'Manual diffusion coefficient',
         ),
-        ParameterSwitch(
-          label: r'Use Einstein relation ($D = \mu kT/q$)',
-          value: _useEinstein,
-          onChanged: (v) => updateChart(() => _useEinstein = v),
+      ParameterSwitch(
+        label: 'Show drift & diffusion components',
+        value: _showComponents,
+        onChanged: (v) => updateChart(() => _showComponents = v),
+      ),
+      const SizedBox(height: 4),
+      Text(
+        'Current D: ${d.toStringAsExponential(3)} m^2/s',
+        style: tokens.hint.copyWith(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
         ),
-        if (!_useEinstein)
-          ParameterSlider(
-            label: r'$D$ override (m^2/s)',
-            value: _manualD,
-            min: 1e-4,
-            max: 0.05,
-            onChanged: (v) {
-              setState(() => _manualD = v);
-              updateChart(() {});
-            },
-            subtitle: 'Manual diffusion coefficient',
-          ),
-        ParameterSwitch(
-          label: 'Show drift & diffusion components',
-          value: _showComponents,
-          onChanged: (v) => updateChart(() => _showComponents = v),
+      ),
+      const SizedBox(height: 12),
+      ElevatedButton.icon(
+        onPressed: _resetDefaults,
+        icon: const Icon(Icons.restart_alt, size: 18),
+        label: const Text('Reset to Defaults'),
+        style: ElevatedButton.styleFrom(
+          minimumSize: const Size(double.infinity, 36),
         ),
-        const SizedBox(height: 4),
-        Text(
-          'Current D: ${d.toStringAsExponential(3)} m^2/s',
-          style: const TextStyle(fontSize: 12, color: Colors.grey),
-        ),
-        const SizedBox(height: 12),
-        ElevatedButton.icon(
-          onPressed: _resetDefaults,
-          icon: const Icon(Icons.restart_alt, size: 18),
-          label: const Text('Reset to Defaults'),
-          style: ElevatedButton.styleFrom(
-            minimumSize: const Size(double.infinity, 36),
-          ),
-        ),
+      ),
     ];
   }
 
   List<String> _buildDynamicObservations(_ProfileData profiles) {
     final obs = <String>[];
-    
+
     final driftRatio = (profiles.midDrift / profiles.midTotal).abs();
     final diffRatio = (profiles.midDiff / profiles.midTotal).abs();
-    
+
     if (driftRatio > 0.9) {
-      obs.add('Drift dominates: \$|J_{\\mathrm{drift}}/J_{\\mathrm{total}}| ~= ${(driftRatio * 100).toStringAsFixed(0)}\\%\$');
+      obs.add(
+        'Drift dominates: ' +
+            r'$|J_{\mathrm{drift}}/J_{\mathrm{total}}| \approx ' +
+            '${(driftRatio * 100).toStringAsFixed(0)}' +
+            r'\%$',
+      );
     } else if (diffRatio > 0.9) {
-      obs.add('Diffusion dominates: \$|J_{\\mathrm{diff}}/J_{\\mathrm{total}}| ~= ${(diffRatio * 100).toStringAsFixed(0)}\\%\$');
+      obs.add(
+        'Diffusion dominates: ' +
+            r'$|J_{\mathrm{diff}}/J_{\mathrm{total}}| \approx ' +
+            '${(diffRatio * 100).toStringAsFixed(0)}' +
+            r'\%$',
+      );
     } else {
-      obs.add('Drift and diffusion are comparable: drift ${(driftRatio * 100).toStringAsFixed(0)}%, diff ${(diffRatio * 100).toStringAsFixed(0)}%');
+      obs.add(
+          'Drift and diffusion are comparable: drift ${(driftRatio * 100).toStringAsFixed(0)}%, diff ${(diffRatio * 100).toStringAsFixed(0)}%');
     }
 
     if (_electricField.abs() < 1000) {
@@ -692,8 +952,10 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
       obs.add(r'Steep gradient -> large $dn/dx$, strong diffusion.');
     }
 
-    if (_profileType == ProfileType.exponential && _gradientStrength.abs() > 0.5) {
-      obs.add(r'Exponential profile creates non-constant $dn/dx$ across device.');
+    if (_profileType == ProfileType.exponential &&
+        _gradientStrength.abs() > 0.5) {
+      obs.add(
+          r'Exponential profile creates non-constant $dn/dx$ across device.');
     }
 
     return obs;
@@ -701,8 +963,8 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
 
   List<String> _buildStaticObservations() {
     return [
-      r'Drift current: $J_{\\mathrm{drift}} = q n \mu E$, scales with field and density.',
-      r'Diffusion current: $J_{\\mathrm{diff}} = q D \frac{dn}{dx}$, scales with gradient.',
+      r'Drift current: $J_{\mathrm{drift}} = q n \mu E$, scales with field and density.',
+      r'Diffusion current: $J_{\mathrm{diff}} = q D \frac{dn}{dx}$, scales with gradient.',
       r'Electron and hole diffusion have opposite signs due to charge polarity.',
       r'Einstein relation: $D = \mu kT/q$ connects mobility and diffusivity.',
     ];
@@ -710,7 +972,6 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
 
   Widget _buildChartArea(BuildContext context, _ProfileData profiles) {
     final showDensity = _selectedPlot == 'n(x)' || _selectedPlot == 'All';
-    final showCurrent = _selectedPlot == 'J components' || _selectedPlot == 'All';
 
     if (_selectedPlot == 'All') {
       return Column(
@@ -807,8 +1068,10 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
               ),
             ),
           ),
-          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles:
+              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles:
+              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
         ),
         borderData: FlBorderData(show: true),
         lineBarsData: densityLines,
@@ -861,17 +1124,23 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
 
     if (_carrierMode != CarrierMode.holes) {
       if (_showComponents) {
-        addSeries(profiles.driftN, driftColor.withValues(alpha: 0.8), 'J_drift(n)');
-        addSeries(profiles.diffusionN, diffColor.withValues(alpha: 0.8), 'J_diff(n)');
+        addSeries(
+            profiles.driftN, driftColor.withValues(alpha: 0.8), 'J_drift(n)');
+        addSeries(
+            profiles.diffusionN, diffColor.withValues(alpha: 0.8), 'J_diff(n)');
       }
-      addSeries(profiles.totalN, totalColor.withValues(alpha: 0.9), 'J_total(n)');
+      addSeries(
+          profiles.totalN, totalColor.withValues(alpha: 0.9), 'J_total(n)');
     }
     if (_carrierMode != CarrierMode.electrons) {
       if (_showComponents) {
-        addSeries(profiles.driftP, driftColor.withValues(alpha: 0.5), 'J_drift(p)');
-        addSeries(profiles.diffusionP, diffColor.withValues(alpha: 0.5), 'J_diff(p)');
+        addSeries(
+            profiles.driftP, driftColor.withValues(alpha: 0.5), 'J_drift(p)');
+        addSeries(
+            profiles.diffusionP, diffColor.withValues(alpha: 0.5), 'J_diff(p)');
       }
-      addSeries(profiles.totalP, totalColor.withValues(alpha: 0.6), 'J_total(p)');
+      addSeries(
+          profiles.totalP, totalColor.withValues(alpha: 0.6), 'J_total(p)');
     }
 
     return LineChart(
@@ -927,8 +1196,10 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
               ),
             ),
           ),
-          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles:
+              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles:
+              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
         ),
         borderData: FlBorderData(show: true),
         extraLinesData: ExtraLinesData(
@@ -1025,10 +1296,3 @@ class _ProfileData {
     required this.D,
   });
 }
-
-
-
-
-
-
-

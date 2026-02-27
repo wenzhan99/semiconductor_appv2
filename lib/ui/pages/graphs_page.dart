@@ -1,5 +1,6 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
+import '../graphs/common/latex_rich_text.dart';
 import '../widgets/latex_text.dart';
 import 'carrier_concentration_graph_page.dart';
 import 'density_of_states_graph_page.dart';
@@ -24,7 +25,8 @@ class _GraphsPageState extends State<GraphsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final selectedTopic = _topics.firstWhere((t) => t.topicId == _selectedTopicId);
+    final selectedTopic =
+        _topics.firstWhere((t) => t.topicId == _selectedTopicId);
 
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -33,7 +35,10 @@ class _GraphsPageState extends State<GraphsPage> {
         children: [
           Text(
             'Graphs & Visualizations',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+            style: Theme.of(context)
+                .textTheme
+                .headlineSmall
+                ?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 8),
           Wrap(
@@ -44,13 +49,14 @@ class _GraphsPageState extends State<GraphsPage> {
                   (t) => ChoiceChip(
                     label: Text(t.topicTitle),
                     selected: _selectedTopicId == t.topicId,
-                    onSelected: (_) => setState(() => _selectedTopicId = t.topicId),
+                    onSelected: (_) =>
+                        setState(() => _selectedTopicId = t.topicId),
                   ),
                 )
                 .toList(),
           ),
           const SizedBox(height: 12),
-          Text(
+          _GraphLatexText(
             selectedTopic.topicDescription,
             style: Theme.of(context).textTheme.bodyMedium,
           ),
@@ -63,15 +69,25 @@ class _GraphsPageState extends State<GraphsPage> {
                 final sub = selectedTopic.subcategories[index];
                 return Card(
                   elevation: 2,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
                   child: Padding(
                     padding: const EdgeInsets.all(14),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(sub.subTitle, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                        _GraphLatexText(
+                          sub.subTitle,
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w700),
+                        ),
                         const SizedBox(height: 4),
-                        Text(sub.learningOutcome, style: Theme.of(context).textTheme.bodySmall),
+                        _GraphLatexText(
+                          sub.learningOutcome,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
                         const SizedBox(height: 8),
                         ...sub.graphs.map((g) => _GraphTile(info: g)).toList(),
                       ],
@@ -91,19 +107,28 @@ class _GraphsPageState extends State<GraphsPage> {
       GraphTopic(
         topicId: 'energy_band_structure',
         topicTitle: 'Energy & Band Structure',
-        topicDescription: 'Understand E-k relations, effective mass, and bandgap type.',
+        topicDescription:
+            'Understand E-k relations, effective mass, and bandgap type.',
         subcategories: [
           GraphSubcategory(
             subId: 'ek_dispersion',
             subTitle: 'E-k Dispersion',
-            learningOutcome: 'Relate curvature of E-k to effective mass and group velocity.',
+            learningOutcome:
+                'Relate curvature of E-k to effective mass and group velocity.',
             graphs: [
               GraphInfo(
                 graphId: 'graph_parabolic_band_dispersion',
                 title: 'Parabolic Band Dispersion (E-k)',
-                subtitle: 'Explore conduction/valence parabolas, effective masses, and group velocity.',
-                learningOutcome: 'See how curvature links to m* and v_g(k).',
-                inputsSummary: ['m*_e', 'm*_h', 'k-range', 'E0 offsets (Ec0/Ev0)'],
+                subtitle:
+                    'Explore conduction/valence parabolas, effective masses, and group velocity.',
+                learningOutcome:
+                    r'See how curvature links to $m^{*}$ and $v_{g}(k)$.',
+                inputsSummary: [
+                  'm*_e',
+                  'm*_h',
+                  'k-range',
+                  'E0 offsets (Ec0/Ev0)'
+                ],
                 builder: (context) => const ParabolicGraphPage(),
               ),
             ],
@@ -111,14 +136,21 @@ class _GraphsPageState extends State<GraphsPage> {
           GraphSubcategory(
             subId: 'direct_indirect',
             subTitle: 'Direct vs Indirect Bandgap',
-            learningOutcome: 'Compare CBM/VBM alignment in k-space and understand phonon-assisted transitions.',
+            learningOutcome:
+                'Compare CBM/VBM alignment in k-space and understand phonon-assisted transitions.',
             graphs: [
               GraphInfo(
                 graphId: 'graph_direct_vs_indirect_bandgap',
                 title: 'Direct vs Indirect Bandgap (Schematic E-k)',
-                subtitle: 'Compare VBM/CBM alignment in k-space, gap readouts, and photon/phonon transitions.',
-                learningOutcome: 'Distinguish direct gaps from indirect gaps in k-space.',
-                inputsSummary: ['Eg', 'k-offset (indirect)', 'display markers: VBM/CBM'],
+                subtitle:
+                    'Compare VBM/CBM alignment in k-space, gap readouts, and photon/phonon transitions.',
+                learningOutcome:
+                    'Distinguish direct gaps from indirect gaps in k-space.',
+                inputsSummary: [
+                  'Eg',
+                  'k-offset (indirect)',
+                  'display markers: VBM/CBM'
+                ],
                 builder: (context) => const DirectIndirectGraphPage(),
               ),
             ],
@@ -128,19 +160,23 @@ class _GraphsPageState extends State<GraphsPage> {
       GraphTopic(
         topicId: 'dos_statistics',
         topicTitle: 'Density of States & Statistics',
-        topicDescription: 'Connect DOS and occupancy to carrier population behavior.',
+        topicDescription:
+            'Connect DOS and occupancy to carrier population behavior.',
         subcategories: [
           GraphSubcategory(
             subId: 'occupancy',
             subTitle: 'Occupancy Probability',
-            learningOutcome: 'Visualize Fermi-Dirac distribution and thermal smearing with temperature.',
+            learningOutcome:
+                'Visualize Fermi-Dirac distribution and thermal smearing with temperature.',
             graphs: [
               GraphInfo(
                 graphId: 'graph_fermi_dirac_probability',
                 title: 'Fermi-Dirac Probability f(E) vs E',
-                subtitle: 'Interactive visualization of electron occupation probability. Adjust temperature and Fermi level.',
-                learningOutcome: 'See how T and E_F shift occupancy across the gap.',
-                inputsSummary: ['T', 'E_F', 'E-range', 'optional markers (0.1/0.5/0.9)'],
+                subtitle:
+                    'Interactive visualization of electron occupation probability. Adjust temperature and Fermi level.',
+                learningOutcome:
+                    'See how T and E_F shift occupancy across the gap.',
+                inputsSummary: ['T', 'E_F', 'E', 'f(E) markers'],
                 builder: (context) => const FermiDiracGraphPage(),
               ),
             ],
@@ -148,14 +184,17 @@ class _GraphsPageState extends State<GraphsPage> {
           GraphSubcategory(
             subId: 'dos_shape',
             subTitle: 'Density of States',
-            learningOutcome: 'See how DOS varies with energy and why available states matter beyond occupancy alone.',
+            learningOutcome:
+                'See how DOS varies with energy and why available states matter beyond occupancy alone.',
             graphs: [
               GraphInfo(
                 graphId: 'graph_density_of_states_vs_energy',
                 title: 'Density of States g(E) vs E (3D)',
-                subtitle: 'Show conduction and valence band DOS shapes and band-edge thresholds.',
-                learningOutcome: 'Connect band-edge thresholds to state availability.',
-                inputsSummary: ['m*_e', 'm*_h', 'E_c', 'E_v', 'E-range', 'constants (h)'],
+                subtitle:
+                    'Show conduction and valence band DOS shapes and band-edge thresholds.',
+                learningOutcome:
+                    'Connect band-edge thresholds to state availability.',
+                inputsSummary: ['m*_e', 'm*_h', 'E_c', 'E_v', 'E', 'hbar'],
                 builder: (context) => const DensityOfStatesGraphPage(),
                 isNew: true,
               ),
@@ -166,19 +205,26 @@ class _GraphsPageState extends State<GraphsPage> {
       GraphTopic(
         topicId: 'carrier_concentration_equilibrium',
         topicTitle: 'Carrier Concentration (Equilibrium)',
-        topicDescription: 'Understand how n, p, and n_i depend on temperature and Fermi level.',
+        topicDescription:
+            'Understand how n, p, and n_i depend on temperature and Fermi level.',
         subcategories: [
           GraphSubcategory(
             subId: 'intrinsic_vs_temperature',
             subTitle: 'Intrinsic Concentration Trends',
-            learningOutcome: 'Explore how n_i changes with temperature and bandgap (orders of magnitude).',
+            learningOutcome:
+                'Explore how n_i changes with temperature and bandgap (orders of magnitude).',
             graphs: [
               GraphInfo(
                 graphId: 'graph_intrinsic_carrier_concentration_vs_temperature',
                 title: 'Intrinsic Carrier Concentration vs Temperature',
-                subtitle: 'Explore how n_i varies exponentially with temperature and bandgap (log-scale).',
+                subtitle:
+                    'Explore how n_i varies exponentially with temperature and bandgap (log-scale).',
                 learningOutcome: 'Relate n_i, T, and E_g on a log scale.',
-                inputsSummary: ['T-range', 'E_g(T) model (optional)', 'N_c(T), N_v(T) model (optional)'],
+                inputsSummary: [
+                  'T-range',
+                  'E_g(T) model (optional)',
+                  'N_c(T), N_v(T) model (optional)'
+                ],
                 builder: (context) => const IntrinsicCarrierGraphPage(),
               ),
             ],
@@ -186,14 +232,21 @@ class _GraphsPageState extends State<GraphsPage> {
           GraphSubcategory(
             subId: 'np_vs_fermi_level',
             subTitle: 'n & p vs Fermi Level',
-            learningOutcome: 'See how shifting E_F across the bandgap changes electron and hole concentrations.',
+            learningOutcome:
+                'See how shifting E_F across the bandgap changes electron and hole concentrations.',
             graphs: [
               GraphInfo(
                 graphId: 'graph_carrier_concentration_vs_fermi_level',
                 title: 'Carrier Concentration vs Fermi Level (n & p vs E_F)',
-                subtitle: 'Log-scale view of n and p as E_F moves through the bandgap; includes band-edge markers and n_i reference.',
-                learningOutcome: 'Track n and p as E_F moves between E_c and E_v.',
-                inputsSummary: ['E_F sweep range', 'E_c, E_v, E_i markers', 'T'],
+                subtitle:
+                    'Log-scale view of n and p as E_F moves through the bandgap; includes band-edge markers and n_i reference.',
+                learningOutcome:
+                    'Track n and p as E_F moves between E_c and E_v.',
+                inputsSummary: [
+                  'E_F sweep range',
+                  'E_c, E_v, E_i markers',
+                  'T'
+                ],
                 builder: (context) => const CarrierConcentrationGraphPage(),
               ),
             ],
@@ -203,19 +256,29 @@ class _GraphsPageState extends State<GraphsPage> {
       GraphTopic(
         topicId: 'carrier_transport_fundamentals',
         topicTitle: 'Carrier Transport (Fundamentals)',
-        topicDescription: 'Compare drift and diffusion and how fields/gradients form total current.',
+        topicDescription:
+            'Compare drift and diffusion and how fields/gradients form total current.',
         subcategories: [
           GraphSubcategory(
             subId: 'drift_diffusion_1d',
             subTitle: 'Drift-Diffusion (1D)',
-            learningOutcome: 'Decompose total current into drift and diffusion components across a 1D profile.',
+            learningOutcome:
+                'Decompose total current into drift and diffusion components across a 1D profile.',
             graphs: [
               GraphInfo(
                 graphId: 'graph_drift_vs_diffusion_current_1d',
                 title: 'Drift vs Diffusion Current (1D)',
-                subtitle: 'Compare drift and diffusion current components across a 1D profile; see how gradients and fields add to J_total.',
-                learningOutcome: 'Understand J_drift + J_diffusion composition.',
-                inputsSummary: ['E(x) profile', 'n(x), p(x) profiles', 'mu_n, mu_p', 'D_n, D_p', 'q'],
+                subtitle:
+                    'Compare drift and diffusion current components across a 1D profile; see how gradients and fields add to J_total.',
+                learningOutcome:
+                    'Understand J_drift + J_diffusion composition.',
+                inputsSummary: [
+                  'E(x) profile',
+                  'n(x), p(x) profiles',
+                  'mu_n, mu_p',
+                  'D_n, D_p',
+                  'q'
+                ],
                 builder: (context) => const DriftDiffusionGraphPage(),
               ),
             ],
@@ -225,19 +288,29 @@ class _GraphsPageState extends State<GraphsPage> {
       GraphTopic(
         topicId: 'pn_junction',
         topicTitle: 'PN Junction',
-        topicDescription: 'Visualize depletion approximation, fields, potentials, and band diagrams under bias.',
+        topicDescription:
+            'Visualize depletion approximation, fields, potentials, and band diagrams under bias.',
         subcategories: [
           GraphSubcategory(
             subId: 'depletion_profiles',
-            subTitle: 'Depletion Profiles (rho, E, V)',
-            learningOutcome: 'Understand charge density, electric field shape, potential, and depletion widths in an abrupt PN junction.',
+            subTitle: r'Depletion Profiles ($\rho$, E, V)',
+            learningOutcome:
+                'Understand charge density, electric field shape, potential, and depletion widths in an abrupt PN junction.',
             graphs: [
               GraphInfo(
                 graphId: 'graph_pn_junction_depletion_profiles',
-                title: 'PN Junction Depletion Profiles (rho, E, V)',
-                subtitle: 'Abrupt junction depletion approximation with charge density, electric field, potential, and depletion widths under bias.',
-                learningOutcome: 'Connect doping to depletion width, field, and potential.',
-                inputsSummary: ['N_A, N_D', 'epsilon_s', 'V_A (bias)', 'T (optional)', 'built-in potential model'],
+                title: r'PN Junction Depletion Profiles ($\rho$, E, V)',
+                subtitle:
+                    'Abrupt junction depletion approximation with charge density, electric field, potential, and depletion widths under bias.',
+                learningOutcome:
+                    'Connect doping to depletion width, field, and potential.',
+                inputsSummary: [
+                  'N_A, N_D',
+                  'epsilon_s',
+                  'V_A (bias)',
+                  'T (optional)',
+                  'built-in potential model'
+                ],
                 builder: (context) => const PnDepletionGraphPage(),
               ),
             ],
@@ -245,14 +318,23 @@ class _GraphsPageState extends State<GraphsPage> {
           GraphSubcategory(
             subId: 'pn_band_diagram',
             subTitle: 'Band Diagram vs Position',
-            learningOutcome: 'Connect electrostatics to energy bands; see band bending at equilibrium and changes under bias.',
+            learningOutcome:
+                'Connect electrostatics to energy bands; see band bending at equilibrium and changes under bias.',
             graphs: [
               GraphInfo(
                 graphId: 'graph_pn_junction_band_diagram',
                 title: 'PN Junction Band Diagram (E vs x)',
-                subtitle: 'Show E_c(x), E_v(x), E_i(x), and quasi-Fermi levels under equilibrium/forward/reverse bias.',
-                learningOutcome: 'Relate bias to band bending and quasi-Fermi levels.',
-                inputsSummary: ['N_A, N_D', 'V_A (eq/fwd/rev)', 'T', 'E_g', 'optional: E_Fn, E_Fp'],
+                subtitle:
+                    'Show E_c(x), E_v(x), E_i(x), and quasi-Fermi levels under equilibrium/forward/reverse bias.',
+                learningOutcome:
+                    'Relate bias to band bending and quasi-Fermi levels.',
+                inputsSummary: [
+                  'N_A, N_D',
+                  'V_A (eq/fwd/rev)',
+                  'T',
+                  'E_g',
+                  'optional: E_Fn, E_Fp'
+                ],
                 builder: (context) => const PnBandDiagramGraphPage(),
                 isNew: true,
               ),
@@ -274,7 +356,10 @@ class _GraphTile extends StatelessWidget {
       margin: const EdgeInsets.symmetric(vertical: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+        color: Theme.of(context)
+            .colorScheme
+            .surfaceContainerHighest
+            .withValues(alpha: 0.4),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Column(
@@ -287,37 +372,42 @@ class _GraphTile extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(info.title, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                    _GraphLatexText(
+                      info.title,
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w700),
+                    ),
                     const SizedBox(height: 2),
-                    Text(info.subtitle, style: Theme.of(context).textTheme.bodySmall),
+                    _GraphLatexText(
+                      info.subtitle,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
                   ],
                 ),
               ),
-              if (info.isNew)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text('NEW', style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.w700)),
-                ),
             ],
           ),
           const SizedBox(height: 6),
-          Text(info.learningOutcome, style: Theme.of(context).textTheme.bodySmall),
+          _GraphLatexText(
+            info.learningOutcome,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
           const SizedBox(height: 6),
           Wrap(
             spacing: 6,
             runSpacing: 6,
-            children: info.inputsSummary.map((s) => _ChipLabel(raw: s)).toList(),
+            children:
+                info.inputsSummary.map((s) => _ChipLabel(raw: s)).toList(),
           ),
           const SizedBox(height: 8),
           Align(
             alignment: Alignment.centerRight,
             child: ElevatedButton.icon(
               onPressed: () {
-                Navigator.of(context).push(MaterialPageRoute(builder: info.builder));
+                Navigator.of(context)
+                    .push(MaterialPageRoute(builder: info.builder));
               },
               icon: const Icon(Icons.open_in_new),
               label: const Text('Open'),
@@ -383,6 +473,8 @@ class _ChipLabel extends StatelessWidget {
   const _ChipLabel({required this.raw});
 
   static const Map<String, String> _map = {
+    'm*': r'm^{*}',
+    'v_g(k)': r'v_{g}(k)',
     'm*_e': r'm_{e}^{*}',
     'm*_h': r'm_{h}^{*}',
     'm_n^*': r'm_{n}^{*}',
@@ -404,8 +496,11 @@ class _ChipLabel extends StatelessWidget {
     'k-offset (indirect)': r'k_0',
     'display markers: VBM/CBM': r'k_{VBM},k_{CBM}',
     'E-range': r'E',
+    'E': r'E',
+    'f(E) markers': r'f(E)=0.1,\,0.5,\,0.9',
     'optional markers (0.1/0.5/0.9)': r'0.1,0.5,0.9',
     'constants (h)': r'h',
+    'hbar': r'\hbar',
     'T-range': r'T',
     'E_g(T) model (optional)': r'E_{g}(T)',
     'N_c(T), N_v(T) model (optional)': r'N_{c}(T),N_{v}(T)',
@@ -423,27 +518,99 @@ class _ChipLabel extends StatelessWidget {
     'built-in potential model': r'V_{bi}',
     'V_A (eq/fwd/rev)': r'V_{A}',
     'optional: E_Fn, E_Fp': r'E_{Fn},E_{Fp}',
+    'J_total': r'J_{\mathrm{total}}',
+    'J_drift': r'J_{\mathrm{drift}}',
+    'J_diff': r'J_{\mathrm{diff}}',
+    'J_diffusion': r'J_{\mathrm{diff}}',
+    'n_i': r'n_{i}',
   };
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(6),
         border: Border.all(color: Theme.of(context).dividerColor),
       ),
-      child: _map.containsKey(raw)
-          ? LatexText(
-              _map[raw]!,
-              style: const TextStyle(fontSize: 12),
-            )
-          : Text(
-              raw,
-              style: const TextStyle(fontSize: 12),
-            ),
+      child: _GraphLatexText(
+        _map[raw] ?? raw,
+        style: const TextStyle(fontSize: 14.0, fontWeight: FontWeight.w600),
+        forceAsMathWhenMapped: _map.containsKey(raw),
+      ),
     );
   }
 }
 
+class _GraphLatexText extends StatelessWidget {
+  const _GraphLatexText(
+    this.raw, {
+    this.style,
+    this.forceAsMathWhenMapped = false,
+  });
+
+  final String raw;
+  final TextStyle? style;
+  final bool forceAsMathWhenMapped;
+
+  static const Map<String, String> _inlineTokenMap = {
+    'v_g(k)': r'v_{g}(k)',
+    'm*': r'm^{*}',
+    'J_total': r'J_{\mathrm{total}}',
+    'J_drift': r'J_{\mathrm{drift}}',
+    'J_diffusion': r'J_{\mathrm{diff}}',
+    'J_diff': r'J_{\mathrm{diff}}',
+    'n_i': r'n_{i}',
+    'E_F': r'E_{F}',
+    'E_g': r'E_{g}',
+    'E_c': r'E_{c}',
+    'E_v': r'E_{v}',
+    'E_i': r'E_{i}',
+    'N_c': r'N_{c}',
+    'N_v': r'N_{v}',
+    'N_A': r'N_{A}',
+    'N_D': r'N_{D}',
+    'V_A': r'V_{A}',
+    'V_bi': r'V_{bi}',
+    'E(x)': r'E(x)',
+    'n(x)': r'n(x)',
+    'p(x)': r'p(x)',
+    'mu_n': r'\mu_{n}',
+    'mu_p': r'\mu_{p}',
+    'D_n': r'D_{n}',
+    'D_p': r'D_{p}',
+    'm*_e': r'm_{e}^{*}',
+    'm*_h': r'm_{h}^{*}',
+    'm_n^*': r'm_{n}^{*}',
+    'm_p^*': r'm_{p}^{*}',
+  };
+
+  String _toInlineLatex(String input) {
+    final entries = _inlineTokenMap.entries.toList(growable: false)
+      ..sort((a, b) => b.key.length.compareTo(a.key.length));
+
+    var out = input;
+    for (final entry in entries) {
+      out = out.replaceAll(entry.key, '\$${entry.value}\$');
+    }
+    return out;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (forceAsMathWhenMapped) {
+      return LatexText(raw, style: style);
+    }
+
+    final parsed = _toInlineLatex(raw);
+    if (!parsed.contains(r'$')) {
+      return Text(raw, style: style);
+    }
+
+    return LatexRichText.parse(
+      parsed,
+      style: style,
+    );
+  }
+}

@@ -1,4 +1,5 @@
-﻿import 'dart:math' as math;
+import 'dart:math' as math;
+import 'dart:async';
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
@@ -10,7 +11,6 @@ import '../graphs/common/chart_toolbar.dart';
 import '../graphs/common/viewport_state.dart';
 import '../graphs/core/graph_config.dart';
 import '../graphs/core/standard_graph_page_scaffold.dart';
-import '../graphs/core/standard_panel_stack.dart';
 
 class DensityOfStatesGraphPage extends StatelessWidget {
   const DensityOfStatesGraphPage({super.key});
@@ -28,11 +28,31 @@ class _DensityOfStatesGraphView extends StatefulWidget {
   const _DensityOfStatesGraphView();
 
   @override
-  State<_DensityOfStatesGraphView> createState() => _DensityOfStatesGraphViewState();
+  State<_DensityOfStatesGraphView> createState() =>
+      _DensityOfStatesGraphViewState();
+}
+
+enum _DosAnimParam { bandgap, meEff, mhEff, energyWindow, fermiOffset }
+
+class _DosPointRef {
+  final String band; // Conduction | Valence
+  final FlSpot spot;
+
+  const _DosPointRef({
+    required this.band,
+    required this.spot,
+  });
 }
 
 class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
     with GraphController {
+  static const int _maxPins = 2;
+  static const Color _pinBlue = Color(0xFF1E88E5);
+  static const Color _pinRed = Color(0xFFE53935);
+  static const String _dosEquationLatex =
+      r'g_c(E)=\frac{1}{2\pi^2}\left(\frac{2m_e^{*}}{\hbar^2}\right)^{3/2}\sqrt{E-E_c},\quad '
+      r'g_v(E)=\frac{1}{2\pi^2}\left(\frac{2m_h^{*}}{\hbar^2}\right)^{3/2}\sqrt{E_v-E}';
+
   // Parameters
   double _eg = 1.12;
   double _meEff = 0.26;
@@ -40,9 +60,20 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
   double _energyWindow = 1.0;
   double _fermiOffset = 0.0;
 
-  // Selection
-  FlSpot? _selectedPoint;
-  String? _selectedBand;
+  // Selection / interaction
+  _DosPointRef? _hoverPoint;
+  final List<_DosPointRef> _pinnedPoints = [];
+
+  // Animation state
+  bool _isAnimating = false;
+  double _animProgress = 0.0;
+  double _animSpeed = 1.0;
+  bool _loopEnabled = true;
+  bool _reverseDirection = false;
+  double _animDirection = 1.0;
+  _DosAnimParam _animParam = _DosAnimParam.bandgap;
+  late final Map<_DosAnimParam, RangeValues> _animRanges;
+  Timer? _animTimer;
 
   // Viewport
   late ViewportState _viewport;
@@ -64,6 +95,19 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
       defaultMinY: 0,
       defaultMaxY: 1,
     );
+    _animRanges = {
+      _DosAnimParam.bandgap: const RangeValues(0.4, 2.5),
+      _DosAnimParam.meEff: const RangeValues(0.05, 2.0),
+      _DosAnimParam.mhEff: const RangeValues(0.05, 2.0),
+      _DosAnimParam.energyWindow: const RangeValues(0.2, 1.6),
+      _DosAnimParam.fermiOffset: const RangeValues(-1.5, 1.5),
+    };
+  }
+
+  @override
+  void dispose() {
+    _animTimer?.cancel();
+    super.dispose();
   }
 
   @override
@@ -84,21 +128,22 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
     final panelConfig = _buildPanelConfig(ec, ev);
 
     return StandardGraphPageScaffold(
-      config: const GraphConfig(
+      config: panelConfig.copyWith(
         title: 'Density of States g(E) vs Energy',
         subtitle: 'DOS & Statistics',
-        mainEquation:
-            r'g_c(E)=\frac{1}{2\pi^{2}}\!\left(\frac{2m_e^{*}}{\hbar^{2}}\right)^{\frac{3}{2}}\!\sqrt{E-E_c},\quad'
-            r'g_v(E)=\frac{1}{2\pi^{2}}\!\left(\frac{2m_h^{*}}{\hbar^{2}}\right)^{\frac{3}{2}}\!\sqrt{E_v-E}',
-        controls: ControlsConfig(children: []),
+        mainEquation: _dosEquationLatex,
       ),
       aboutSection: _buildAboutCard(context),
       observeSection: _buildObserveCard(context),
+      placeSectionsInWideLeftColumn: true,
+      useTwoColumnRightPanelInWide: true,
+      wideLeftColumnSectionIds: const ['point_inspector', 'animation'],
+      wideRightColumnSectionIds: const ['notes', 'controls'],
       chartBuilder: (context) => _buildChartCard(context, data, ec, ev),
-      rightPanelBuilder: (context, config) => StandardPanelStack(config: panelConfig),
     );
   }
 
+  // ignore: unused_element
   Widget _buildHeader(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -121,15 +166,18 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
           child: Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primary.withOpacity(0.05),
+              color:
+                  Theme.of(context).colorScheme.primary.withValues(alpha: 0.05),
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
-                color: Theme.of(context).colorScheme.primary.withOpacity(0.2),
+                color: Theme.of(context)
+                    .colorScheme
+                    .primary
+                    .withValues(alpha: 0.2),
               ),
             ),
             child: const LatexText(
-              r'g_c(E)=\frac{1}{2\pi^{2}}\!\left(\frac{2m_e^{*}}{\hbar^{2}}\right)^{\frac{3}{2}}\!\sqrt{E-E_c},\quad'
-              r'g_v(E)=\frac{1}{2\pi^{2}}\!\left(\frac{2m_h^{*}}{\hbar^{2}}\right)^{\frac{3}{2}}\!\sqrt{E_v-E}',
+              _dosEquationLatex,
               displayMode: true,
               scale: 1.05,
             ),
@@ -181,13 +229,21 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _bullet(r'$g(E)$ rises as $\sqrt{|E-E_{c,v}|}$; heavier $m^*$ raises DOS.'),
-              _bullet(r'Conduction DOS starts at $E_c$; valence DOS starts at $E_v$.'),
-              _bullet(r'Fermi level ($E_F$) positioning + DOS shape explains carrier counts.'),
+              _bullet(
+                  r'$g(E)$ rises as $\sqrt{|E-E_{c,v}|}$; heavier $m^*$ raises DOS.'),
+              _bullet(
+                  r'Conduction DOS starts at $E_c$; valence DOS starts at $E_v$.'),
+              _bullet(
+                  r'Fermi level ($E_F$) positioning + DOS shape explains carrier counts.'),
               const SizedBox(height: 8),
-              Text('Try this:', style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
+              Text('Try this:',
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(fontWeight: FontWeight.w700)),
               _bullet(r'Change $m_e^*$ and $m_h^*$ to see asymmetric DOS.'),
-              _bullet(r'Move $E_F$ and observe overlap with conduction/valence DOS.'),
+              _bullet(
+                  r'Move $E_F$ and observe overlap with conduction/valence DOS.'),
               _bullet('Adjust bandgap to see how the DOS gap changes.'),
             ],
           ),
@@ -220,7 +276,8 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
         if (buffer.isNotEmpty) {
           parts.add(inLatex
               ? LatexText(buffer.toString(), scale: 1.0)
-              : Text(buffer.toString(), style: Theme.of(context).textTheme.bodyMedium));
+              : Text(buffer.toString(),
+                  style: Theme.of(context).textTheme.bodyMedium));
           buffer.clear();
         }
         inLatex = !inLatex;
@@ -231,7 +288,8 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
     if (buffer.isNotEmpty) {
       parts.add(inLatex
           ? LatexText(buffer.toString(), scale: 1.0)
-          : Text(buffer.toString(), style: Theme.of(context).textTheme.bodyMedium));
+          : Text(buffer.toString(),
+              style: Theme.of(context).textTheme.bodyMedium));
     }
     return Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: parts);
   }
@@ -239,12 +297,23 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
   GraphConfig _buildPanelConfig(double ec, double ev) {
     final dynamicObservations = _buildDynamicObservations(ec, ev);
     return GraphConfig(
-      readouts: _buildReadouts(ec, ev),
       pointInspector: _buildPointInspectorConfig(),
+      animation: _buildAnimationConfig(),
       insights: InsightsConfig(
-        dynamicObservations: dynamicObservations.isEmpty ? null : dynamicObservations,
+        dynamicObservations:
+            dynamicObservations.isEmpty ? null : dynamicObservations,
         staticObservations: _buildStaticObservations(),
-        dynamicTitle: _selectedPoint != null ? 'Selected Point' : null,
+        dynamicTitle: _pinnedPoints.isNotEmpty
+            ? 'From Your Pins'
+            : (_hoverPoint != null ? 'Current Hover' : null),
+        pinnedCount: _pinnedPoints.length,
+        maxPins: _maxPins,
+        onClearPins: _pinnedPoints.isEmpty
+            ? null
+            : () => updateChart(() {
+                  _pinnedPoints.clear();
+                  _hoverPoint = null;
+                }),
       ),
       controls: ControlsConfig(
         children: _buildControlsChildren(),
@@ -254,6 +323,7 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
     );
   }
 
+  // ignore: unused_element
   List<ReadoutItem> _buildReadouts(double ec, double ev) {
     final dosAtEc = _dosCoeff(_meEff) * math.sqrt(0.1);
     final dosAtEv = _dosCoeff(_mhEff) * math.sqrt(0.1);
@@ -290,146 +360,449 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
   }
 
   PointInspectorConfig _buildPointInspectorConfig() {
+    final pinned = _pinnedPoints.isNotEmpty ? _pinnedPoints.last : null;
+    final hover = _hoverPoint;
     return PointInspectorConfig(
       enabled: true,
-      emptyMessage: 'Tap the chart to inspect a point.',
+      emptyMessage: 'Hover DOS curves to inspect values. Tap to pin.',
       onClear: () => updateChart(() {
-        _selectedPoint = null;
-        _selectedBand = null;
+        _hoverPoint = null;
+        _pinnedPoints.clear();
       }),
-      builder: _selectedPoint == null
+      interactionHint:
+          'Tap curve to pin/unpin (max $_maxPins); tap empty area to clear.',
+      isPinned: pinned != null,
+      builder: (pinned == null && hover == null)
           ? null
           : () {
-              final spot = _selectedPoint!;
-        return [
-          'Band: ${_selectedBand ?? "Unknown"}',
-          'Energy: ${spot.x.toStringAsFixed(3)} eV',
-          'DOS: ${spot.y.toStringAsPrecision(4)}',
-          'Distance to band edge: ${_distanceToBandEdge(spot.x).toStringAsFixed(3)} eV',
-        ];
-      },
+              final lines = <String>[];
+              if (pinned != null) {
+                final edgeDelta =
+                    _distanceToBandEdge(pinned.spot.x, pinned.band);
+                lines.add('Pinned band: ${pinned.band}');
+                lines.add(
+                    'Pinned energy = ${pinned.spot.x.toStringAsFixed(3)}\\,\\mathrm{eV}');
+                lines.add(
+                    'Pinned DOS = ${pinned.spot.y.toStringAsPrecision(4)}');
+                lines.add(
+                    'Pinned distance to edge = ${edgeDelta.toStringAsFixed(3)}\\,\\mathrm{eV}');
+              }
+              if (hover != null) {
+                final edgeDelta = _distanceToBandEdge(hover.spot.x, hover.band);
+                lines.add('Hover band: ${hover.band}');
+                lines.add(
+                    'Hover energy = ${hover.spot.x.toStringAsFixed(3)}\\,\\mathrm{eV}');
+                lines.add('Hover DOS = ${hover.spot.y.toStringAsPrecision(4)}');
+                lines.add(
+                    'Hover distance to edge = ${edgeDelta.toStringAsFixed(3)}\\,\\mathrm{eV}');
+              }
+              return lines;
+            },
     );
   }
 
-  double _distanceToBandEdge(double e) {
+  double _distanceToBandEdge(double e, String band) {
     final ec = _eg / 2;
     final ev = -_eg / 2;
-    if (_selectedBand == 'Conduction') {
+    if (band == 'Conduction') {
       return (e - ec).abs();
     } else {
       return (ev - e).abs();
     }
   }
 
+  Color _pinColorForIndex(int index) => index.isEven ? _pinBlue : _pinRed;
+
+  Color _hoverColorForBand(String band) =>
+      band == 'Conduction' ? _pinBlue : _pinRed;
+
+  bool _samePointRef(_DosPointRef a, _DosPointRef b) =>
+      a.band == b.band &&
+      (a.spot.x - b.spot.x).abs() < 1e-6 &&
+      (a.spot.y - b.spot.y).abs() < 1e-6;
+
+  void _togglePinnedPoint(_DosPointRef point) {
+    final existing = _pinnedPoints.indexWhere((p) => _samePointRef(p, point));
+    if (existing >= 0) {
+      _pinnedPoints.removeAt(existing);
+      return;
+    }
+    _pinnedPoints.add(point);
+    if (_pinnedPoints.length > _maxPins) {
+      _pinnedPoints.removeAt(0);
+    }
+  }
+
+  String _animParamId(_DosAnimParam param) {
+    switch (param) {
+      case _DosAnimParam.bandgap:
+        return 'eg';
+      case _DosAnimParam.meEff:
+        return 'me';
+      case _DosAnimParam.mhEff:
+        return 'mh';
+      case _DosAnimParam.energyWindow:
+        return 'pad';
+      case _DosAnimParam.fermiOffset:
+        return 'ef';
+    }
+  }
+
+  _DosAnimParam _animParamFromId(String id) {
+    switch (id) {
+      case 'eg':
+        return _DosAnimParam.bandgap;
+      case 'me':
+        return _DosAnimParam.meEff;
+      case 'mh':
+        return _DosAnimParam.mhEff;
+      case 'pad':
+        return _DosAnimParam.energyWindow;
+      case 'ef':
+      default:
+        return _DosAnimParam.fermiOffset;
+    }
+  }
+
+  String _animParamLabel(_DosAnimParam param) {
+    switch (param) {
+      case _DosAnimParam.bandgap:
+        return r'E_g (bandgap)';
+      case _DosAnimParam.meEff:
+        return r'm_e^* / m_0 (electrons)';
+      case _DosAnimParam.mhEff:
+        return r'm_h^* / m_0 (holes)';
+      case _DosAnimParam.energyWindow:
+        return r'\Delta E_{\mathrm{pad}}';
+      case _DosAnimParam.fermiOffset:
+        return 'E_F (offset)';
+    }
+  }
+
+  String _animParamSymbol(_DosAnimParam param) {
+    switch (param) {
+      case _DosAnimParam.bandgap:
+        return r'E_g';
+      case _DosAnimParam.meEff:
+        return r'm_e^* / m_0';
+      case _DosAnimParam.mhEff:
+        return r'm_h^* / m_0';
+      case _DosAnimParam.energyWindow:
+        return r'\Delta E_{\mathrm{pad}}';
+      case _DosAnimParam.fermiOffset:
+        return r'E_F';
+    }
+  }
+
+  String _animParamUnit(_DosAnimParam param) {
+    switch (param) {
+      case _DosAnimParam.bandgap:
+      case _DosAnimParam.energyWindow:
+      case _DosAnimParam.fermiOffset:
+        return r'\mathrm{eV}';
+      case _DosAnimParam.meEff:
+      case _DosAnimParam.mhEff:
+        return '';
+    }
+  }
+
+  double _getCurrentAnimValue(_DosAnimParam param) {
+    switch (param) {
+      case _DosAnimParam.bandgap:
+        return _eg;
+      case _DosAnimParam.meEff:
+        return _meEff;
+      case _DosAnimParam.mhEff:
+        return _mhEff;
+      case _DosAnimParam.energyWindow:
+        return _energyWindow;
+      case _DosAnimParam.fermiOffset:
+        return _fermiOffset;
+    }
+  }
+
+  void _setCurrentAnimValue(_DosAnimParam param, double value) {
+    switch (param) {
+      case _DosAnimParam.bandgap:
+        _eg = double.parse(value.toStringAsFixed(3));
+        break;
+      case _DosAnimParam.meEff:
+        _meEff = double.parse(value.toStringAsFixed(3));
+        break;
+      case _DosAnimParam.mhEff:
+        _mhEff = double.parse(value.toStringAsFixed(3));
+        break;
+      case _DosAnimParam.energyWindow:
+        _energyWindow = double.parse(value.toStringAsFixed(2));
+        break;
+      case _DosAnimParam.fermiOffset:
+        _fermiOffset = double.parse(value.toStringAsFixed(3));
+        break;
+    }
+  }
+
+  void _toggleAnimation() {
+    if (_isAnimating) {
+      _stopAnimation();
+    } else {
+      _animDirection = _reverseDirection ? -1.0 : 1.0;
+      _startAnimation();
+    }
+  }
+
+  void _startAnimation() {
+    if (_isAnimating) return;
+    setState(() => _isAnimating = true);
+    _animTimer = Timer.periodic(const Duration(milliseconds: 36), (_) {
+      if (!mounted) return;
+      _stepAnimation();
+    });
+  }
+
+  void _stopAnimation() {
+    _animTimer?.cancel();
+    if (!mounted) return;
+    setState(() => _isAnimating = false);
+  }
+
+  void _restartAnimation() {
+    _animTimer?.cancel();
+    setState(() {
+      _animProgress = 0.0;
+      _isAnimating = false;
+      bumpChart();
+    });
+    _toggleAnimation();
+  }
+
+  void _stepAnimation() {
+    var shouldStop = false;
+    setState(() {
+      _animProgress += 0.01 * _animSpeed * _animDirection;
+      if (_animProgress > 1.0 || _animProgress < 0.0) {
+        if (_loopEnabled) {
+          _animProgress = _animProgress < 0 ? 1.0 : 0.0;
+        } else {
+          _animProgress = _animProgress.clamp(0.0, 1.0);
+          shouldStop = true;
+        }
+      }
+      final range = _animRanges[_animParam]!;
+      final value = range.start +
+          (_animProgress.clamp(0.0, 1.0) * (range.end - range.start));
+      _setCurrentAnimValue(_animParam, value);
+      _hoverPoint = null;
+      _pinnedPoints.clear();
+      bumpChart();
+    });
+    if (shouldStop) {
+      _stopAnimation();
+    }
+  }
+
+  AnimationConfig _buildAnimationConfig() {
+    final params = _DosAnimParam.values.map((param) {
+      final range = _animRanges[param]!;
+      final isSelected = _animParam == param;
+      return AnimatableParameter(
+        id: _animParamId(param),
+        label: _animParamLabel(param),
+        symbol: _animParamSymbol(param),
+        unit: _animParamUnit(param),
+        currentValue: _getCurrentAnimValue(param),
+        rangeMin: range.start,
+        rangeMax: range.end,
+        absoluteMin: range.start,
+        absoluteMax: range.end,
+        enabled: isSelected,
+        onEnabledChanged: (enabled) {
+          if (!enabled) return;
+          setState(() {
+            _animParam = param;
+            _animProgress = 0.0;
+          });
+        },
+        onValueChanged: (value) {
+          _stopAnimation();
+          setState(() {
+            _setCurrentAnimValue(param, value);
+            _hoverPoint = null;
+            _pinnedPoints.clear();
+            bumpChart();
+          });
+        },
+        onRangeChanged: (min, max) {
+          setState(() {
+            _animRanges[param] = RangeValues(min, max);
+          });
+        },
+      );
+    }).toList();
+
+    return AnimationConfig(
+      parameters: params,
+      selectedParameterId: _animParamId(_animParam),
+      onParameterSelected: (id) {
+        setState(() {
+          _animParam = _animParamFromId(id);
+          _animProgress = 0.0;
+        });
+      },
+      state: AnimationState(
+        isPlaying: _isAnimating,
+        speed: _animSpeed,
+        reverse: _reverseDirection,
+        loop: _loopEnabled,
+        progress: _isAnimating ? _animProgress : null,
+      ),
+      callbacks: AnimationCallbacks(
+        onPlay: _toggleAnimation,
+        onPause: _stopAnimation,
+        onRestart: _restartAnimation,
+        onSpeedChanged: (speed) => setState(() => _animSpeed = speed),
+        onReverseChanged: (reverse) =>
+            setState(() => _reverseDirection = reverse),
+        onLoopChanged: (loop) => setState(() => _loopEnabled = loop),
+      ),
+    );
+  }
+
   List<Widget> _buildControlsChildren() {
     return [
-        ParameterSlider(
-          label: r'Bandgap $E_g$ (eV)',
-          value: _eg,
-          min: 0.4,
-          max: 2.5,
-          divisions: 210,
-          onChanged: (v) {
-            setState(() => _eg = double.parse(v.toStringAsFixed(3)));
+      ParameterSlider(
+        label: r'Bandgap $E_g$ (eV)',
+        value: _eg,
+        min: 0.4,
+        max: 2.5,
+        divisions: 210,
+        onChanged: (v) {
+          _stopAnimation();
+          setState(() {
+            _eg = double.parse(v.toStringAsFixed(3));
+            _hoverPoint = null;
+            _pinnedPoints.clear();
             bumpChart();
-          },
-        ),
-        ParameterSlider(
-          label: r'$m_e^*$ / $m_0$ (electrons)',
-          value: _meEff,
-          min: 0.05,
-          max: 2.0,
-          divisions: 195,
-          onChanged: (v) {
-            setState(() => _meEff = double.parse(v.toStringAsFixed(3)));
+          });
+        },
+      ),
+      ParameterSlider(
+        label: r'$m_e^*$ / $m_0$ (electrons)',
+        value: _meEff,
+        min: 0.05,
+        max: 2.0,
+        divisions: 195,
+        onChanged: (v) {
+          _stopAnimation();
+          setState(() {
+            _meEff = double.parse(v.toStringAsFixed(3));
+            _hoverPoint = null;
+            _pinnedPoints.clear();
             bumpChart();
-          },
-          subtitle: 'Affects conduction DOS',
-        ),
-        ParameterSlider(
-          label: r'$m_h^*$ / $m_0$ (holes)',
-          value: _mhEff,
-          min: 0.05,
-          max: 2.0,
-          divisions: 195,
-          onChanged: (v) {
-            setState(() => _mhEff = double.parse(v.toStringAsFixed(3)));
+          });
+        },
+        subtitle: 'Affects conduction DOS',
+      ),
+      ParameterSlider(
+        label: r'$m_h^*$ / $m_0$ (holes)',
+        value: _mhEff,
+        min: 0.05,
+        max: 2.0,
+        divisions: 195,
+        onChanged: (v) {
+          _stopAnimation();
+          setState(() {
+            _mhEff = double.parse(v.toStringAsFixed(3));
+            _hoverPoint = null;
+            _pinnedPoints.clear();
             bumpChart();
-          },
-          subtitle: 'Affects valence DOS',
-        ),
-        ParameterSlider(
-          label: 'Energy padding (eV)',
-          value: _energyWindow,
-          min: 0.2,
-          max: 1.6,
-          divisions: 140,
-          onChanged: (v) {
-            setState(() => _energyWindow = double.parse(v.toStringAsFixed(2)));
+          });
+        },
+        subtitle: 'Affects valence DOS',
+      ),
+      ParameterSlider(
+        label: 'Energy padding (eV)',
+        value: _energyWindow,
+        min: 0.2,
+        max: 1.6,
+        divisions: 140,
+        onChanged: (v) {
+          _stopAnimation();
+          setState(() {
+            _energyWindow = double.parse(v.toStringAsFixed(2));
+            _hoverPoint = null;
+            _pinnedPoints.clear();
             bumpChart();
-          },
-          subtitle: 'Viewing range around band edges',
-        ),
-        ParameterSlider(
-          label: r'$E_F$ offset (eV, midgap = 0)',
-          value: _fermiOffset,
-          min: -1.5,
-          max: 1.5,
-          divisions: 300,
-          onChanged: (v) {
-            setState(() => _fermiOffset = double.parse(v.toStringAsFixed(3)));
+          });
+        },
+        subtitle: 'Viewing range around band edges',
+      ),
+      ParameterSlider(
+        label: r'$E_F$ offset (eV, midgap = 0)',
+        value: _fermiOffset,
+        min: -1.5,
+        max: 1.5,
+        divisions: 300,
+        onChanged: (v) {
+          _stopAnimation();
+          setState(() {
+            _fermiOffset = double.parse(v.toStringAsFixed(3));
+            _hoverPoint = null;
+            _pinnedPoints.clear();
             bumpChart();
-          },
-          subtitle: 'Fermi level position',
+          });
+        },
+        subtitle: 'Fermi level position',
+      ),
+      const SizedBox(height: 8),
+      ElevatedButton.icon(
+        onPressed: () {
+          _stopAnimation();
+          updateChart(() {
+            _eg = 1.12;
+            _meEff = 0.26;
+            _mhEff = 0.39;
+            _energyWindow = 1.0;
+            _fermiOffset = 0.0;
+            _hoverPoint = null;
+            _pinnedPoints.clear();
+          });
+        },
+        icon: const Icon(Icons.restart_alt, size: 18),
+        label: const Text('Reset to Silicon'),
+        style: ElevatedButton.styleFrom(
+          minimumSize: const Size(double.infinity, 36),
         ),
-        const SizedBox(height: 8),
-        ElevatedButton.icon(
-          onPressed: () {
-            updateChart(() {
-              _eg = 1.12;
-              _meEff = 0.26;
-              _mhEff = 0.39;
-              _energyWindow = 1.0;
-              _fermiOffset = 0.0;
-            });
-          },
-          icon: const Icon(Icons.restart_alt, size: 18),
-          label: const Text('Reset to Silicon'),
-          style: ElevatedButton.styleFrom(
-            minimumSize: const Size(double.infinity, 36),
-          ),
-        ),
+      ),
     ];
   }
 
   List<String> _buildDynamicObservations(double ec, double ev) {
-    if (_selectedPoint == null) return [];
-
-    final e = _selectedPoint!.x;
-    final dos = _selectedPoint!.y;
     final obs = <String>[];
-
-    if (_selectedBand == 'Conduction') {
-      final deltaE = e - ec;
-      obs.add(
-          'Selected conduction DOS at \$E = ${e.toStringAsFixed(3)}\$ eV, \$\\Delta E = ${deltaE.toStringAsFixed(3)}\$ eV above \$E_c\$.');
-      obs.add('DOS value: ${dos.toStringAsPrecision(4)} (arb. units).');
-      obs.add(
-          r'DOS $\propto \sqrt{\Delta E}$; doubling $\Delta E$ increases DOS by $\times\sqrt{2} \approx 1.41$.');
-    } else if (_selectedBand == 'Valence') {
-      final deltaE = ev - e;
-      obs.add(
-          'Selected valence DOS at \$E = ${e.toStringAsFixed(3)}\$ eV, \$\\Delta E = ${deltaE.toStringAsFixed(3)}\$ eV below \$E_v\$.');
-      obs.add('DOS value: ${dos.toStringAsPrecision(4)} (arb. units).');
-      obs.add(
-          r'DOS $\propto \sqrt{\Delta E}$; doubling $\Delta E$ increases DOS by $\times\sqrt{2} \approx 1.41$.');
+    for (var i = 0; i < _pinnedPoints.length; i++) {
+      final pin = _pinnedPoints[i];
+      final e = pin.spot.x;
+      final dos = pin.spot.y;
+      final deltaE = pin.band == 'Conduction' ? (e - ec).abs() : (ev - e).abs();
+      final edge = pin.band == 'Conduction' ? r'E_c' : r'E_v';
+      obs.add('Pin ${i + 1} (${pin.band}): '
+          '\$E = ${e.toStringAsFixed(3)}\\,\\mathrm{eV}\$, '
+          'DOS = ${dos.toStringAsPrecision(4)}, '
+          '\$\\Delta E = ${deltaE.toStringAsFixed(3)}\\,\\mathrm{eV}\$ '
+          'from \$$edge\$.');
     }
 
-    // Fermi level context
-    final deltaEf = (_fermiOffset - e).abs();
-    if (deltaEf < 0.2) {
-      obs.add(
-          r'Selected point is near $E_F$ ($\Delta E_F < 0.2$ eV) -> high occupation/depletion probability.');
+    if (_hoverPoint != null) {
+      final hover = _hoverPoint!;
+      final e = hover.spot.x;
+      final dos = hover.spot.y;
+      final deltaE =
+          hover.band == 'Conduction' ? (e - ec).abs() : (ev - e).abs();
+      final edge = hover.band == 'Conduction' ? r'E_c' : r'E_v';
+      obs.add('Current hover (${hover.band}): '
+          '\$E = ${e.toStringAsFixed(3)}\\,\\mathrm{eV}\$, '
+          'DOS = ${dos.toStringAsPrecision(4)}, '
+          '\$\\Delta E = ${deltaE.toStringAsFixed(3)}\\,\\mathrm{eV}\$ '
+          'from \$$edge\$.');
     }
 
     return obs;
@@ -444,7 +817,8 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
     ];
   }
 
-  Widget _buildChartCard(BuildContext context, _DosData data, double ec, double ev) {
+  Widget _buildChartCard(
+      BuildContext context, _DosData data, double ec, double ev) {
     return Card(
       elevation: 1,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -460,9 +834,12 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
                     spacing: 12,
                     runSpacing: 6,
                     children: [
-                      _legendSwatch(Theme.of(context).colorScheme.primary, 'Conduction'),
-                      _legendSwatch(Theme.of(context).colorScheme.tertiary, 'Valence'),
-                      _legendLine(Theme.of(context).colorScheme.error, r'$E_F$'),
+                      _legendSwatch(
+                          Theme.of(context).colorScheme.primary, 'Conduction'),
+                      _legendSwatch(
+                          Theme.of(context).colorScheme.tertiary, 'Valence'),
+                      _legendLine(
+                          Theme.of(context).colorScheme.error, r'$E_F$'),
                     ],
                   ),
                 ),
@@ -515,15 +892,69 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
           ),
         ),
         const SizedBox(width: 6),
-        Text(label, style: const TextStyle(fontSize: 12)),
+        LatexText(label, scale: 0.95, style: const TextStyle(fontSize: 12)),
       ],
     );
   }
 
-  Widget _buildChart(BuildContext context, _DosData data, double ec, double ev) {
+  Widget _buildChart(
+      BuildContext context, _DosData data, double ec, double ev) {
     final conductionColor = Theme.of(context).colorScheme.primary;
     final valenceColor = Theme.of(context).colorScheme.tertiary;
     final efColor = Theme.of(context).colorScheme.error;
+    final hover = _hoverPoint;
+
+    final lineBars = <LineChartBarData>[
+      LineChartBarData(
+        spots: data.conduction,
+        isCurved: false,
+        color: conductionColor,
+        barWidth: 2,
+        dotData: const FlDotData(show: false),
+      ),
+      LineChartBarData(
+        spots: data.valence,
+        isCurved: false,
+        color: valenceColor,
+        barWidth: 2,
+        dotData: const FlDotData(show: false),
+      ),
+      ..._pinnedPoints.asMap().entries.map(
+            (entry) => LineChartBarData(
+              spots: [entry.value.spot],
+              isCurved: false,
+              color: Colors.transparent,
+              barWidth: 0,
+              dotData: FlDotData(
+                show: true,
+                checkToShowDot: (_, __) => true,
+                getDotPainter: (_, __, ___, ____) => FlDotCirclePainter(
+                  color: _pinColorForIndex(entry.key),
+                  radius: 5.0,
+                  strokeColor: Colors.white,
+                  strokeWidth: 2.0,
+                ),
+              ),
+            ),
+          ),
+      if (hover != null && !_pinnedPoints.any((p) => _samePointRef(p, hover)))
+        LineChartBarData(
+          spots: [hover.spot],
+          isCurved: false,
+          color: Colors.transparent,
+          barWidth: 0,
+          dotData: FlDotData(
+            show: true,
+            checkToShowDot: (_, __) => true,
+            getDotPainter: (_, __, ___, ____) => FlDotCirclePainter(
+              color: _hoverColorForBand(hover.band).withValues(alpha: 0.22),
+              radius: 5.8,
+              strokeColor: _hoverColorForBand(hover.band),
+              strokeWidth: 2.4,
+            ),
+          ),
+        ),
+    ];
 
     return LineChart(
       key: ValueKey('dos-$chartVersion'),
@@ -543,7 +974,7 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
           verticalLines: [
             VerticalLine(
               x: ec,
-              color: conductionColor.withOpacity(0.45),
+              color: conductionColor.withValues(alpha: 0.45),
               dashArray: [6, 4],
               label: VerticalLineLabel(
                 show: true,
@@ -554,7 +985,7 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
             ),
             VerticalLine(
               x: ev,
-              color: valenceColor.withOpacity(0.45),
+              color: valenceColor.withValues(alpha: 0.45),
               dashArray: [6, 4],
               label: VerticalLineLabel(
                 show: true,
@@ -565,7 +996,7 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
             ),
             VerticalLine(
               x: _fermiOffset,
-              color: efColor.withOpacity(0.5),
+              color: efColor.withValues(alpha: 0.5),
               strokeWidth: 2,
               dashArray: [4, 4],
               label: VerticalLineLabel(
@@ -586,64 +1017,116 @@ class _DensityOfStatesGraphViewState extends State<_DensityOfStatesGraphView>
             axisNameWidget: Text('Energy (eV, midgap = 0)'),
             sideTitles: SideTitles(showTitles: true, reservedSize: 32),
           ),
-          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles:
+              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles:
+              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
         ),
         gridData: const FlGridData(show: true),
         borderData: FlBorderData(show: true),
         lineTouchData: LineTouchData(
           enabled: true,
+          handleBuiltInTouches: true,
+          touchSpotThreshold: 28,
+          distanceCalculator: (touchPoint, spotPixelCoordinates) {
+            final delta = touchPoint - spotPixelCoordinates;
+            return delta.distance;
+          },
           getTouchedSpotIndicator: (bar, indexes) {
             return indexes
                 .map(
                   (_) => TouchedSpotIndicatorData(
-                    FlLine(color: bar.color?.withOpacity(0.4), dashArray: [4, 4], strokeWidth: 1),
+                    FlLine(
+                        color: bar.color?.withValues(alpha: 0.4),
+                        dashArray: [4, 4],
+                        strokeWidth: 1),
                     FlDotData(show: false),
                   ),
                 )
                 .toList();
           },
           touchCallback: (event, response) {
-            if (event is FlTapUpEvent && response?.lineBarSpots != null && response!.lineBarSpots!.isNotEmpty) {
-              final spot = response.lineBarSpots!.first;
-              setState(() {
-                _selectedPoint = FlSpot(spot.x, spot.y);
-                _selectedBand = spot.barIndex == 0 ? 'Conduction' : 'Valence';
-              });
+            final spots = response?.lineBarSpots;
+            if (spots == null || spots.isEmpty) {
+              if (event is FlTapUpEvent &&
+                  (_hoverPoint != null || _pinnedPoints.isNotEmpty)) {
+                updateChart(() {
+                  _hoverPoint = null;
+                  _pinnedPoints.clear();
+                });
+                return;
+              }
+              if (event is FlPointerExitEvent) {
+                setState(() {
+                  _hoverPoint = null;
+                });
+              }
+              return;
             }
+            final candidates =
+                spots.where((s) => s.barIndex == 0 || s.barIndex == 1).toList();
+            if (candidates.isEmpty) {
+              return;
+            }
+            final spot = candidates.first;
+            final band = switch (spot.barIndex) {
+              0 => 'Conduction',
+              1 => 'Valence',
+              _ => null,
+            };
+            if (band == null) return;
+            final next = _DosPointRef(
+              band: band,
+              spot: FlSpot(spot.x, spot.y),
+            );
+
+            if (event is FlTapUpEvent) {
+              updateChart(() {
+                _hoverPoint = next;
+                _togglePinnedPoint(next);
+              });
+              return;
+            }
+
+            if (_hoverPoint != null && _samePointRef(_hoverPoint!, next))
+              return;
+            setState(() => _hoverPoint = next);
           },
           touchTooltipData: LineTouchTooltipData(
+            fitInsideHorizontally: true,
+            fitInsideVertically: true,
+            getTooltipColor: (_) => Colors.white.withValues(alpha: 0.98),
+            tooltipBorder: BorderSide(
+              color: Colors.black.withValues(alpha: 0.16),
+              width: 1,
+            ),
             getTooltipItems: (spots) => spots
+                .where((s) => s.barIndex == 0 || s.barIndex == 1)
                 .map(
                   (s) => LineTooltipItem(
-                    'E = ${s.x.toStringAsFixed(3)} eV\nDOS = ${s.y.toStringAsPrecision(4)}',
-                    TextStyle(color: Theme.of(context).colorScheme.onSurface),
+                    '${s.barIndex == 0 ? 'Conduction' : 'Valence'}\n'
+                    'E = ${s.x.toStringAsFixed(3)} eV\n'
+                    'DOS = ${s.y.toStringAsPrecision(4)}',
+                    const TextStyle(
+                      color: Colors.black87,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 )
                 .toList(),
           ),
         ),
-        lineBarsData: [
-          LineChartBarData(
-            spots: data.conduction,
-            isCurved: false,
-            color: conductionColor,
-            barWidth: 2,
-            dotData: const FlDotData(show: false),
-          ),
-          LineChartBarData(
-            spots: data.valence,
-            isCurved: false,
-            color: valenceColor,
-            barWidth: 2,
-            dotData: const FlDotData(show: false),
-          ),
-        ],
+        lineBarsData: lineBars,
       ),
     );
   }
 
-  _DosData _buildData({required double ec, required double ev, required double eMin, required double eMax}) {
+  _DosData _buildData(
+      {required double ec,
+      required double ev,
+      required double eMin,
+      required double eMax}) {
     final conduction = <FlSpot>[];
     final valence = <FlSpot>[];
 
@@ -679,8 +1162,6 @@ class _DosData {
   final List<FlSpot> valence;
   final double maxDos;
 
-  _DosData({required this.conduction, required this.valence, required this.maxDos});
+  _DosData(
+      {required this.conduction, required this.valence, required this.maxDos});
 }
-
-
-

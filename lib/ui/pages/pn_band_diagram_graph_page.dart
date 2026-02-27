@@ -8,7 +8,7 @@ import '../theme/chart_style.dart';
 import '../widgets/latex_text.dart';
 
 // New architecture imports
-import '../graphs/core/standard_graph_page_scaffold.dart';
+import '../graphs/common/standard_graph_page_scaffold.dart';
 import '../graphs/core/graph_config.dart';
 import '../graphs/core/animation_engine.dart';
 
@@ -270,6 +270,10 @@ class _PnBandDiagramViewState extends State<PnBandDiagramView> {
       chartBuilder: (context) => _buildChart(context, profile),
       aboutSection: _buildAboutCard(context),
       observeSection: _buildInfoPanel(),
+      placeSectionsInWideLeftColumn: true,
+      useTwoColumnRightPanelInWide: true,
+      wideLeftColumnSectionIds: const ['point_inspector', 'animation'],
+      wideRightColumnSectionIds: const ['notes', 'controls'],
     );
   }
 
@@ -283,6 +287,7 @@ class _PnBandDiagramViewState extends State<PnBandDiagramView> {
         builder: _activeHoverSelection == null
             ? null
             : () => _buildPointInspectorLines(_activeHoverSelection!),
+        interactionHint: 'Double-click nearest point to pin or unpin.',
         onClear: () {
           _hoverLatexTimer?.cancel();
           setState(() {
@@ -318,8 +323,11 @@ class _PnBandDiagramViewState extends State<PnBandDiagramView> {
       insights: InsightsConfig(
         dynamicObservations: _buildDynamicObservations(profile),
         staticObservations: _buildStaticObservations(),
+        pinnedCount: _pinnedSelection != null ? 1 : 0,
+        onClearPins: _pinnedSelection == null
+            ? null
+            : () => setState(() => _pinnedSelection = null),
       ),
-      readouts: _buildReadouts(profile),
       controls: ControlsConfig(
         children: _buildControlsChildren(profile),
         collapsible: true,
@@ -449,6 +457,7 @@ class _PnBandDiagramViewState extends State<PnBandDiagramView> {
     ];
   }
 
+  // ignore: unused_element
   List<ReadoutItem> _buildReadouts(_BandProfile profile) {
     const voltageUnit = PnLatex.unitV;
     const lengthUnit = PnLatex.unitUm;
@@ -641,8 +650,15 @@ class _PnBandDiagramViewState extends State<PnBandDiagramView> {
     final fermiColor = Theme.of(context).colorScheme.secondary;
     final biasColor = Theme.of(context).colorScheme.error;
 
-    final minY = (profile.ev.map((e) => e.y).reduce(math.min)) - 0.25;
-    final maxY = (profile.ec.map((e) => e.y).reduce(math.max)) + 0.25;
+    final allYValues = <double>[
+      ...profile.ec.map((e) => e.y),
+      ...profile.ev.map((e) => e.y),
+      ...profile.ei.map((e) => e.y),
+      ...profile.efn.map((e) => e.y),
+      ...profile.efp.map((e) => e.y),
+    ];
+    final minY = allYValues.reduce(math.min) - 0.25;
+    final maxY = allYValues.reduce(math.max) + 0.25;
 
     final lineBars = <LineChartBarData>[
       LineChartBarData(
@@ -708,6 +724,7 @@ class _PnBandDiagramViewState extends State<PnBandDiagramView> {
                       maxX: profile.xMax,
                       minY: minY,
                       maxY: maxY,
+                      clipData: FlClipData.all(),
                       titlesData: FlTitlesData(
                         leftTitles: AxisTitles(
                           axisNameWidget: LatexText(

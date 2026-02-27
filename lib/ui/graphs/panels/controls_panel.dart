@@ -1,58 +1,37 @@
 import 'package:flutter/material.dart';
-import '../core/graph_config.dart';
-import '../common/enhanced_animation_panel.dart';
 
-typedef _Typo = GraphPanelTextStyles;
+import '../common/graph_panels.dart';
+import '../common/graph_scaffold_tokens.dart';
+import '../core/graph_config.dart';
 
 /// Controls panel for StandardGraphPageScaffold.
-/// 
+///
 /// Displays parameter sliders, switches, buttons, and other controls.
 class ControlsPanel extends StatelessWidget {
   final ControlsConfig config;
+  final GraphScaffoldTokens? tokensOverride;
 
   const ControlsPanel({
     super.key,
     required this.config,
+    this.tokensOverride,
   });
 
   @override
   Widget build(BuildContext context) {
+    final tokens = GraphScaffoldTokens.of(context, override: tokensOverride);
     final content = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
-      children: [
-        if (!config.collapsible) ...[
-          Text(
-            'Controls',
-            style: TextStyle(
-              fontSize: _Typo.title,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 12),
-        ],
-        ...config.children,
-      ],
+      children: config.children,
     );
 
-    return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: config.collapsible
-          ? ExpansionTile(
-              title: Text(
-                'Controls',
-                style: TextStyle(
-                    fontSize: _Typo.title, fontWeight: FontWeight.w700),
-              ),
-              initiallyExpanded: config.initiallyExpanded,
-              childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-              children: [content],
-            )
-          : Padding(
-              padding: const EdgeInsets.all(12),
-              child: content,
-            ),
+    return GraphCard(
+      title: 'Controls',
+      tokens: tokens,
+      collapsible: config.collapsible,
+      initiallyExpanded: config.initiallyExpanded,
+      child: content,
     );
   }
 }

@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
@@ -9,7 +9,6 @@ import '../graphs/common/enhanced_animation_panel.dart';
 import '../graphs/common/latex_readout.dart';
 import '../graphs/core/graph_config.dart';
 import '../graphs/core/standard_graph_page_scaffold.dart';
-import '../graphs/core/standard_panel_stack.dart';
 import '../widgets/latex_text.dart';
 import '../graphs/utils/safe_math.dart';
 
@@ -36,18 +35,14 @@ enum _FDAnimParam { temperature, fermiLevel }
 
 class _HoveredFDPoint {
   final FlSpot spot;
-  final Offset position;
-  _HoveredFDPoint(this.spot, this.position);
-}
-
-class _FDPin {
-  final FlSpot spot;
-  final int colorIndex;
-  const _FDPin(this.spot, this.colorIndex);
+  const _HoveredFDPoint(this.spot);
 }
 
 class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
   int _chartVersion = 0;
+  static const int _maxPins = 2;
+  static const Color _pinBlue = Color(0xFF1E88E5);
+  static const Color _pinRed = Color(0xFFE53935);
 
   // Parameters
   double _temperature = 300.0; // K
@@ -73,25 +68,13 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
 
   // Interaction state
   _HoveredFDPoint? _hovered;
-  final List<_FDPin> _pins = [];
+  final List<FlSpot> _pinnedSpots = [];
   List<FlSpot>? _overlayCurve;
 
   // Constants
   static const double _kBoltzmannEV = 8.617333262e-5; // eV/K
   static const double _inlineLatexScale = 1.12;
   static const double _inlineLatexScaleSmall = 1.05;
-  static const List<Color> _pinPalette = [
-    Color(0xFF1E88E5),
-    Color(0xFFD81B60),
-    Color(0xFF43A047),
-    Color(0xFF8E24AA),
-    Color(0xFFFB8C00),
-    Color(0xFF00897B),
-    Color(0xFF5E35B1),
-    Color(0xFF6D4C41),
-    Color(0xFF3949AB),
-    Color(0xFF546E7A),
-  ];
 
   final NumberFormatter _fmt = const NumberFormatter(significantFigures: 3);
 
@@ -99,6 +82,29 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
   void dispose() {
     _animTimer?.cancel();
     super.dispose();
+  }
+
+  Color _pinColorForIndex(int index) => index.isEven ? _pinBlue : _pinRed;
+
+  Color _hoverMarkerColor() {
+    if (_pinnedSpots.isEmpty) return _pinBlue;
+    if (_pinnedSpots.length == 1) return _pinRed;
+    return _pinBlue;
+  }
+
+  bool _sameSpot(FlSpot a, FlSpot b) =>
+      (a.x - b.x).abs() < 1e-6 && (a.y - b.y).abs() < 1e-6;
+
+  void _togglePinnedSpot(FlSpot spot) {
+    final existing = _pinnedSpots.indexWhere((p) => _sameSpot(p, spot));
+    if (existing >= 0) {
+      _pinnedSpots.removeAt(existing);
+      return;
+    }
+    _pinnedSpots.add(spot);
+    if (_pinnedSpots.length > _maxPins) {
+      _pinnedSpots.removeAt(0);
+    }
   }
 
   List<FlSpot> _computeFermiDiracCurve() {
@@ -169,8 +175,8 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
   void _applyAnimatedValue() {
     _captureOverlay();
     final range = _animRanges[_animParam]!;
-    final value =
-        range.start + (_animProgress.clamp(0.0, 1.0) * (range.end - range.start));
+    final value = range.start +
+        (_animProgress.clamp(0.0, 1.0) * (range.end - range.start));
     switch (_animParam) {
       case _FDAnimParam.temperature:
         _temperature = value;
@@ -187,29 +193,10 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
     _overlayCurve = _computeFermiDiracCurve();
   }
 
-  void _togglePin(FlSpot spot) {
-    final existing = _pins.indexWhere(
-        (p) => (p.spot.x - spot.x).abs() < 1e-6 && (p.spot.y - spot.y).abs() < 1e-6);
-    setState(() {
-      if (existing >= 0) {
-        _pins.removeAt(existing);
-      } else {
-        _pins.add(_FDPin(spot, _nextPinColor()));
-      }
-    });
-  }
-
-  int _nextPinColor() {
-    final used = _pins.map((p) => p.colorIndex).toSet();
-    for (var i = 0; i < _pinPalette.length; i++) {
-      if (!used.contains(i)) return i;
-    }
-    return 0;
-  }
-
   double _minX() => _relativeToFermi ? -0.5 : _fermiLevel - 0.5;
   double _maxX() => _relativeToFermi ? 0.5 : _fermiLevel + 0.5;
 
+  // ignore: unused_element
   Widget _buildHeader(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
     return Column(
@@ -221,7 +208,7 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
         ),
         const SizedBox(height: 6),
         const LatexText(
-          r'f(E) = \frac{1}{1 + \exp\left(\frac{E - E_F}{k T}\right)}',
+          r'f(E) = \frac{1}{1 + \exp\left(\frac{E - E_{\mathrm{F}}}{k T}\right)}',
           displayMode: true,
           scale: 1.1,
         ),
@@ -256,11 +243,8 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
         curve.isEmpty ? 0.0 : curve.map((e) => e.y).reduce(math.min);
     final yMaxCurve =
         curve.isEmpty ? 1.0 : curve.map((e) => e.y).reduce(math.max);
-    final minY =
-        _lockYAxis ? -0.05 : math.min(-0.05, yMinCurve - 0.05);
-    final maxY =
-        _lockYAxis ? 1.05 : math.max(1.05, yMaxCurve + 0.05);
-    final tooltip = _hovered;
+    final minY = _lockYAxis ? -0.05 : math.min(-0.05, yMinCurve - 0.05);
+    final maxY = _lockYAxis ? 1.05 : math.max(1.05, yMaxCurve + 0.05);
     final overlayLines = <LineChartBarData>[];
     if (_overlayPrevious && _overlayCurve != null) {
       overlayLines.add(LineChartBarData(
@@ -271,8 +255,8 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
         dotData: const FlDotData(show: false),
       ));
     }
-    final pinsResolved = _pins.map((p) => FlSpot(p.spot.x, p.spot.y)).toList();
-
+    final mainCurveIndex = overlayLines.length;
+    final hoveredSpot = _hovered?.spot;
     return Card(
       elevation: 1,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -280,229 +264,221 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
         padding: const EdgeInsets.all(12),
         child: GestureDetector(
           behavior: HitTestBehavior.translucent,
-          onDoubleTap: () {
-            if (_hovered != null) _togglePin(_hovered!.spot);
-          },
           child: LayoutBuilder(
             builder: (context, constraints) {
-              return Stack(
-                children: [
-                  LineChart(
-                    key: ValueKey(
-                        'fd-$_chartVersion-$_temperature-$_fermiLevel-$_relativeToFermi'),
-                    LineChartData(
-                      minX: minX,
-                      maxX: maxX,
-                      minY: minY,
-                      maxY: maxY,
-                      gridData: const FlGridData(
-                        show: true,
-                        horizontalInterval: 0.2,
-                        verticalInterval: 0.2,
+              return LineChart(
+                key: ValueKey(
+                    'fd-$_chartVersion-$_temperature-$_fermiLevel-$_relativeToFermi'),
+                LineChartData(
+                  minX: minX,
+                  maxX: maxX,
+                  minY: minY,
+                  maxY: maxY,
+                  gridData: const FlGridData(
+                    show: true,
+                    horizontalInterval: 0.2,
+                    verticalInterval: 0.2,
+                  ),
+                  titlesData: FlTitlesData(
+                    leftTitles: AxisTitles(
+                      axisNameWidget: const LatexText(r'f(E)', scale: 1.0),
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        reservedSize: 44,
+                        getTitlesWidget: (value, meta) {
+                          if (value < 0 || value > 1) {
+                            return const SizedBox.shrink();
+                          }
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            child: LatexText(
+                              value.toStringAsFixed(1),
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          );
+                        },
                       ),
-                      titlesData: FlTitlesData(
-                        leftTitles: AxisTitles(
-                          axisNameWidget: const LatexText(r'f(E)', scale: 1.0),
-                          sideTitles: SideTitles(
-                            showTitles: true,
-                            reservedSize: 44,
-                            getTitlesWidget: (value, meta) {
-                              if (value < 0 || value > 1) {
-                                return const SizedBox.shrink();
-                              }
-                              return Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(horizontal: 4),
-                                child: LatexText(
-                                  value.toStringAsFixed(1),
-                                  style: const TextStyle(fontSize: 12),
-                                ),
-                              );
-                            },
+                    ),
+                    bottomTitles: AxisTitles(
+                      axisNameWidget: LatexText(_relativeToFermi
+                          ? r'E - E_{\mathrm{F}}\ \mathrm{(eV)}'
+                          : r'E\ \mathrm{(eV)}'),
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        reservedSize: 32,
+                        interval: 0.2,
+                        getTitlesWidget: (value, meta) => Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4.0),
+                          child: LatexText(
+                            value.toStringAsFixed(1),
+                            style: const TextStyle(fontSize: 12),
                           ),
                         ),
-                        bottomTitles: AxisTitles(
-                          axisNameWidget: LatexText(
-                              _relativeToFermi
-                                  ? r'E - E_F\ \mathrm{(eV)}'
-                                  : r'E\ \mathrm{(eV)}'),
-                          sideTitles: SideTitles(
-                            showTitles: true,
-                            reservedSize: 32,
-                            interval: 0.2,
-                            getTitlesWidget: (value, meta) => Padding(
-                              padding:
-                                  const EdgeInsets.symmetric(vertical: 4.0),
-                              child: LatexText(
-                                value.toStringAsFixed(1),
-                                style: const TextStyle(fontSize: 12),
+                      ),
+                    ),
+                    rightTitles: const AxisTitles(
+                        sideTitles: SideTitles(showTitles: false)),
+                    topTitles: const AxisTitles(
+                        sideTitles: SideTitles(showTitles: false)),
+                  ),
+                  borderData: FlBorderData(show: true),
+                  lineBarsData: [
+                    ...overlayLines,
+                    LineChartBarData(
+                      spots: curve,
+                      isCurved: true,
+                      color: Theme.of(context).colorScheme.primary,
+                      barWidth: 2.5,
+                      dotData: const FlDotData(show: false),
+                      belowBarData: BarAreaData(
+                        show: true,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .primary
+                            .withValues(alpha: 0.12),
+                      ),
+                    ),
+                    ..._pinnedSpots.asMap().entries.map(
+                          (entry) => LineChartBarData(
+                            spots: [entry.value],
+                            isCurved: false,
+                            color: Colors.transparent,
+                            barWidth: 0,
+                            dotData: FlDotData(
+                              show: true,
+                              checkToShowDot: (_, __) => true,
+                              getDotPainter: (_, __, ___, ____) =>
+                                  FlDotCirclePainter(
+                                color: _pinColorForIndex(entry.key),
+                                radius: 5.2,
+                                strokeColor: Colors.white,
+                                strokeWidth: 2,
                               ),
                             ),
                           ),
                         ),
-                        rightTitles: const AxisTitles(
-                            sideTitles: SideTitles(showTitles: false)),
-                        topTitles: const AxisTitles(
-                            sideTitles: SideTitles(showTitles: false)),
-                      ),
-                      borderData: FlBorderData(show: true),
-                      lineBarsData: [
-                        ...overlayLines,
-                        LineChartBarData(
-                          spots: curve,
-                          isCurved: true,
-                          color: Theme.of(context).colorScheme.primary,
-                          barWidth: 2.5,
-                          dotData: const FlDotData(show: false),
-                          belowBarData: BarAreaData(
-                            show: true,
-                            color: Theme.of(context)
-                                .colorScheme
-                                .primary
-                                .withValues(alpha: 0.12),
+                    if (hoveredSpot != null &&
+                        !_pinnedSpots.any((p) => _sameSpot(p, hoveredSpot)))
+                      LineChartBarData(
+                        spots: [hoveredSpot],
+                        isCurved: false,
+                        color: Colors.transparent,
+                        barWidth: 0,
+                        dotData: FlDotData(
+                          show: true,
+                          checkToShowDot: (_, __) => true,
+                          getDotPainter: (_, __, ___, ____) =>
+                              FlDotCirclePainter(
+                            color: _hoverMarkerColor().withValues(alpha: 0.22),
+                            radius: 6,
+                            strokeColor: _hoverMarkerColor(),
+                            strokeWidth: 2.5,
                           ),
                         ),
-                        if (pinsResolved.isNotEmpty)
-                          LineChartBarData(
-                            spots: pinsResolved,
-                            isCurved: false,
-                            color: Colors.transparent,
-                            barWidth: 0,
-                            showingIndicators:
-                                List.generate(pinsResolved.length, (index) => index),
-                            dotData: FlDotData(
-                              show: true,
-                              getDotPainter: (spot, percent, bar, index) {
-                                final pin = _pins[index];
-                                final ring =
-                                    _pinPalette[pin.colorIndex % _pinPalette.length];
-                                return FlDotCirclePainter(
-                                  radius: 6,
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .primary
-                                      .withValues(alpha: 0.9),
-                                  strokeWidth: 3,
-                                  strokeColor: ring,
-                                );
-                              },
+                      ),
+                  ],
+                  extraLinesData: ExtraLinesData(
+                    horizontalLines: [
+                      HorizontalLine(
+                        y: 0.5,
+                        color: Colors.grey.withValues(alpha: 0.5),
+                        strokeWidth: 1,
+                        dashArray: const [5, 5],
+                      ),
+                    ],
+                    verticalLines: _relativeToFermi
+                        ? [
+                            VerticalLine(
+                              x: 0,
+                              color: Colors.grey.withValues(alpha: 0.5),
+                              strokeWidth: 1,
+                              dashArray: const [5, 5],
                             ),
-                          ),
-                      ],
-                      extraLinesData: ExtraLinesData(
-                        horizontalLines: [
-                          HorizontalLine(
-                            y: 0.5,
-                            color: Colors.grey.withValues(alpha: 0.5),
-                            strokeWidth: 1,
-                            dashArray: const [5, 5],
-                          ),
-                        ],
-                        verticalLines: _relativeToFermi
-                            ? [
-                                VerticalLine(
-                                  x: 0,
-                                  color: Colors.grey.withValues(alpha: 0.5),
-                                  strokeWidth: 1,
-                                  dashArray: const [5, 5],
-                                ),
-                              ]
-                            : [],
-                      ),
-                      lineTouchData: LineTouchData(
-                        handleBuiltInTouches: false,
-                        touchCallback: (event, response) {
-                          if (response == null ||
-                              response.lineBarSpots == null ||
-                              response.lineBarSpots!.isEmpty ||
-                              event.localPosition == null) {
-                            setState(() => _hovered = null);
-                            return;
-                          }
-                          final spot = response.lineBarSpots!.first;
-                          final local = event.localPosition!;
+                          ]
+                        : [],
+                  ),
+                  lineTouchData: LineTouchData(
+                    enabled: true,
+                    handleBuiltInTouches: true,
+                    getTouchedSpotIndicator: (barData, spotIndexes) {
+                      return spotIndexes
+                          .map(
+                            (_) => const TouchedSpotIndicatorData(
+                              FlLine(color: Colors.transparent, strokeWidth: 0),
+                              FlDotData(show: false),
+                            ),
+                          )
+                          .toList();
+                    },
+                    touchSpotThreshold: 28,
+                    touchCallback: (event, response) {
+                      final spots = response?.lineBarSpots;
+                      if (spots == null || spots.isEmpty) {
+                        if (event is FlTapUpEvent && _pinnedSpots.isNotEmpty) {
                           setState(() {
-                            _hovered =
-                                _HoveredFDPoint(FlSpot(spot.x, spot.y), local);
+                            _hovered = null;
+                            _pinnedSpots.clear();
                           });
-                        },
-                        touchTooltipData:
-                            LineTouchTooltipData(getTooltipItems: (_) => []),
+                          return;
+                        }
+                        if (event is FlPointerExitEvent) {
+                          setState(() => _hovered = null);
+                        }
+                        return;
+                      }
+                      final mainSpot = spots.firstWhere(
+                        (s) => s.barIndex == mainCurveIndex,
+                        orElse: () => spots.first,
+                      );
+                      final normalized = FlSpot(mainSpot.x, mainSpot.y);
+                      final next = _HoveredFDPoint(normalized);
+                      if (_hovered != null &&
+                          (_hovered!.spot.x - next.spot.x).abs() < 1e-6 &&
+                          (_hovered!.spot.y - next.spot.y).abs() < 1e-6) {
+                        if (event is FlTapUpEvent) {
+                          setState(() => _togglePinnedSpot(normalized));
+                        }
+                        return;
+                      }
+                      if (event is FlTapUpEvent) {
+                        setState(() {
+                          _hovered = next;
+                          _togglePinnedSpot(normalized);
+                        });
+                        return;
+                      }
+                      setState(() => _hovered = next);
+                    },
+                    touchTooltipData: LineTouchTooltipData(
+                      fitInsideHorizontally: true,
+                      fitInsideVertically: true,
+                      getTooltipColor: (_) =>
+                          Colors.white.withValues(alpha: 0.98),
+                      tooltipBorder: BorderSide(
+                        color: Colors.black.withValues(alpha: 0.16),
+                        width: 1,
                       ),
+                      getTooltipItems: (spots) {
+                        return spots
+                            .where((s) => s.barIndex == mainCurveIndex)
+                            .map(
+                              (s) => LineTooltipItem(
+                                '${_relativeToFermi ? 'E - E(Fermi)' : 'E'} = ${s.x.toStringAsFixed(3)} eV\nf(E) = ${s.y.toStringAsFixed(5)}',
+                                const TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.black87,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            )
+                            .toList();
+                      },
                     ),
                   ),
-                  if (tooltip != null) _buildHoverTooltip(constraints),
-                ],
+                ),
               );
             },
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHoverTooltip(BoxConstraints constraints) {
-    final data = _hovered;
-    if (data == null) return const SizedBox.shrink();
-    const double tooltipWidth = 240;
-    const double tooltipHeight = 120;
-    const double margin = 8;
-    final size = constraints.biggest;
-    double left = data.position.dx + 12;
-    if (left + tooltipWidth > size.width - margin) {
-      left = data.position.dx - tooltipWidth - 12;
-    }
-    left =
-        left.clamp(margin, math.max(margin, size.width - tooltipWidth - margin));
-
-    double top = data.position.dy - tooltipHeight - 12;
-    if (top < margin) {
-      top = data.position.dy + 12;
-    }
-    if (top + tooltipHeight > size.height - margin) {
-      top = size.height - tooltipHeight - margin;
-    }
-
-    final spot = data.spot;
-    final xLabel = _relativeToFermi ? r'E - E_F' : r'E';
-    final latexX = LatexReadoutFormatter.equation(
-      labelLatex: xLabel,
-      valueLatex: _fmt.formatLatex(spot.x),
-      unit: 'eV',
-    );
-    final latexY = LatexReadoutFormatter.equation(
-      labelLatex: r'f(E)',
-      valueLatex: _fmt.formatLatex(spot.y),
-    );
-
-    final scheme = Theme.of(context).colorScheme;
-    return Positioned(
-      left: left,
-      top: top,
-      child: Container(
-        width: tooltipWidth,
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: scheme.surface.withValues(alpha: 0.95),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: scheme.outlineVariant),
-          boxShadow: [
-            BoxShadow(
-              color: scheme.shadow.withValues(alpha: 0.12),
-              blurRadius: 8,
-              offset: const Offset(0, 4),
-            )
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Hover point', style: TextStyle(fontWeight: FontWeight.w700)),
-            const SizedBox(height: 6),
-            LatexText(latexX, scale: _inlineLatexScaleSmall),
-            const SizedBox(height: 2),
-            LatexText(latexY, scale: _inlineLatexScaleSmall),
-          ],
         ),
       ),
     );
@@ -512,39 +488,54 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
   Widget build(BuildContext context) {
     final panelConfig = _buildPanelConfig();
     return StandardGraphPageScaffold(
-      config: const GraphConfig(
+      config: panelConfig.copyWith(
         title: 'Fermi-Dirac Probability Distribution',
         subtitle: 'DOS & Statistics',
-        mainEquation: r'f(E) = \frac{1}{1 + \exp\left(\frac{E - E_F}{k T}\right)}',
-        controls: ControlsConfig(children: []),
+        mainEquation:
+            r'f(E) = \frac{1}{1 + \exp\left(\frac{E - E_{\mathrm{F}}}{k T}\right)}',
       ),
       aboutSection: _buildInfoPanel(),
       observeSection: _buildObserveCard(context),
+      placeSectionsInWideLeftColumn: true,
+      useTwoColumnRightPanelInWide: true,
+      wideLeftColumnSectionIds: const ['point_inspector', 'animation'],
+      wideRightColumnSectionIds: const ['notes', 'controls'],
       chartBuilder: (context) => _buildChartCard(),
-      rightPanelBuilder: (context, config) => StandardPanelStack(config: panelConfig),
     );
   }
 
   GraphConfig _buildPanelConfig() {
-    final readouts = <ReadoutItem>[
-      ReadoutItem(label: r'T', value: '${_temperature.toStringAsFixed(1)} K'),
-      ReadoutItem(label: r'E_F', value: '${_fermiLevel.toStringAsFixed(3)} eV'),
-      ReadoutItem(label: r'Axis mode', value: _relativeToFermi ? 'E - E_F' : 'E'),
-      ReadoutItem(label: r'Pinned points', value: '${_pins.length}'),
-    ];
-
     final hovered = _hovered?.spot;
+    final pinned = _pinnedSpots.isEmpty ? null : _pinnedSpots.last;
     final inspector = PointInspectorConfig(
       enabled: true,
       emptyMessage: 'Hover the curve to inspect values.',
-      onClear: () => setState(() => _hovered = null),
-      builder: hovered == null
+      onClear: () => setState(() {
+        _hovered = null;
+        _pinnedSpots.clear();
+      }),
+      interactionHint:
+          'Tap curve to pin (max $_maxPins); tap empty area to clear.',
+      isPinned: pinned != null,
+      builder: (hovered == null && pinned == null)
           ? null
-          : () => [
-                '${_relativeToFermi ? 'E - E_F' : 'E'} = ${hovered.x.toStringAsFixed(3)} eV',
-                'f(E) = ${hovered.y.toStringAsFixed(5)}',
-                'Double-click to pin or unpin this point.',
-              ],
+          : () {
+              final lines = <String>[];
+              if (pinned != null) {
+                lines.add(
+                  'Pinned ${_relativeToFermi ? r'$E - E_{\mathrm{F}}$' : r'$E$'}: \$${pinned.x.toStringAsFixed(3)}\\,\\mathrm{eV}\$',
+                );
+                lines.add(
+                    r'Pinned $f(E)$: ' '\$${pinned.y.toStringAsFixed(5)}\$');
+              }
+              if (hovered != null) {
+                lines.add(
+                  'Hover ${_relativeToFermi ? r'$E - E_{\mathrm{F}}$' : r'$E$'}: \$${hovered.x.toStringAsFixed(3)}\\,\\mathrm{eV}\$',
+                );
+                lines.add(r'$f(E)$: ' '\$${hovered.y.toStringAsFixed(5)}\$');
+              }
+              return lines;
+            },
     );
 
     final animation = AnimationConfig(
@@ -553,10 +544,13 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
         final isSelected = _animParam == param;
         return AnimatableParameter(
           id: param == _FDAnimParam.temperature ? 'temperature' : 'fermi',
-          label: param == _FDAnimParam.temperature ? r'T (temperature)' : r'E_F (Fermi level)',
-          symbol: param == _FDAnimParam.temperature ? r'T' : r'E_F',
+          label: param == _FDAnimParam.temperature
+              ? r'T (temperature)'
+              : r'E_{\mathrm{F}} (Fermi level)',
+          symbol: param == _FDAnimParam.temperature ? r'T' : r'E_{\mathrm{F}}',
           unit: param == _FDAnimParam.temperature ? r'K' : r'eV',
-          currentValue: param == _FDAnimParam.temperature ? _temperature : _fermiLevel,
+          currentValue:
+              param == _FDAnimParam.temperature ? _temperature : _fermiLevel,
           rangeMin: range.start,
           rangeMax: range.end,
           absoluteMin: param == _FDAnimParam.temperature ? 1 : -1.0,
@@ -587,14 +581,17 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
             });
           },
           physicsNote: param == _FDAnimParam.temperature
-              ? 'Higher temperature broadens the transition around E_F.'
-              : 'Changing E_F shifts the distribution along the energy axis.',
+              ? r'Higher temperature broadens the transition around $E_{\mathrm{F}}$.'
+              : r'Changing $E_{\mathrm{F}}$ shifts the distribution along the energy axis.',
         );
       }).toList(),
-      selectedParameterId: _animParam == _FDAnimParam.temperature ? 'temperature' : 'fermi',
+      selectedParameterId:
+          _animParam == _FDAnimParam.temperature ? 'temperature' : 'fermi',
       onParameterSelected: (id) {
         setState(() {
-          _animParam = id == 'temperature' ? _FDAnimParam.temperature : _FDAnimParam.fermiLevel;
+          _animParam = id == 'temperature'
+              ? _FDAnimParam.temperature
+              : _FDAnimParam.fermiLevel;
           _animProgress = 0.0;
         });
       },
@@ -610,31 +607,43 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
         onPause: _stopAnimation,
         onRestart: _restartAnimation,
         onSpeedChanged: (speed) => setState(() => _animSpeed = speed),
-        onReverseChanged: (reverse) => setState(() => _reverseDirection = reverse),
+        onReverseChanged: (reverse) =>
+            setState(() => _reverseDirection = reverse),
         onLoopChanged: (loop) => setState(() => _loopEnabled = loop),
       ),
     );
 
     final staticObservations = <String>[
-      'At E = E_F, f(E) = 0.5 for any temperature.',
-      'Increasing T broadens occupation around E_F.',
-      'Pin points to compare f(E) at multiple energies.',
+      r'At $E = E_{\mathrm{F}}$, $f(E) = 0.5$ for any temperature.',
+      r'Increasing $T$ broadens occupation around $E_{\mathrm{F}}$.',
+      r'Transition width scales approximately with $kT$.',
     ];
-    final dynamicObservations = hovered == null
-        ? <String>[]
-        : <String>[
-            'Current hover: ${_relativeToFermi ? 'E - E_F' : 'E'} = ${hovered.x.toStringAsFixed(3)} eV',
-            'f(E) = ${hovered.y.toStringAsFixed(5)}',
-          ];
+    final dynamicObservations = <String>[
+      for (var i = 0; i < _pinnedSpots.length; i++) ...[
+        'Pin ${i + 1}: ${_relativeToFermi ? r'$E - E_{\mathrm{F}}$' : r'$E$'} = \$${_pinnedSpots[i].x.toStringAsFixed(3)}\\,\\mathrm{eV}\$',
+        r'$f(E)$ = ' '\$${_pinnedSpots[i].y.toStringAsFixed(5)}\$',
+      ],
+      if (hovered != null) ...[
+        'Current hover: ${_relativeToFermi ? r'$E - E_{\mathrm{F}}$' : r'$E$'} = \$${hovered.x.toStringAsFixed(3)}\\,\\mathrm{eV}\$',
+        r'$f(E)$ = ' '\$${hovered.y.toStringAsFixed(5)}\$',
+      ],
+    ];
 
     return GraphConfig(
-      readouts: readouts,
       pointInspector: inspector,
       animation: animation,
       insights: InsightsConfig(
-        dynamicObservations: dynamicObservations.isEmpty ? null : dynamicObservations,
+        dynamicObservations:
+            dynamicObservations.isEmpty ? null : dynamicObservations,
         staticObservations: staticObservations,
-        dynamicTitle: hovered == null ? null : 'Current Hover',
+        dynamicTitle: _pinnedSpots.isNotEmpty
+            ? 'From Your Pins'
+            : (hovered == null ? null : 'Current Hover'),
+        pinnedCount: _pinnedSpots.length,
+        maxPins: _maxPins,
+        onClearPins: _pinnedSpots.isEmpty
+            ? null
+            : () => setState(() => _pinnedSpots.clear()),
       ),
       controls: ControlsConfig(
         children: [_buildControls()],
@@ -660,7 +669,7 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
         children: [
           _bulletLine(const [
             _InlinePiece.text('At '),
-            _InlinePiece.latex(r'E = E_F'),
+            _InlinePiece.latex(r'E = E_{\mathrm{F}}'),
             _InlinePiece.text(', '),
             _InlinePiece.latex(r'f(E)=0.5'),
             _InlinePiece.text(' for any temperature.'),
@@ -669,7 +678,7 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
             _InlinePiece.text('Higher '),
             _InlinePiece.latex(r'T'),
             _InlinePiece.text(' broadens the transition around '),
-            _InlinePiece.latex(r'E_F'),
+            _InlinePiece.latex(r'E_{\mathrm{F}}'),
             _InlinePiece.text('.'),
           ], latexScale: _inlineLatexScale),
         ],
@@ -677,6 +686,7 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
     );
   }
 
+  // ignore: unused_element
   Widget _buildSidebar() {
     return Column(
       children: [
@@ -698,8 +708,8 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ExpansionTile(
         initiallyExpanded: true,
-        title:
-            const Text('Point Inspector', style: TextStyle(fontWeight: FontWeight.w700)),
+        title: const Text('Point Inspector',
+            style: TextStyle(fontWeight: FontWeight.w700)),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         children: [
           if (hovered == null)
@@ -709,7 +719,7 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
             )
           else ...[
             LatexReadoutRow(
-              labelLatex: _relativeToFermi ? r'E - E_F' : r'E',
+              labelLatex: _relativeToFermi ? r'E - E_{\mathrm{F}}' : r'E',
               valueLatex: LatexReadoutFormatter.valueWithUnitText(
                 hovered.x,
                 unit: 'eV',
@@ -724,62 +734,9 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
                 forceSci: false,
               ),
             ),
-            const SizedBox(height: 8),
-            const Text('Double-click to pin/unpin this point.',
-                style: TextStyle(fontSize: 12)),
           ],
-          const SizedBox(height: 10),
-          _buildPins(),
         ],
       ),
-    );
-  }
-
-  Widget _buildPins() {
-    if (_pins.isEmpty) {
-      return const Text('No pinned points yet.');
-    }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: _pins.map((p) {
-        final ring = _pinPalette[p.colorIndex % _pinPalette.length];
-        return Container(
-          width: double.infinity,
-          margin: const EdgeInsets.symmetric(vertical: 4),
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            color: Theme.of(context)
-                .colorScheme
-                .surfaceContainerHighest
-                .withValues(alpha: 0.35),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Container(
-                width: 12,
-                height: 12,
-                margin: const EdgeInsets.only(right: 6),
-                decoration:
-                    BoxDecoration(color: ring, shape: BoxShape.circle),
-              ),
-              Expanded(
-                child: LatexText(
-                  '${LatexReadoutFormatter.equation(labelLatex: _relativeToFermi ? r'E - E_F' : r'E', valueLatex: _fmt.formatLatex(p.spot.x), unit: 'eV')}'
-                  ' \\quad ${LatexReadoutFormatter.equation(labelLatex: r'f(E)', valueLatex: _fmt.formatLatex(p.spot.y))}',
-                  scale: _inlineLatexScaleSmall,
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.close),
-                tooltip: 'Remove pin',
-                onPressed: () => setState(() => _pins.remove(p)),
-              ),
-            ],
-          ),
-        );
-      }).toList(),
     );
   }
 
@@ -798,8 +755,8 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ExpansionTile(
         initiallyExpanded: true,
-        title:
-            const Text('Insights & Pins', style: TextStyle(fontWeight: FontWeight.w700)),
+        title: const Text('Insights',
+            style: TextStyle(fontWeight: FontWeight.w700)),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         children: [
           Align(
@@ -814,7 +771,7 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
                   _bulletLine(const [
                     _InlinePiece.text('Hover to see '),
                     _InlinePiece.latex(r'f(E)'),
-                    _InlinePiece.text(' and pin points for comparison.'),
+                    _InlinePiece.text(' for the current energy value.'),
                   ], latexScale: _inlineLatexScale)
                 else ...[
                   LatexText(
@@ -830,35 +787,13 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
                   ),
                   if (_relativeToFermi)
                     const LatexText(
-                      r'f(E_F)=0.5 \\mathrm{ when } E=E_F',
+                      r'f(E_{\mathrm{F}})=0.5 \\mathrm{ when } E=E_{\mathrm{F}}',
                       scale: 1.0,
                     ),
                 ],
               ],
             ),
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Text('Pinned points',
-                  style: Theme.of(context).textTheme.titleSmall),
-              const Spacer(),
-              if (_pins.isNotEmpty)
-                TextButton.icon(
-                  onPressed: () => setState(() => _pins.clear()),
-                  icon: const Icon(Icons.delete_sweep_outlined),
-                  label: const Text('Clear all'),
-                ),
-            ],
-          ),
-          if (_pins.isEmpty)
-            _bulletLine(const [
-              _InlinePiece.text('Pin multiple points to compare '),
-              _InlinePiece.latex(r'f(E)'),
-              _InlinePiece.text(' across energies.'),
-            ], latexScale: _inlineLatexScale)
-          else
-            const SizedBox.shrink(),
         ],
       ),
     );
@@ -892,7 +827,7 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
           ),
           const SizedBox(height: 12),
           _slider(
-            labelLatex: r'E_F',
+            labelLatex: r'E_{\mathrm{F}}',
             min: -0.5,
             max: 0.5,
             value: _fermiLevel,
@@ -911,9 +846,32 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
           SwitchListTile(
             dense: true,
             contentPadding: EdgeInsets.zero,
-            title: const Text('Relative to E_F'),
-            subtitle:
-                Text(_relativeToFermi ? 'X-axis: E - E_F' : 'X-axis: E (absolute)'),
+            title: Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 4,
+              children: const [
+                Text('Relative to'),
+                LatexText(r'E_{\mathrm{F}}', scale: 1.0),
+              ],
+            ),
+            subtitle: _relativeToFermi
+                ? Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 4,
+                    children: const [
+                      Text('X-axis:'),
+                      LatexText(r'E - E_{\mathrm{F}}', scale: 1.0),
+                    ],
+                  )
+                : Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 4,
+                    children: const [
+                      Text('X-axis:'),
+                      LatexText(r'E', scale: 1.0),
+                      Text('(absolute)'),
+                    ],
+                  ),
             value: _relativeToFermi,
             onChanged: (v) {
               setState(() {
@@ -967,8 +925,9 @@ class _FermiDiracGraphViewState extends State<FermiDiracGraphView> {
         children: pieces
             .map((p) => Padding(
                   padding: const EdgeInsets.only(right: 4),
-                  child:
-                      p.latex ? LatexText(p.text, scale: latexScale) : Text(p.text),
+                  child: p.latex
+                      ? LatexText(p.text, scale: latexScale)
+                      : Text(p.text),
                 ))
             .toList(),
       ),
@@ -1012,7 +971,7 @@ class _FDAnimationController
       case _FDAnimParam.temperature:
         return r'T';
       case _FDAnimParam.fermiLevel:
-        return r'E_F';
+        return r'E_{\mathrm{F}}';
     }
   }
 
@@ -1046,7 +1005,7 @@ class _FDAnimationController
   String physicsNote(_FDAnimParam param) {
     switch (param) {
       case _FDAnimParam.temperature:
-        return 'Higher T increases thermal smearing; slope at E=E_F decreases.';
+        return r'Higher $T$ increases thermal smearing; slope at $E=E_{\mathrm{F}}$ decreases.';
       case _FDAnimParam.fermiLevel:
         return 'Shifts the distribution horizontally relative to the energy axis.';
     }
@@ -1184,7 +1143,3 @@ class _FDAnimationController
   @override
   void restart() => state._restartAnimation();
 }
-
-
-
-

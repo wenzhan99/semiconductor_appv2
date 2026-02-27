@@ -7,7 +7,6 @@ import 'auth_service.dart';
 /// Main application state.
 class AppState extends ChangeNotifier {
   final StorageService _storageService;
-  final AuthService _authService;
 
   List<Workspace> _workspaces = [];
   Workspace? _currentWorkspace;
@@ -16,7 +15,7 @@ class AppState extends ChangeNotifier {
   bool _animateSteps = false; // Default to OFF for non-disruptive experience
   bool _autoPlayVisualizations = true;
 
-  AppState(this._storageService, this._authService);
+  AppState(this._storageService, AuthService authService);
 
   List<Workspace> get workspaces => List.unmodifiable(_workspaces);
   Workspace? get currentWorkspace => _currentWorkspace;
@@ -134,7 +133,6 @@ class AppState extends ChangeNotifier {
         modeStr = 'dark';
         break;
       case ThemeMode.system:
-      default:
         modeStr = 'system';
         break;
     }

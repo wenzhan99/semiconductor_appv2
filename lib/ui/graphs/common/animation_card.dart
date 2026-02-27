@@ -1,6 +1,5 @@
 ﻿import 'package:flutter/material.dart';
 import 'latex_rich_text.dart';
-import '../../widgets/latex_text.dart';
 
 /// Card for animation controls with LaTeX support.
 /// 

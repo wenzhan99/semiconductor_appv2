@@ -10,7 +10,7 @@ import '../graphs/utils/semiconductor_models.dart';
 import '../widgets/latex_text.dart';
 
 // New architecture imports
-import '../graphs/core/standard_graph_page_scaffold.dart';
+import '../graphs/common/standard_graph_page_scaffold.dart';
 import '../graphs/core/graph_config.dart';
 import '../graphs/core/animation_engine.dart';
 
@@ -459,6 +459,10 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
           chartBuilder: (context) => _buildChartArea(context, curves),
           aboutSection: _buildAboutCard(context),
           observeSection: _buildObserveCard(context),
+          placeSectionsInWideLeftColumn: true,
+          useTwoColumnRightPanelInWide: true,
+          wideLeftColumnSectionIds: const ['point_inspector', 'animation'],
+          wideRightColumnSectionIds: const ['notes', 'controls'],
         );
       },
     );
@@ -474,6 +478,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
         enabled: true,
         builder:
             _activeInspectorPoint != null ? _buildPointInspectorLines : null,
+        interactionHint: 'Tap curve to pin; tap empty area to clear.',
         onClear: () => updateChart(() {
           _selectedPoint = null;
           _selectedPointPlot = null;
@@ -518,8 +523,16 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
         dynamicObservations: _buildDynamicObservations(curves),
         staticObservations: _buildStaticObservations(),
         dynamicTitle: 'Current Configuration',
+        pinnedCount: _selectedPoint != null ? 1 : 0,
+        onClearPins: _selectedPoint == null
+            ? null
+            : () => updateChart(() {
+                  _selectedPoint = null;
+                  _selectedPointPlot = null;
+                  _selectedPointIndex = null;
+                  _selectedPointLocalPosition = null;
+                }),
       ),
-      readouts: _buildReadouts(curves),
       controls: ControlsConfig(
         children: _buildControlsChildren(curves),
         collapsible: true,
@@ -707,6 +720,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
     return '${formatSciLatex(value, sigFigs: sigFigs)}\\,$unitTex';
   }
 
+  // ignore: unused_element
   List<ReadoutItem> _buildReadouts(_PnCurves curves) {
     const lengthUnit = PnLatex.unitUm;
     const voltageUnit = PnLatex.unitV;
@@ -719,11 +733,11 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
         boldValue: true,
       ),
       ReadoutItem(
-        label: r'x_p (p-side)',
+        label: r'x_{p} (p-side)',
         value: _formatWithUnit(curves.xpUm, lengthUnit, sigFigs: 3),
       ),
       ReadoutItem(
-        label: r'x_n (n-side)',
+        label: r'x_{n} (n-side)',
         value: _formatWithUnit(curves.xnUm, lengthUnit, sigFigs: 3),
       ),
       ReadoutItem(
@@ -850,7 +864,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
         },
       ),
       ParameterSwitch(
-        label: r'x_p, x_n',
+        label: r'x_{p},\,x_{n}',
         plainSuffix: '(markers)',
         subtitle: 'Show junction marker',
         value: _showMarkers,
@@ -1106,7 +1120,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
             alignment: Alignment.bottomLeft,
             padding: const EdgeInsets.only(left: 4, bottom: 4),
             style: TextStyle(fontSize: _Typo.small),
-            labelResolver: (_) => '-x_p',
+            labelResolver: (_) => '-xₚ',
           ),
         ),
         VerticalLine(
@@ -1132,7 +1146,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
             alignment: Alignment.bottomRight,
             padding: const EdgeInsets.only(right: 4, bottom: 4),
             style: TextStyle(fontSize: _Typo.small),
-            labelResolver: (_) => 'x_n',
+            labelResolver: (_) => 'xₙ',
           ),
         ),
       ]);

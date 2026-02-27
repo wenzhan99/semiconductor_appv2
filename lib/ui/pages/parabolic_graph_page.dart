@@ -1,18 +1,17 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/constants/constants_loader.dart';
 import '../../core/constants/latex_symbols.dart';
 import '../../core/solver/number_formatter.dart';
 import '../graphs/common/enhanced_animation_panel.dart';
+import '../graphs/common/graph_scaffold_tokens.dart';
 import '../graphs/core/graph_config.dart';
-import '../graphs/core/standard_graph_page_scaffold.dart';
-import '../graphs/core/standard_panel_stack.dart';
-import '../graphs/utils/latex_number_formatter.dart';
+import '../graphs/common/standard_graph_page_scaffold.dart';
+import '../graphs/utils/pn_latex.dart';
 import '../graphs/common/latex_readout.dart';
 import '../widgets/latex_text.dart';
 
@@ -56,7 +55,7 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
   double _eg = 1.12; // eV
   double _mnEff = 0.26; // x m0
   double _mpEff = 0.39; // x m0
-  double _kMaxScaled = 0.5; // x1e10 m^-1
+  double _kMaxScaled = 0.5; // x1e10 m^{-1}
   double _points = 400;
   bool _isAnimating = false;
   double _animSpeed = 1.0;
@@ -78,17 +77,22 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
   };
   Timer? _animTimer;
   List<_SeriesMeta> _overlaySeries = [];
-  List<_GraphPoint> _conductionSamples = [];
-  List<_GraphPoint> _valenceSamples = [];
 
   // Constants
   static const double _kMin = 0.0;
-  static const double _kDisplayScale = 1e10; // display k in 1e10 m^-1
+  static const double _kDisplayScale = 1e10; // display k in 1e10 m^{-1}
   static const double _hbar = 1.054571817e-34; // J*s
   static const double _m0 = 9.1093837015e-31; // kg
   static const double _q = 1.602176634e-19; // C
-  static const EdgeInsets _chartPadding =
-      EdgeInsets.fromLTRB(52, 12, 12, 32); // align with chart axes/titles
+  static const double _axisNameSize = 16;
+  static const double _leftTitleReserved = 52;
+  static const double _bottomTitleReserved = 36;
+  static const EdgeInsets _chartPadding = EdgeInsets.fromLTRB(
+    _leftTitleReserved + _axisNameSize,
+    0,
+    0,
+    _bottomTitleReserved + _axisNameSize,
+  ); // matches fl_chart title scaffold insets
   static const Map<String, String> _uiLatexLabels = {
     'Eg': r'E_g',
     'Ec': r'E_c',
@@ -105,10 +109,12 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
   };
 
   final List<_PointRef> _pins = [];
-  
+
   // Active point state (updates on hover, drives inspector UI and tooltip)
   final ValueNotifier<_ActivePointState?> _activePointVN = ValueNotifier(null);
-  
+  bool _hoverPreferLatex = false;
+  Timer? _hoverLatexTimer;
+
   final Map<String, Map<int, _ReadoutCache>> _readoutCache = {
     'Conduction': {},
     'Valence': {},
@@ -125,6 +131,8 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
     Color(0xFF3949AB),
     Color(0xFF546E7A),
   ];
+  static const int _hoverLatexIdleMs = 120;
+  static const int _maxPins = 2;
 
   late final Future<LatexSymbolMap> _latexSymbols;
   final NumberFormatter _latexFormatter =
@@ -152,6 +160,7 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
   @override
   void dispose() {
     _animTimer?.cancel();
+    _hoverLatexTimer?.cancel();
     _activePointVN.dispose();
     super.dispose();
   }
@@ -167,51 +176,55 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
         final latexMap = snapshot.data!;
         final panelConfig = _buildPanelConfig(context, latexMap);
         return StandardGraphPageScaffold(
-          config: const GraphConfig(
-            title: 'Parabolic Band Dispersion (E-k)',
-            subtitle: 'Band Structure',
-            mainEquation:
-                r'E_c(k)=E_c+\frac{\hbar^{2}k^{2}}{2\,m_n^{*}},\quad E_v(k)=E_v-\frac{\hbar^{2}k^{2}}{2\,m_p^{*}}',
-            controls: ControlsConfig(children: []),
-          ),
+          config: panelConfig,
+          title: 'Parabolic Band Dispersion (E-k)',
+          subtitle: 'Band Structure',
+          mainEquation:
+              r'E_c(k)=E_c+\frac{\hbar^{2}k^{2}}{2\,m_n^{*}},\quad E_v(k)=E_v-\frac{\hbar^{2}k^{2}}{2\,m_p^{*}}',
           aboutSection: _buildAboutCard(context),
           observeSection: _buildObserveCard(context),
+          placeSectionsInWideLeftColumn: true,
           chartBuilder: (context) => ValueListenableBuilder<_ActivePointState?>(
             valueListenable: _activePointVN,
             builder: (_, __, ___) => _buildChartArea(context, latexMap),
           ),
-          rightPanelBuilder: (context, config) =>
-              StandardPanelStack(config: panelConfig),
+          rightPanelWidth: _computeWideRightPanelWidth(context),
+          useTwoColumnRightPanelInWide: true,
+          wideLeftColumnSectionIds: const [
+            'point_inspector',
+            'animation',
+          ],
+          wideRightColumnSectionIds: const ['notes', 'controls'],
         );
       },
     );
   }
 
+  double _computeWideRightPanelWidth(BuildContext context) {
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final innerWidth = math.max(0.0, screenWidth - 32); // scaffold padding
+    final halfSplit = (innerWidth - 12) / 2; // row gap in scaffold
+    return halfSplit.clamp(520.0, 1400.0).toDouble();
+  }
+
   GraphConfig _buildPanelConfig(BuildContext context, LatexSymbolMap latexMap) {
     final activeState = _activePointVN.value;
     final activePoint = activeState?.point;
-    final readouts = <ReadoutItem>[
-      ReadoutItem(label: r'E_g', value: _eg.toStringAsFixed(3), subtitle: 'eV'),
-      ReadoutItem(label: r'm_n^* / m_0', value: _mnEff.toStringAsFixed(3)),
-      ReadoutItem(label: r'm_p^* / m_0', value: _mpEff.toStringAsFixed(3)),
-      ReadoutItem(label: r'k_max', value: _kMaxScaled.toStringAsFixed(3), subtitle: r'x 10^{10} m^{-1}'),
-      ReadoutItem(label: r'Pins', value: '${_pins.length}'),
-      if (activePoint != null)
-        ReadoutItem(label: r'Active band', value: activePoint.band),
-    ];
+    final ecEv = _deriveEcEv();
+    final resolvedPins = _pins
+        .map((p) => _resolvePoint(p, ecEv))
+        .whereType<_GraphPointWithBand>()
+        .toList();
 
     final inspector = PointInspectorConfig(
       enabled: true,
-      emptyMessage: 'Hover over a curve to inspect. Double-click to pin points.',
-      onClear: () => setState(() => _activePointVN.value = null),
+      emptyMessage: 'Hover over a curve to inspect. Tap curve to pin points.',
+      onClear: () => _clearHoverState(rebuild: true),
+      interactionHint:
+          'Tap curve to pin (max $_maxPins) or unpin; tap empty area to clear.',
       builder: activePoint == null
           ? null
-          : () => [
-                'Band: ${activePoint.band}',
-                'k = ${activePoint.kScaled.toStringAsFixed(3)} x10^10 m^-1',
-                'Delta E = ${activePoint.deltaE.toStringAsExponential(3)} eV',
-                'v_g = ${activePoint.velocity.toStringAsExponential(3)} m/s',
-              ],
+          : () => _buildParabolicInspectorLines(activePoint),
     );
 
     final animation = AnimationConfig(
@@ -228,21 +241,21 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
           id: target.name,
           label: switch (target) {
             _AnimTarget.eg => r'E_g (bandgap)',
-            _AnimTarget.mn => r'm_n^* (electron mass)',
-            _AnimTarget.mp => r'm_p^* (hole mass)',
-            _AnimTarget.kmax => r'k_{max} (k-range)',
+            _AnimTarget.mn => r'm_n^{*} (electron mass)',
+            _AnimTarget.mp => r'm_p^{*} (hole mass)',
+            _AnimTarget.kmax => r'k_{\max} (k-range)',
           },
           symbol: switch (target) {
             _AnimTarget.eg => r'E_g',
-            _AnimTarget.mn => r'm_n^*',
-            _AnimTarget.mp => r'm_p^*',
-            _AnimTarget.kmax => r'k_{max}',
+            _AnimTarget.mn => r'm_n^{*}',
+            _AnimTarget.mp => r'm_p^{*}',
+            _AnimTarget.kmax => r'k_{\max}',
           },
           unit: switch (target) {
-            _AnimTarget.eg => r'eV',
+            _AnimTarget.eg => r'\mathrm{eV}',
             _AnimTarget.mn => r'm_0',
             _AnimTarget.mp => r'm_0',
-            _AnimTarget.kmax => r'10^{10}\,m^{-1}',
+            _AnimTarget.kmax => r'\times 10^{10}\,\mathrm{m^{-1}}',
           },
           currentValue: currentValue,
           rangeMin: range.start,
@@ -312,184 +325,178 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
         onPause: _stopAnimation,
         onRestart: _restartAnimation,
         onSpeedChanged: (speed) => setState(() => _animSpeed = speed),
-        onReverseChanged: (reverse) => setState(() => _reverseDirection = reverse),
+        onReverseChanged: (reverse) =>
+            setState(() => _reverseDirection = reverse),
         onLoopChanged: (loop) => setState(() => _loopEnabled = loop),
       ),
     );
 
+    final pinObservations = <String>[
+      for (var i = 0; i < resolvedPins.length; i++)
+        'Pin ${i + 1} (${resolvedPins[i].band}): '
+                r'$k = ' +
+            _formatKAxisLatex(resolvedPins[i].kScaled) +
+            r'$, $' +
+            (resolvedPins[i].band == 'Conduction' ? r'E_c(k)' : r'E_v(k)') +
+            r' = ' +
+            _formatEnergyLatex(resolvedPins[i].eAbs) +
+            r'$, $\Delta E = ' +
+            _formatEnergyLatex(resolvedPins[i].deltaE) +
+            r'$',
+    ];
+    final activeObservations = activePoint == null
+        ? <String>[]
+        : <String>[
+            'Active band: ${activePoint.band}',
+            r'\frac{k}{k_{\max}} = ' +
+                (activePoint.kScaled / (_kMaxScaled == 0 ? 1 : _kMaxScaled))
+                    .toStringAsFixed(3),
+            r'\Delta E = ' + _formatEnergyLatex(activePoint.deltaE),
+          ];
+    final dynamicObservations = resolvedPins.isNotEmpty
+        ? [...pinObservations, ...activeObservations]
+        : (activeObservations.isEmpty ? null : activeObservations);
+
     final insights = InsightsConfig(
-      dynamicObservations: activePoint == null
-          ? null
-          : [
-              'Active band: ${activePoint.band}',
-              'k/k_max = ${(activePoint.kScaled / (_kMaxScaled == 0 ? 1 : _kMaxScaled)).toStringAsFixed(3)}',
-              'Delta E = ${activePoint.deltaE.toStringAsExponential(3)} eV',
-            ],
+      dynamicObservations: dynamicObservations,
       staticObservations: const [
-        'Parabolic bands: E is proportional to k^2 near extrema.',
-        'Smaller effective mass increases curvature and group velocity at fixed k.',
+        r'Parabolic bands: $E \propto k^{2}$ near extrema.',
+        r'Smaller effective mass increases curvature and group velocity at fixed $k$.',
         'Use pinned points to compare conduction and valence responses.',
       ],
-      dynamicTitle: activePoint == null ? null : 'Current Point',
+      dynamicTitle: resolvedPins.isNotEmpty
+          ? 'From Your Pins'
+          : (activePoint == null ? null : 'Current Point'),
+      pinnedCount: _pins.length,
+      maxPins: _maxPins,
+      onClearPins: _pins.isEmpty ? null : () => setState(() => _pins.clear()),
     );
 
     return GraphConfig(
-      readouts: readouts,
       pointInspector: inspector,
       animation: animation,
       insights: insights,
       controls: ControlsConfig(
-        children: [_buildControls(context, latexMap)],
+        children: [_buildControls(context, latexMap, wrapInCard: false)],
         collapsible: true,
         initiallyExpanded: true,
       ),
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Parabolic Band Dispersion (E\u2013k)',
-          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          'Band Structure',
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-        ),
-        const SizedBox(height: 12),
-        Center(
-          child: Container(
+  Widget _buildAboutCard(BuildContext context, {double? maxWidth}) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: SizedBox(
+        width: maxWidth ?? double.infinity,
+        child: Card(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          child: Padding(
             padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.05),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.2),
-              ),
-            ),
-            child: const LatexText(
-              r'E_c(k)=E_c+\frac{\hbar^{2}k^{2}}{2\,m_n^{*}},\quad E_v(k)=E_v-\frac{\hbar^{2}k^{2}}{2\,m_p^{*}}',
-              displayMode: true,
-              scale: 1.1,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'About',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(
+                      'Shows energy-momentum dispersion relation ',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    const LatexText(r'E(k)', scale: 1.0),
+                    Text(
+                      ' for parabolic conduction and valence bands near the band edge. Curvature is determined by effective mass ',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    const LatexText(r'm^{*}', scale: 1.0),
+                    Text(
+                      '.',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
         ),
-      ],
+      ),
     );
   }
-  
-  Widget _buildAboutCard(BuildContext context) {
-    return Card(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'About',
+
+  Widget _buildObserveCard(BuildContext context, {double? maxWidth}) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: SizedBox(
+        width: maxWidth ?? double.infinity,
+        child: Card(
+          elevation: 0,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: ExpansionTile(
+            initiallyExpanded: false,
+            title: Text(
+              'What you should observe',
               style: Theme.of(context).textTheme.titleSmall?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
             ),
-            const SizedBox(height: 6),
-            Wrap(
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                Text(
-                  'Shows energy-momentum dispersion relation ',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                const LatexText(r'E(k)', scale: 1.0),
-                Text(
-                  ' for parabolic conduction and valence bands near the band edge. Curvature is determined by effective mass ',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                const LatexText(r'm^{*}', scale: 1.0),
-                Text(
-                  '.',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildObserveCard(BuildContext context) {
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: ExpansionTile(
-        initiallyExpanded: false,
-        title: Text(
-          'What you should observe',
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
-        ),
-        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-        children: [
-          _infoBulletSegments([
-            const _InlinePiece.text('Near the band edge, '),
-            const _InlinePiece.latex(r'E(k)'),
-            const _InlinePiece.text(' is parabolic: '),
-            const _InlinePiece.latex(
-                r'\Delta E(k)=\frac{\hbar^{2}k^{2}}{2m^{*}}'),
-          ]),
-          _infoBulletSegments([
-            const _InlinePiece.text('Conduction: '),
-            const _InlinePiece.latex(r'E_c(k)=E_c+\Delta E(k)'),
-            const _InlinePiece.text('; Valence: '),
-            const _InlinePiece.latex(r'E_v(k)=E_v-\Delta E(k)'),
-          ]),
-          _infoBulletSegments([
-            const _InlinePiece.text('Curvature from effective mass: smaller '),
-            const _InlinePiece.latex(r'm^{*}'),
-            const _InlinePiece.text(' gives steeper parabola.'),
-          ]),
-          _infoBulletSegments([
-            const _InlinePiece.text('Group velocity: '),
-            const _InlinePiece.latex(r'v_g(k)=\frac{\hbar k}{m^{*}}'),
-            const _InlinePiece.text(' (linear in k for parabolic bands).'),
-          ]),
-          const SizedBox(height: 8),
-          Text('Try this:', style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
-          _infoBulletSegments([
-            const _InlinePiece.text('Change '),
-            const _InlinePiece.latex(r'm_n^{*}'),
-            const _InlinePiece.text(' and '),
-            const _InlinePiece.latex(r'm_p^{*}'),
-            const _InlinePiece.text(' to see how band curvature affects carrier velocity.'),
-          ]),
-          _infoBulletSegments([
-            const _InlinePiece.text('Use Delta E mode to compare energy offset from band edges directly.'),
-          ]),
-          _infoBulletSegments([
-            const _InlinePiece.text('Hover curve to inspect values; double-click to pin for comparison.'),
-          ]),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildChartCard(BuildContext context, LatexSymbolMap latexMap) {
-    return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: RepaintBoundary(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: _buildChartArea(context, latexMap),
+            childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            children: [
+              _infoBulletSegments([
+                const _InlinePiece.text('Near the band edge, '),
+                const _InlinePiece.latex(r'E(k)'),
+                const _InlinePiece.text(' is parabolic: '),
+                const _InlinePiece.latex(
+                    r'\Delta E(k)=\frac{\hbar^{2}k^{2}}{2m^{*}}'),
+              ]),
+              _infoBulletSegments([
+                const _InlinePiece.text('Conduction: '),
+                const _InlinePiece.latex(r'E_c(k)=E_c+\Delta E(k)'),
+                const _InlinePiece.text('; Valence: '),
+                const _InlinePiece.latex(r'E_v(k)=E_v-\Delta E(k)'),
+              ]),
+              _infoBulletSegments([
+                const _InlinePiece.text(
+                    'Curvature from effective mass: smaller '),
+                const _InlinePiece.latex(r'm^{*}'),
+                const _InlinePiece.text(' gives steeper parabola.'),
+              ]),
+              _infoBulletSegments([
+                const _InlinePiece.text('Group velocity: '),
+                const _InlinePiece.latex(r'v_g(k)=\frac{\hbar k}{m^{*}}'),
+                const _InlinePiece.text(' (linear in k for parabolic bands).'),
+              ]),
+              const SizedBox(height: 8),
+              Text('Try this:',
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(fontWeight: FontWeight.w700)),
+              _infoBulletSegments([
+                const _InlinePiece.text('Change '),
+                const _InlinePiece.latex(r'm_n^{*}'),
+                const _InlinePiece.text(' and '),
+                const _InlinePiece.latex(r'm_p^{*}'),
+                const _InlinePiece.text(
+                    ' to see how band curvature affects carrier velocity.'),
+              ]),
+              _infoBulletSegments([
+                const _InlinePiece.text(
+                    'Use Delta E mode to compare energy offset from band edges directly.'),
+              ]),
+              _infoBulletSegments([
+                const _InlinePiece.text(
+                    'Hover curve to inspect values; double-click to pin for comparison.'),
+              ]),
+            ],
+          ),
         ),
       ),
     );
@@ -579,11 +586,9 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
     ];
     if (_plotMode == PlotMode.absolute) {
       legendEntries.addAll([
-        _legendItem(ecLineColor,
-            _latexSymbol(latexMap, 'Ec', fallback: r'E_c'),
+        _legendItem(ecLineColor, _latexSymbol(latexMap, 'Ec', fallback: r'E_c'),
             dashed: true, latex: true, fontSize: _Typo.body),
-        _legendItem(evLineColor,
-            _latexSymbol(latexMap, 'Ev', fallback: r'E_v'),
+        _legendItem(evLineColor, _latexSymbol(latexMap, 'Ev', fallback: r'E_v'),
             dashed: true, latex: true, fontSize: _Typo.body),
       ]);
     }
@@ -602,10 +607,9 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
           child: LayoutBuilder(
             builder: (context, constraints) {
               return MouseRegion(
-                onExit: (_) => _activePointVN.value = null,
+                onExit: (_) => _clearHoverState(),
                 child: GestureDetector(
                   behavior: HitTestBehavior.translucent,
-                  onDoubleTap: _handleDoubleTap,
                   child: Stack(
                     children: [
                       LineChart(
@@ -614,23 +618,7 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                           maxX: _kMaxScaled,
                           minY: minY,
                           maxY: maxY,
-                          showingTooltipIndicators: () {
-                            final a = _activePointVN.value;
-                            if (a == null ||
-                                a.barIndex < 0 ||
-                                a.barIndex >= lineBars.length) {
-                              return <ShowingTooltipIndicators>[];
-                            }
-                            return [
-                              ShowingTooltipIndicators([
-                                LineBarSpot(
-                                  lineBars[a.barIndex],
-                                  a.barIndex,
-                                  FlSpot(a.point.kScaled, a.point.yDisplay),
-                                ),
-                              ]),
-                            ];
-                          }(),
+                          showingTooltipIndicators: const <ShowingTooltipIndicators>[],
                           rangeAnnotations: _plotMode == PlotMode.absolute
                               ? RangeAnnotations(horizontalRangeAnnotations: [
                                   HorizontalRangeAnnotation(
@@ -665,137 +653,116 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                               : const ExtraLinesData(),
                           lineTouchData: LineTouchData(
                             enabled: true,
-                            handleBuiltInTouches: false, // Manual control via showingTooltipIndicators
+                            handleBuiltInTouches:
+                                false, // Manual control via showingTooltipIndicators
                             distanceCalculator: (touchPoint, spotLocation) {
                               // Use Euclidean distance in pixel space (not k-distance)
                               return math.sqrt(
                                 math.pow(touchPoint.dx - spotLocation.dx, 2) +
-                                    math.pow(touchPoint.dy - spotLocation.dy, 2),
+                                    math.pow(
+                                        touchPoint.dy - spotLocation.dy, 2),
                               );
                             },
                             getTouchedSpotIndicator: (barData, spotIndexes) {
-                              return spotIndexes.map((i) {
-                                return TouchedSpotIndicatorData(
-                                  FlLine(
-                                    color:
-                                        barData.color?.withValues(alpha: 0.4),
-                                    strokeWidth: 1,
-                                    dashArray: [4, 4],
-                                  ),
-                                  FlDotData(
-                                    show: true,
-                                    getDotPainter: (_, __, ___, ____) =>
-                                        FlDotCirclePainter(
-                                      radius: 3,
-                                      color: barData.color ??
-                                          Theme.of(context).colorScheme.primary,
-                                      strokeWidth: 1,
-                                      strokeColor: Colors.white,
-                                    ),
-                                  ),
-                                );
-                              }).toList();
+                              return spotIndexes
+                                  .map((_) => const TouchedSpotIndicatorData(
+                                        FlLine(
+                                            color: Colors.transparent,
+                                            strokeWidth: 0),
+                                        FlDotData(show: false),
+                                      ))
+                                  .toList();
                             },
                             touchCallback: (event, response) {
-                              // Update Point Inspector on hover
-                              if (response?.lineBarSpots == null || response!.lineBarSpots!.isEmpty) {
-                                _activePointVN.value = null;
+                              if (event is FlPointerExitEvent) {
+                                _clearHoverState();
+                                return;
+                              }
+                              final touchedSpots = response?.lineBarSpots;
+                              final hasTouchedSpot = touchedSpots != null &&
+                                  touchedSpots.isNotEmpty;
+                              if (!hasTouchedSpot && event is FlTapUpEvent) {
+                                setState(() {
+                                  _pins.clear();
+                                  _hoverPreferLatex = false;
+                                  _activePointVN.value = null;
+                                });
+                                return;
+                              }
+                              final localPosition = event.localPosition;
+                              if (localPosition == null) {
+                                _clearHoverState();
+                                return;
+                              }
+                              final overlayCount = (_overlayPrevious &&
+                                      _overlaySeries.isNotEmpty)
+                                  ? _overlaySeries.length
+                                  : 0;
+                              final next = _nearestHoverState(
+                                localPosition: localPosition,
+                                chartSize: constraints.biggest,
+                                series: series,
+                                minY: minY,
+                                maxY: maxY,
+                                overlayCount: overlayCount,
+                                touchResponse: response,
+                                ecEv: ecEv,
+                              );
+                              if (next == null) {
+                                _clearHoverState();
                                 return;
                               }
 
-                              // Choose the actual nearest spot (fl_chart returns all touched bars)
-                              final spots = response.lineBarSpots!;
-                              final spot = spots.length == 1
-                                  ? spots.first
-                                  : spots.cast<TouchLineBarSpot>().reduce(
-                                        (a, b) =>
-                                            a.distance <= b.distance ? a : b);
-                              final overlayCount = (_overlayPrevious && _overlaySeries.isNotEmpty)
-                                  ? _overlaySeries.length
-                                  : 0;
-                              final mainBarIndex = spot.barIndex - overlayCount;
-                              if (mainBarIndex < 0 || mainBarIndex >= series.length) return;
-                              
-                              final meta = series[mainBarIndex];
-                              final band = meta.id;
-                              final samples = meta.points;
-                              final pointIndex = spot.spotIndex;
-                              
-                              if (pointIndex >= samples.length) return;
-                              final point = samples[pointIndex];
-                              
-                              // Update inspector with current hover point (single band only)
-                              _activePointVN.value = _ActivePointState(
-                                point: _GraphPointWithBand(
-                                  band: band,
-                                  k: point.k,
-                                  kScaled: point.kScaled,
-                                  deltaE: point.deltaE,
-                                  eAbs: point.eAbs,
-                                  velocity: point.velocity,
-                                  yDisplay: point.yDisplay,
-                                  colorIndex: null,
-                                ),
-                                index: pointIndex,
-                                barIndex: spot.barIndex,
-                              );
+                              if (event is FlTapUpEvent) {
+                                setState(() {
+                                  _togglePin(
+                                    _PointRef(
+                                      band: next.point.band,
+                                      k: next.point.k,
+                                      colorIndex: next.point.colorIndex ??
+                                          _nextPinColorIndex(),
+                                    ),
+                                  );
+                                  _hoverPreferLatex = true;
+                                  _activePointVN.value = next;
+                                });
+                              } else if (event is FlPointerHoverEvent ||
+                                  event is FlPanUpdateEvent) {
+                                setState(() {
+                                  _hoverPreferLatex = false;
+                                  _activePointVN.value = next;
+                                });
+                                _scheduleHoverLatexPromotion();
+                              }
                             },
                             touchTooltipData: LineTouchTooltipData(
-                              fitInsideHorizontally: true,
-                              fitInsideVertically: true,
-                              getTooltipItems: (spots) {
-                                // When handleBuiltInTouches=false, we manually control tooltips
-                                // Show tooltip for active point only
-                                final active = _activePointVN.value;
-                                if (active == null) return [];
-                                
-                                final kFormatted = _formatKAxisPlain(active.point.kScaled);
-                                final eFormatted = _formatEnergyPlain(active.point.yDisplay);
-                                final tooltipText =
-                                    '${active.point.band}\nk = $kFormatted\nE = $eFormatted';
-                                
-                                if (kDebugMode) {
-                                  assert(
-                                    !tooltipText.contains('\\') &&
-                                        !tooltipText.contains('{') &&
-                                        !tooltipText.contains('}') &&
-                                        !tooltipText.contains('_') &&
-                                        !tooltipText.contains('mathrm'),
-                                    'Tooltip must not contain LaTeX: $tooltipText',
-                                  );
-                                }
-                                
-                                return [
-                                  LineTooltipItem(
-                                    tooltipText,
-                                    TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ];
-                              },
+                              getTooltipItems: (spots) =>
+                                  List<LineTooltipItem?>.filled(
+                                      spots.length, null),
                             ),
                           ),
                           gridData: const FlGridData(show: true),
                           titlesData: FlTitlesData(
                             leftTitles: AxisTitles(
+                              axisNameSize: _axisNameSize,
                               axisNameWidget: LatexText(
                                   _plotMode == PlotMode.absolute
                                       ? r'E\ \mathrm{(eV)}'
                                       : r'\Delta E\ \mathrm{(eV)}',
                                   style: TextStyle(fontSize: _Typo.body)),
                               sideTitles: const SideTitles(
-                                  showTitles: true, reservedSize: 52),
+                                showTitles: true,
+                                reservedSize: _leftTitleReserved,
+                              ),
                             ),
                             bottomTitles: AxisTitles(
+                              axisNameSize: _axisNameSize,
                               axisNameWidget: LatexText(
                                   r'k\ (\times 10^{10}\;\mathrm{m}^{-1})',
                                   style: TextStyle(fontSize: _Typo.body)),
                               sideTitles: SideTitles(
                                 showTitles: true,
-                                reservedSize: 36,
+                                reservedSize: _bottomTitleReserved,
                                 interval: _kAxisInterval(),
                                 getTitlesWidget: (value, meta) {
                                   final label = _formatKTick(value);
@@ -822,6 +789,33 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                           'para-${_eg.toStringAsFixed(3)}-${_mnEff.toStringAsFixed(3)}-${_mpEff.toStringAsFixed(3)}-${_kMaxScaled.toStringAsFixed(3)}-$_plotMode-${_showConduction}-${_showValence}-$_energyReference-$_materialPreset',
                         ),
                       ),
+                      if (_activePointVN.value != null)
+                        _ParabolicHoverMarker(
+                          activePoint: _activePointVN.value!,
+                          maxWidth: constraints.maxWidth,
+                          maxHeight: constraints.maxHeight,
+                          chartPadding: _chartPadding,
+                          markerColor:
+                              _activePointVN.value!.point.band == 'Conduction'
+                                  ? conductionColor
+                                  : valenceColor,
+                        ),
+                      if (_activePointVN.value != null)
+                        _ParabolicHoverTooltip(
+                          activePoint: _activePointVN.value!,
+                          maxWidth: constraints.maxWidth,
+                          maxHeight: constraints.maxHeight,
+                          chartPadding: _chartPadding,
+                          showLatex: _hoverPreferLatex,
+                          energyLabelTex:
+                              _energyLabelTex(_activePointVN.value!.point.band),
+                          energyLabelPlain: _energyLabelPlain(
+                              _activePointVN.value!.point.band),
+                          formatKAxisPlain: _formatKAxisPlain,
+                          formatEnergyPlain: _formatEnergyPlain,
+                          formatKAxisLatex: _formatKAxisLatex,
+                          formatEnergyLatex: _formatEnergyLatex,
+                        ),
                       if (_plotMode == PlotMode.absolute)
                         IgnorePointer(
                           child: CustomPaint(
@@ -854,8 +848,7 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                               if (dy == 0 || innerW <= 0 || innerH <= 0) {
                                 return const SizedBox.shrink();
                               }
-                              final px = _chartPadding.left +
-                                  0.965 * innerW;
+                              final px = _chartPadding.left + 0.965 * innerW;
                               double yPos(double y) =>
                                   _chartPadding.top +
                                   (1 - ((y - minY) / dy).clamp(0.0, 1.0)) *
@@ -871,7 +864,8 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                                       padding: const EdgeInsets.symmetric(
                                           horizontal: 6, vertical: 2),
                                       decoration: BoxDecoration(
-                                        color: ecLineColor.withValues(alpha: 0.2),
+                                        color:
+                                            ecLineColor.withValues(alpha: 0.2),
                                         borderRadius: BorderRadius.circular(4),
                                       ),
                                       child: LatexText(r'E_c',
@@ -890,7 +884,8 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                                       padding: const EdgeInsets.symmetric(
                                           horizontal: 6, vertical: 2),
                                       decoration: BoxDecoration(
-                                        color: evLineColor.withValues(alpha: 0.2),
+                                        color:
+                                            evLineColor.withValues(alpha: 0.2),
                                         borderRadius: BorderRadius.circular(4),
                                       ),
                                       child: LatexText(r'E_v',
@@ -908,18 +903,20 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                           ),
                         ),
                       // Pinned points overlay
-                      IgnorePointer(
-                        child: CustomPaint(
-                          painter: _MarkersPainter(
-                            pins: resolvedPins,
-                            minX: 0,
-                            maxX: _kMaxScaled,
-                            minY: minY,
-                            maxY: maxY,
-                            conductionColor: conductionColor,
-                            valenceColor: valenceColor,
-                            palette: _pinPalette,
-                            padding: _chartPadding,
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: CustomPaint(
+                            painter: _MarkersPainter(
+                              pins: resolvedPins,
+                              minX: 0,
+                              maxX: _kMaxScaled,
+                              minY: minY,
+                              maxY: maxY,
+                              conductionColor: conductionColor,
+                              valenceColor: valenceColor,
+                              palette: _pinPalette,
+                              padding: _chartPadding,
+                            ),
                           ),
                         ),
                       ),
@@ -936,6 +933,7 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
 
   // Removed _buildHoverTooltip - now using paint-only hover with intent-driven inspector
 
+  // ignore: unused_element
   Widget _buildRightPanel(BuildContext context, LatexSymbolMap latexMap) {
     return RepaintBoundary(
       child: Scrollbar(
@@ -965,40 +963,44 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
         final activePoint = activeState?.point;
         return Card(
           elevation: 1,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           child: ExpansionTile(
             initiallyExpanded: true,
-        title: Text('Point Inspector',
-            style: TextStyle(
-                fontSize: _Typo.title, fontWeight: FontWeight.w700)),
-        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-        children: [
-          if (activePoint == null)
-            Text(
-                'Hover over a curve to inspect. Double-click to pin or unpin a point.',
-                style: TextStyle(fontSize: _Typo.hint))
-          else ...[
-            Text('${activePoint.band} band',
+            title: Text('Point Inspector',
                 style: TextStyle(
-                    fontSize: _Typo.sectionLabel,
-                    fontWeight: FontWeight.w700)),
+                    fontSize: _Typo.title, fontWeight: FontWeight.w700)),
+            childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            children: [
+              if (activePoint == null)
+                Text(
+                    'Hover over a curve to inspect. Tap curve to pin or unpin; tap empty area to clear.',
+                    style: TextStyle(fontSize: _Typo.hint))
+              else ...[
+                Text('${activePoint.band} band',
+                    style: TextStyle(
+                        fontSize: _Typo.sectionLabel,
+                        fontWeight: FontWeight.w700)),
                 const SizedBox(height: 6),
                 _detailRow(
                     labelLatex: r'k',
-                    valueLatex:
-                        _readoutCache[activePoint.band]?[activeState!.index]?.k ??
-                            _formatKLatex(activePoint.k)),
+                    valueLatex: _readoutCache[activePoint.band]
+                                ?[activeState!.index]
+                            ?.k ??
+                        _formatKLatex(activePoint.k)),
                 _detailRow(
                     labelLatex: r'k_{\mathrm{axis}}',
-                    valueLatex:
-                        _readoutCache[activePoint.band]?[activeState!.index]?.kAxis ??
-                            _formatKAxisLatex(activePoint.kScaled)),
+                    valueLatex: _readoutCache[activePoint.band]
+                                ?[activeState!.index]
+                            ?.kAxis ??
+                        _formatKAxisLatex(activePoint.kScaled)),
                 _detailRow(
                     labelLatex: activePoint.band == 'Conduction'
                         ? r'\Delta E_c(k)'
                         : r'\Delta E_v(k)',
                     valueLatex: _readoutCache[activePoint.band]
-                            ?[activeState!.index]?.deltaE ??
+                                ?[activeState!.index]
+                            ?.deltaE ??
                         _formatEnergyLatex(activePoint.deltaE)),
                 if (_plotMode == PlotMode.absolute)
                   _detailRow(
@@ -1006,20 +1008,22 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                           ? r'E_c(k)'
                           : r'E_v(k)',
                       valueLatex: _readoutCache[activePoint.band]
-                              ?[activeState!.index]?.eAbs ??
+                                  ?[activeState!.index]
+                              ?.eAbs ??
                           _formatEnergyLatex(activePoint.eAbs)),
                 _detailRow(
                     labelLatex: activePoint.band == 'Conduction'
                         ? r'v_{g,c}(k)'
                         : r'v_{g,v}(k)',
                     valueLatex: _readoutCache[activePoint.band]
-                            ?[activeState!.index]?.v ??
+                                ?[activeState!.index]
+                            ?.v ??
                         _formatVelocityLatex(activePoint.velocity)),
                 const SizedBox(height: 8),
                 Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    'Hover to inspect. Double-click to pin/unpin.',
+                    'Hover to inspect. Tap curve to pin/unpin; tap empty area to clear.',
                     style: TextStyle(fontSize: _Typo.hint),
                   ),
                 ),
@@ -1070,8 +1074,8 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
       child: ExpansionTile(
         initiallyExpanded: true,
         title: Text('Insights & Pins',
-            style: TextStyle(
-                fontSize: _Typo.title, fontWeight: FontWeight.w700)),
+            style:
+                TextStyle(fontSize: _Typo.title, fontWeight: FontWeight.w700)),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         children: [
           Align(
@@ -1090,7 +1094,7 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
                     _InlinePiece.latex(r'\Delta E'),
                     _InlinePiece.text(' and '),
                     _InlinePiece.latex(r'v_g'),
-                    _InlinePiece.text('. Double-click to pin.'),
+                    _InlinePiece.text('. Tap curve to pin.'),
                   ])
                 else ...[
                   LatexText(
@@ -1241,175 +1245,167 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
     );
   }
 
-  Widget _buildControls(BuildContext context, LatexSymbolMap latexMap) {
+  Widget _buildControls(
+    BuildContext context,
+    LatexSymbolMap latexMap, {
+    bool wrapInCard = true,
+  }) {
+    final controlChildren = <Widget>[
+      Wrap(
+        spacing: 20,
+        runSpacing: 10,
+        children: [
+          _toggle('Conduction', _showConduction,
+              (v) => setState(() => _showConduction = v), _Typo.body),
+          _toggle('Valence', _showValence,
+              (v) => setState(() => _showValence = v), _Typo.body),
+        ],
+      ),
+      const SizedBox(height: 10),
+      Wrap(
+        spacing: 12,
+        runSpacing: 12,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          SizedBox(
+            width: 260,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Energy view',
+                    style: TextStyle(
+                        fontSize: _Typo.sectionLabel,
+                        fontWeight: FontWeight.w600)),
+                const SizedBox(height: 4),
+                SegmentedButton<PlotMode>(
+                  segments: const [
+                    ButtonSegment(
+                        value: PlotMode.absolute, label: Text('Absolute E')),
+                    ButtonSegment(
+                        value: PlotMode.delta,
+                        label: Text('Delta E (relative)')),
+                  ],
+                  selected: {_plotMode},
+                  onSelectionChanged: (s) =>
+                      setState(() => _plotMode = s.first),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(
+            width: 260,
+            child: _energyReferenceDropdown(),
+          ),
+          ElevatedButton.icon(
+            onPressed: _resetDefaults,
+            icon: const Icon(Icons.refresh),
+            label: const Text('Reset demo'),
+          ),
+        ],
+      ),
+      const SizedBox(height: 12),
+      SizedBox(
+        width: double.infinity,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Material preset',
+                style: TextStyle(
+                    fontSize: _Typo.sectionLabel, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 4),
+            _materialPresetDropdown(),
+          ],
+        ),
+      ),
+      const SizedBox(height: 12),
+      LayoutBuilder(
+        builder: (context, constraints) {
+          final double maxWidth = constraints.maxWidth;
+          final double sliderWidth = maxWidth > 540 ? 260 : maxWidth;
+          return Wrap(
+            spacing: 16,
+            runSpacing: 12,
+            children: [
+              _slider(
+                labelLatex: _latexSymbol(latexMap, 'E_g', fallback: r'E_g') +
+                    r'\ (\mathrm{eV})',
+                value: _eg,
+                min: 0.2,
+                max: 2.5,
+                divisions: 230,
+                onChanged: (v) =>
+                    setState(() => _eg = double.parse(v.toStringAsFixed(3))),
+                valueText: _eg.toStringAsFixed(3),
+                width: sliderWidth,
+              ),
+              _slider(
+                labelLatex: r'\frac{m_n^{*}}{m_0}',
+                labelMeaning: 'electron effective mass ratio',
+                value: _mnEff,
+                min: 0.05,
+                max: 2.0,
+                divisions: 195,
+                onChanged: (v) =>
+                    setState(() => _mnEff = double.parse(v.toStringAsFixed(3))),
+                valueText: _mnEff.toStringAsFixed(3),
+                width: sliderWidth,
+              ),
+              _slider(
+                labelLatex: r'\frac{m_p^{*}}{m_0}',
+                labelMeaning: 'hole effective mass ratio',
+                value: _mpEff,
+                min: 0.05,
+                max: 2.0,
+                divisions: 195,
+                onChanged: (v) =>
+                    setState(() => _mpEff = double.parse(v.toStringAsFixed(3))),
+                valueText: _mpEff.toStringAsFixed(3),
+                width: sliderWidth,
+              ),
+              _slider(
+                labelLatex: r'k_{\max}\ (\times 10^{10}\,\mathrm{m^{-1}})',
+                value: _kMaxScaled,
+                min: 0.2,
+                max: 2.0,
+                divisions: 180,
+                onChanged: (v) => setState(
+                    () => _kMaxScaled = double.parse(v.toStringAsFixed(3))),
+                valueText: _kMaxScaled.toStringAsFixed(3),
+                width: sliderWidth,
+              ),
+              _slider(
+                labelLatex: r'\mathrm{Points}',
+                value: _points,
+                min: 100,
+                max: 1000,
+                divisions: 9,
+                onChanged: (v) => setState(() => _points = v.roundToDouble()),
+                valueText: _points.toInt().toString(),
+                width: sliderWidth,
+              ),
+            ],
+          );
+        },
+      ),
+    ];
+
+    if (!wrapInCard) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: controlChildren,
+      );
+    }
+
     return Card(
       elevation: 1,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ExpansionTile(
         initiallyExpanded: true,
         title: Text('Controls',
-            style: TextStyle(
-                fontSize: _Typo.title, fontWeight: FontWeight.w700)),
+            style:
+                TextStyle(fontSize: _Typo.title, fontWeight: FontWeight.w700)),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        children: [
-          Wrap(
-            spacing: 20,
-            runSpacing: 10,
-            children: [
-              _toggle('Conduction', _showConduction,
-                  (v) => setState(() => _showConduction = v), _Typo.body),
-              _toggle('Valence', _showValence,
-                  (v) => setState(() => _showValence = v), _Typo.body),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              SizedBox(
-                width: 260,
-                child:                   Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Energy view',
-                        style: TextStyle(
-                            fontSize: _Typo.sectionLabel,
-                            fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 4),
-                    SegmentedButton<PlotMode>(
-                      segments: const [
-                        ButtonSegment(
-                            value: PlotMode.absolute,
-                            label: Text('Absolute E')),
-                        ButtonSegment(
-                            value: PlotMode.delta,
-                            label: Text('Delta E (relative)')),
-                      ],
-                      selected: {_plotMode},
-                      onSelectionChanged: (s) =>
-                          setState(() => _plotMode = s.first),
-                    ),
-                  ],
-                ),
-              ),
-              SizedBox(
-                width: 260,
-                child: _energyReferenceDropdown(),
-              ),
-              ElevatedButton.icon(
-                onPressed: _resetDefaults,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Reset demo'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Material preset',
-                    style: TextStyle(
-                        fontSize: _Typo.sectionLabel,
-                        fontWeight: FontWeight.w600)),
-                const SizedBox(height: 4),
-                _materialPresetDropdown(),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final double maxWidth = constraints.maxWidth;
-              final double sliderWidth = maxWidth > 540 ? 260 : maxWidth;
-              return Wrap(
-                spacing: 16,
-                runSpacing: 12,
-                children: [
-                  _slider(
-                    labelLatex:
-                        _latexSymbol(latexMap, 'E_g', fallback: r'E_g') +
-                            r'\ (\mathrm{eV})',
-                    value: _eg,
-                    min: 0.2,
-                    max: 2.5,
-                    divisions: 230,
-                    onChanged: (v) => setState(
-                        () => _eg = double.parse(v.toStringAsFixed(3))),
-                    valueText: _eg.toStringAsFixed(3),
-                    width: sliderWidth,
-                  ),
-                  _slider(
-                    labelLatex: r'\frac{m_n^{*}}{m_0}',
-                    value: _mnEff,
-                    min: 0.05,
-                    max: 2.0,
-                    divisions: 195,
-                    onChanged: (v) => setState(
-                        () => _mnEff = double.parse(v.toStringAsFixed(3))),
-                    valueText: _mnEff.toStringAsFixed(3),
-                    width: sliderWidth,
-                  ),
-                  _slider(
-                    labelLatex: r'\frac{m_p^{*}}{m_0}',
-                    value: _mpEff,
-                    min: 0.05,
-                    max: 2.0,
-                    divisions: 195,
-                    onChanged: (v) => setState(
-                        () => _mpEff = double.parse(v.toStringAsFixed(3))),
-                    valueText: _mpEff.toStringAsFixed(3),
-                    width: sliderWidth,
-                  ),
-                  _slider(
-                    labelLatex: r'k_{\max}\ (\times 10^{10}\,\mathrm{m^{-1}})',
-                    value: _kMaxScaled,
-                    min: 0.2,
-                    max: 2.0,
-                    divisions: 180,
-                    onChanged: (v) => setState(
-                        () => _kMaxScaled = double.parse(v.toStringAsFixed(3))),
-                    valueText: _kMaxScaled.toStringAsFixed(3),
-                    width: sliderWidth,
-                  ),
-                  _slider(
-                    labelLatex: r'\mathrm{Points}',
-                    value: _points,
-                    min: 100,
-                    max: 1000,
-                    divisions: 9,
-                    onChanged: (v) =>
-                        setState(() => _points = v.roundToDouble()),
-                    valueText: _points.toInt().toString(),
-                    width: sliderWidth,
-                  ),
-                ],
-              );
-            },
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 16,
-            runSpacing: 4,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              Text(
-                'k-axis: k × 10^10 m^-1',
-                style: TextStyle(fontSize: _Typo.hint),
-              ),
-              Text('E axis in eV; Delta E if relative mode is selected',
-                  style: TextStyle(fontSize: _Typo.hint)),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Parabolic approximation is best near k ~ 0; very large k may be unrealistic.',
-            style: TextStyle(fontSize: _Typo.hint),
-          ),
-        ],
+        children: controlChildren,
       ),
     );
   }
@@ -1435,8 +1431,8 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
           items: [
             DropdownMenuItem(
                 value: 'Midgap = 0',
-                child: Text('Midgap = 0',
-                    style: TextStyle(fontSize: _Typo.body))),
+                child:
+                    Text('Midgap = 0', style: TextStyle(fontSize: _Typo.body))),
             DropdownMenuItem(
                 value: 'Ev = 0',
                 child: LatexText(r'E_v = 0',
@@ -1506,9 +1502,6 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
       _cacheReadout('Valence', i, valence.last);
     }
 
-    _conductionSamples = conduction;
-    _valenceSamples = valence;
-
     return _GraphData(conduction: conduction, valence: valence);
   }
 
@@ -1560,7 +1553,6 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
     }
     return low;
   }
-
 
   void _cacheReadout(String band, int index, _GraphPoint p) {
     final bucket = _readoutCache[band]!;
@@ -1622,6 +1614,8 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
       _points = _defaultState['points'] as double;
       _showConduction = _defaultState['showConduction'] as bool;
       _showValence = _defaultState['showValence'] as bool;
+      _hoverLatexTimer?.cancel();
+      _hoverPreferLatex = false;
       _activePointVN.value = null;
       _pins.clear();
       _isAnimating = false;
@@ -1632,17 +1626,18 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
   void _togglePin(_PointRef ref) {
     final existing = _pins.indexWhere((p) => _samePoint(p, ref));
     final colorIndex = ref.colorIndex ?? _nextPinColorIndex();
-    setState(() {
-      if (existing >= 0) {
-        _pins.removeAt(existing);
-      } else {
-        _pins.add(_PointRef(
-          band: ref.band,
-          k: ref.k,
-          colorIndex: colorIndex,
-        ));
-      }
-    });
+    if (existing >= 0) {
+      _pins.removeAt(existing);
+      return;
+    }
+    _pins.add(_PointRef(
+      band: ref.band,
+      k: ref.k,
+      colorIndex: colorIndex,
+    ));
+    if (_pins.length > _maxPins) {
+      _pins.removeAt(0);
+    }
   }
 
   bool _samePoint(_PointRef a, _PointRef b) {
@@ -1665,16 +1660,6 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
     } else {
       _animDirection = _reverseDirection ? -1.0 : 1.0;
       _startAnimation();
-    }
-  }
-
-  void _handleDoubleTap() {
-    final active = _activePointVN.value;
-    if (active != null) {
-      _togglePin(_PointRef(
-          band: active.point.band,
-          k: active.point.k,
-          colorIndex: active.point.colorIndex ?? _nextPinColorIndex()));
     }
   }
 
@@ -1837,8 +1822,8 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
     );
   }
 
-  Widget _toggle(String label, bool value, ValueChanged<bool> onChanged,
-      double fontSize) {
+  Widget _toggle(
+      String label, bool value, ValueChanged<bool> onChanged, double fontSize) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -1857,6 +1842,7 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
 
   Widget _slider({
     required String labelLatex,
+    String? labelMeaning,
     required double value,
     required double min,
     required double max,
@@ -1865,6 +1851,12 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
     required String valueText,
     required double width,
   }) {
+    final bodyBase = Theme.of(context).textTheme.bodyMedium ??
+        TextStyle(fontSize: _Typo.body);
+    final baseFontSize = bodyBase.fontSize ?? _Typo.body;
+    final isEffectiveMassRatio = labelLatex == r'\frac{m_n^{*}}{m_0}' ||
+        labelLatex == r'\frac{m_p^{*}}{m_0}';
+
     return SizedBox(
       width: width,
       child: Column(
@@ -1873,10 +1865,35 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              LatexText(labelLatex,
-                  style: TextStyle(
-                      fontSize: _Typo.body, fontWeight: FontWeight.w600)),
-              Text(valueText, style: TextStyle(fontSize: _Typo.value)),
+              Expanded(
+                child: Wrap(
+                  spacing: 4,
+                  runSpacing: 2,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    LatexText(labelLatex,
+                        style: bodyBase.copyWith(
+                          fontWeight: FontWeight.w600,
+                          fontSize: isEffectiveMassRatio
+                              ? baseFontSize + 2
+                              : baseFontSize,
+                        )),
+                    if (labelMeaning != null && labelMeaning.isNotEmpty)
+                      Text(
+                        '($labelMeaning)',
+                        style: bodyBase.copyWith(
+                          fontSize: isEffectiveMassRatio
+                              ? baseFontSize + 1
+                              : _Typo.body,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(valueText,
+                  style: bodyBase.copyWith(fontWeight: FontWeight.w500)),
             ],
           ),
           Slider(
@@ -1985,6 +2002,165 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
     );
   }
 
+  List<String> _buildParabolicInspectorLines(_GraphPointWithBand point) {
+    return <String>[
+      'Band: ${point.band}',
+      r'k = ' + _formatKAxisLatex(point.kScaled),
+      r'\Delta E = ' + _formatEnergyLatex(point.deltaE),
+      if (_plotMode == PlotMode.absolute)
+        (point.band == 'Conduction' ? r'E_c(k) = ' : r'E_v(k) = ') +
+            _formatEnergyLatex(point.eAbs),
+      r'v_g = ' + _formatVelocityLatex(point.velocity),
+    ];
+  }
+
+  void _clearHoverState({bool rebuild = false}) {
+    _hoverLatexTimer?.cancel();
+    final hadState = _activePointVN.value != null || _hoverPreferLatex;
+    void clear() {
+      _hoverPreferLatex = false;
+      _activePointVN.value = null;
+    }
+
+    if (rebuild || hadState) {
+      setState(clear);
+    } else {
+      clear();
+    }
+  }
+
+  _ActivePointState? _nearestHoverState({
+    required Offset localPosition,
+    required Size chartSize,
+    required List<_SeriesMeta> series,
+    required double minY,
+    required double maxY,
+    required int overlayCount,
+    required LineTouchResponse? touchResponse,
+    required (double, double) ecEv,
+  }) {
+    if (series.isEmpty) return null;
+
+    final plotInsets = _chartPadding;
+    final innerWidth = chartSize.width - plotInsets.horizontal;
+    final innerHeight = chartSize.height - plotInsets.vertical;
+    final dy = (maxY - minY).abs();
+    if (innerWidth <= 0 || innerHeight <= 0 || dy <= 0 || _kMaxScaled <= 0) {
+      return null;
+    }
+
+    final plotPointer = _resolvePointerInPlot(
+      localPosition: localPosition,
+      touchResponse: touchResponse,
+      plotInsets: plotInsets,
+      innerWidth: innerWidth,
+      innerHeight: innerHeight,
+    );
+    final tx = innerWidth == 0 ? 0.0 : (plotPointer.dx / innerWidth);
+    final kScaled = _lerp(0, _kMaxScaled, tx.clamp(0.0, 1.0));
+    final k = kScaled * _kDisplayScale;
+
+    _ActivePointState? best;
+    var bestDistance = double.infinity;
+
+    for (var i = 0; i < series.length; i++) {
+      final meta = series[i];
+      final point = _computePoint(meta.id, k, kScaled, ecEv.$1, ecEv.$2);
+      final pointIndex = meta.points.isEmpty
+          ? 0
+          : _binarySearchK(meta.points, kScaled)
+              .clamp(0, meta.points.length - 1);
+      final yPlot = _dataYToPlotY(
+        y: point.yDisplay,
+        minY: minY,
+        maxY: maxY,
+        innerHeight: innerHeight,
+      );
+      final distance = (plotPointer.dy - yPlot).abs();
+      if (distance >= bestDistance) continue;
+      bestDistance = distance;
+      final anchor = Offset(
+        plotInsets.left + plotPointer.dx,
+        plotInsets.top + yPlot,
+      );
+      best = _ActivePointState(
+        point: _GraphPointWithBand(
+          band: meta.id,
+          k: k,
+          kScaled: kScaled,
+          deltaE: point.deltaE,
+          eAbs: point.eAbs,
+          velocity: point.velocity,
+          yDisplay: point.yDisplay,
+          colorIndex: null,
+        ),
+        index: pointIndex,
+        barIndex: overlayCount + i,
+        anchorPosition: anchor,
+      );
+    }
+
+    return best;
+  }
+
+  Offset _resolvePointerInPlot({
+    required Offset localPosition,
+    required LineTouchResponse? touchResponse,
+    required EdgeInsets plotInsets,
+    required double innerWidth,
+    required double innerHeight,
+  }) {
+    final assumeInner = Offset(
+      localPosition.dx.clamp(0.0, innerWidth),
+      localPosition.dy.clamp(0.0, innerHeight),
+    );
+    final assumeOuter = Offset(
+      (localPosition.dx - plotInsets.left).clamp(0.0, innerWidth),
+      (localPosition.dy - plotInsets.top).clamp(0.0, innerHeight),
+    );
+    final touched = touchResponse?.lineBarSpots;
+    if (touched != null && touched.isNotEmpty && innerWidth > 0) {
+      final referenceX = touched.first.x;
+      final xInner = _lerp(0, _kMaxScaled, assumeInner.dx / innerWidth);
+      final xOuter = _lerp(0, _kMaxScaled, assumeOuter.dx / innerWidth);
+      return (xInner - referenceX).abs() <= (xOuter - referenceX).abs()
+          ? assumeInner
+          : assumeOuter;
+    }
+    return assumeInner;
+  }
+
+  double _dataYToPlotY({
+    required double y,
+    required double minY,
+    required double maxY,
+    required double innerHeight,
+  }) {
+    final dy = (maxY - minY).abs();
+    if (dy <= 0 || innerHeight <= 0) return innerHeight / 2;
+    final ty = (1 - ((y - minY) / dy)).clamp(0.0, 1.0);
+    return ty * innerHeight;
+  }
+
+  void _scheduleHoverLatexPromotion() {
+    _hoverLatexTimer?.cancel();
+    _hoverLatexTimer = Timer(
+      const Duration(milliseconds: _hoverLatexIdleMs),
+      () {
+        if (!mounted || _activePointVN.value == null || _hoverPreferLatex) {
+          return;
+        }
+        setState(() => _hoverPreferLatex = true);
+      },
+    );
+  }
+
+  String _energyLabelTex(String band) =>
+      band == 'Conduction' ? r'E_c(k)' : r'E_v(k)';
+
+  String _energyLabelPlain(String band) =>
+      band == 'Conduction' ? 'Ec(k)' : 'Ev(k)';
+
   // --- Formatting helpers ---
 
   String _formatKLatex(double k) =>
@@ -2001,10 +2177,10 @@ class _ParabolicGraphViewState extends State<ParabolicGraphView> {
 
   /// Plain Unicode formatters for tooltip only (no LaTeX commands).
   String _formatKAxisPlain(double kScaled) =>
-      '${LatexNumberFormatter.toUnicodeSci(kScaled * 1e10, sigFigs: 3)} m^-1';
+      '${PnLatex.unicodeScientific(kScaled * 1e10, sigFigs: 3)} m\u207B\u00B9';
 
   String _formatEnergyPlain(double e) =>
-      '${LatexNumberFormatter.toUnicodeSci(e, sigFigs: 3)} eV';
+      '${PnLatex.unicodeScientific(e, sigFigs: 3)} eV';
 
   double _lerp(double a, double b, double t) => a + (b - a) * t;
 
@@ -2188,8 +2364,7 @@ class _ParabolicAnimationController
   bool get loopEnabled => state._loopEnabled;
 
   @override
-  void setLoopEnabled(bool value) =>
-      _update(() => state._loopEnabled = value);
+  void setLoopEnabled(bool value) => _update(() => state._loopEnabled = value);
 
   @override
   bool get reverseDirection => state._reverseDirection;
@@ -2209,8 +2384,7 @@ class _ParabolicAnimationController
   bool get lockYAxis => state._lockYAxis;
 
   @override
-  void setLockYAxis(bool value) =>
-      _update(() => state._lockYAxis = value);
+  void setLockYAxis(bool value) => _update(() => state._lockYAxis = value);
 
   @override
   bool get overlayPreviousCurve => state._overlayPrevious;
@@ -2233,6 +2407,160 @@ class _ParabolicAnimationController
 
   @override
   void restart() => state._restartAnimation();
+}
+
+class _ParabolicHoverTooltip extends StatelessWidget {
+  final _ActivePointState activePoint;
+  final double maxWidth;
+  final double maxHeight;
+  final EdgeInsets chartPadding;
+  final bool showLatex;
+  final String energyLabelTex;
+  final String energyLabelPlain;
+  final String Function(double kScaled) formatKAxisPlain;
+  final String Function(double value) formatEnergyPlain;
+  final String Function(double kScaled) formatKAxisLatex;
+  final String Function(double value) formatEnergyLatex;
+
+  const _ParabolicHoverTooltip({
+    required this.activePoint,
+    required this.maxWidth,
+    required this.maxHeight,
+    required this.chartPadding,
+    required this.showLatex,
+    required this.energyLabelTex,
+    required this.energyLabelPlain,
+    required this.formatKAxisPlain,
+    required this.formatEnergyPlain,
+    required this.formatKAxisLatex,
+    required this.formatEnergyLatex,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = GraphScaffoldTokens.of(context);
+    final tooltipTextStyle = tokens.tooltip;
+    const estimatedHeight = 86.0;
+    const tooltipWidth = 228.0;
+    final width = math.min(tooltipWidth, maxWidth - 8);
+    final left = (activePoint.anchorPosition.dx + 12)
+        .clamp(4.0, math.max(4.0, maxWidth - width - 4))
+        .toDouble();
+    final top = (activePoint.anchorPosition.dy - estimatedHeight - 12)
+        .clamp(
+          chartPadding.top + 4,
+          math.max(chartPadding.top + 4, maxHeight - estimatedHeight - 4),
+        )
+        .toDouble();
+
+    return Positioned(
+      left: left,
+      top: top,
+      child: Material(
+        elevation: 4,
+        borderRadius: BorderRadius.circular(8),
+        color: Theme.of(context).colorScheme.surface,
+        child: Container(
+          width: width,
+          padding: const EdgeInsets.all(10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                activePoint.point.band,
+                style: tooltipTextStyle.copyWith(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 2),
+              showLatex
+                  ? LatexText(
+                      r'k = ' + formatKAxisLatex(activePoint.point.kScaled),
+                      style: tooltipTextStyle,
+                    )
+                  : Text(
+                      'k = ${formatKAxisPlain(activePoint.point.kScaled)}',
+                      style: tooltipTextStyle,
+                    ),
+              const SizedBox(height: 2),
+              showLatex
+                  ? LatexText(
+                      '$energyLabelTex = ${formatEnergyLatex(activePoint.point.yDisplay)}',
+                      style: tooltipTextStyle,
+                    )
+                  : Text(
+                      '$energyLabelPlain = ${formatEnergyPlain(activePoint.point.yDisplay)}',
+                      style: tooltipTextStyle,
+                    ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ParabolicHoverMarker extends StatelessWidget {
+  final _ActivePointState activePoint;
+  final double maxWidth;
+  final double maxHeight;
+  final EdgeInsets chartPadding;
+  final Color markerColor;
+
+  const _ParabolicHoverMarker({
+    required this.activePoint,
+    required this.maxWidth,
+    required this.maxHeight,
+    required this.chartPadding,
+    required this.markerColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final x = activePoint.anchorPosition.dx.clamp(
+      chartPadding.left,
+      math.max(chartPadding.left, maxWidth - chartPadding.right),
+    );
+    final y = activePoint.anchorPosition.dy.clamp(
+      chartPadding.top,
+      math.max(chartPadding.top, maxHeight - chartPadding.bottom),
+    );
+
+    return IgnorePointer(
+      child: Stack(
+        children: [
+          Positioned(
+            left: x.toDouble(),
+            top: chartPadding.top,
+            bottom: chartPadding.bottom,
+            child: Container(
+              width: 1,
+              color: markerColor.withValues(alpha: 0.24),
+            ),
+          ),
+          Positioned(
+            left: x.toDouble() - 5,
+            top: y.toDouble() - 5,
+            child: Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(
+                color: markerColor,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 2),
+                boxShadow: [
+                  BoxShadow(
+                    color: markerColor.withValues(alpha: 0.35),
+                    blurRadius: 5,
+                    spreadRadius: 1,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _GraphData {
@@ -2280,9 +2608,13 @@ class _ActivePointState {
   final _GraphPointWithBand point;
   final int index;
   final int barIndex; // fl_chart lineBars index for single-marker display
+  final Offset anchorPosition; // snapped curve point position
 
   const _ActivePointState(
-      {required this.point, required this.index, required this.barIndex});
+      {required this.point,
+      required this.index,
+      required this.barIndex,
+      required this.anchorPosition});
 }
 
 class _SeriesMeta {
@@ -2343,22 +2675,24 @@ class _MarkersPainter extends CustomPainter {
       final ty = (1 - ((p.yDisplay - minY) / dy)).clamp(0.0, 1.0);
       final pos = Offset(
           padding.left + tx * innerWidth, padding.top + ty * innerHeight);
-      final fill = p.band == 'Conduction' ? conductionColor : valenceColor;
       final ringPaint = Paint()
         ..color = ringColor
         ..style = PaintingStyle.stroke
         ..strokeWidth = 3;
       final fillPaint = Paint()
-        ..color = fill
+        ..color = Colors.white
+        ..style = PaintingStyle.fill;
+      final corePaint = Paint()
+        ..color = ringColor
         ..style = PaintingStyle.fill;
       canvas.drawCircle(pos, radius, ringPaint);
-      canvas.drawCircle(pos, radius - 3, fillPaint);
+      canvas.drawCircle(pos, radius - 2.5, fillPaint);
+      canvas.drawCircle(pos, radius - 4.2, corePaint);
     }
 
-    // Draw pinned points - color-coded by band (conduction/valence)
+    // Draw pinned points - color-coded by pin index for strong visibility.
     for (final p in pins) {
-      final bandColor = p.band == 'Conduction' ? conductionColor : valenceColor;
-      final ringColor = bandColor.withValues(alpha: 0.9);
+      final ringColor = palette[(p.colorIndex ?? 0) % palette.length];
       drawMarker(p, ringColor: ringColor, radius: 7);
     }
   }
@@ -2413,7 +2747,9 @@ class _EgMarkerPainter extends CustomPainter {
     if (dx == 0 || dy == 0 || innerWidth <= 0 || innerHeight <= 0) return;
 
     // Place bracket slightly inside when minX=0 (per spec: k_ref = 0.02*k_max)
-    final chosenX = minX.abs() < 1e-9 ? 0.02 * maxX : minX + dx * xFraction.clamp(0.05, 0.98);
+    final chosenX = minX.abs() < 1e-9
+        ? 0.02 * maxX
+        : minX + dx * xFraction.clamp(0.05, 0.98);
     final tx = ((chosenX - minX) / dx).clamp(0.0, 1.0);
     final px = padding.left + tx * innerWidth;
 
@@ -2434,11 +2770,12 @@ class _EgMarkerPainter extends CustomPainter {
     void drawBracketEnd(double y, double direction) {
       const double len = 8;
       const double head = 4;
-      canvas.drawLine(Offset(px, y), Offset(px, y + len * direction), paintLine);
-      canvas.drawLine(Offset(px, y), Offset(px - head, y + head * direction),
-          paintLine);
-      canvas.drawLine(Offset(px, y), Offset(px + head, y + head * direction),
-          paintLine);
+      canvas.drawLine(
+          Offset(px, y), Offset(px, y + len * direction), paintLine);
+      canvas.drawLine(
+          Offset(px, y), Offset(px - head, y + head * direction), paintLine);
+      canvas.drawLine(
+          Offset(px, y), Offset(px + head, y + head * direction), paintLine);
     }
 
     drawBracketEnd(pyTop, 1);
@@ -2501,6 +2838,3 @@ class _ReadoutCache {
       required this.eAbs,
       required this.v});
 }
-
-
-

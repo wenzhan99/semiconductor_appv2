@@ -6,17 +6,18 @@ import '../../widgets/latex_text.dart';
 
 /// Standardized typography for graph panel cards (right-side panels).
 class GraphPanelTextStyles {
-  static const double title = 14.0;  // Card titles
-  static const double sectionLabel = 12.0;  // Section headings
-  static const double body = 12.0;  // Normal text
-  static const double value = 12.0;  // Numeric values
-  static const double hint = 11.0;  // Helper text
-  static const double small = 10.0;  // Fine print
-  
+  static const double title = 16.0; // Card titles
+  static const double sectionLabel = 13.0; // Section headings
+  static const double body = 13.0; // Normal text
+  static const double value = 14.0; // Numeric values
+  static const double hint = 12.0; // Helper text
+  static const double small = 11.0; // Fine print
+
   // LaTeX should match body text for inline usage
-  static const double latexInline = 12.0;
-  static const double latexInlineScale = 1.0;  // scale multiplier for inline LaTeX
-  
+  static const double latexInline = 13.0;
+  static const double latexInlineScale =
+      1.0; // scale multiplier for inline LaTeX
+
   GraphPanelTextStyles._();
 }
 
@@ -85,8 +86,7 @@ class EnhancedAnimationPanel<P> extends StatefulWidget {
       _EnhancedAnimationPanelState<P>();
 }
 
-class _EnhancedAnimationPanelState<P>
-    extends State<EnhancedAnimationPanel<P>> {
+class _EnhancedAnimationPanelState<P> extends State<EnhancedAnimationPanel<P>> {
   static const _speedOptions = <double>[0.25, 0.5, 1.0, 2.0, 4.0];
   late final TextEditingController _currentCtrl;
   late final TextEditingController _minCtrl;
@@ -98,7 +98,7 @@ class _EnhancedAnimationPanelState<P>
   String? _currentError;
   String? _minError;
   String? _maxError;
-  
+
   FocusNode? _currentFocus;
   FocusNode? _minFocus;
   FocusNode? _maxFocus;
@@ -113,7 +113,7 @@ class _EnhancedAnimationPanelState<P>
     _currentFocus = FocusNode();
     _minFocus = FocusNode();
     _maxFocus = FocusNode();
-    
+
     // Sync after frame to ensure controller is ready
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
@@ -243,12 +243,21 @@ class _EnhancedAnimationPanelState<P>
   }
 
   bool _hasValidNumericInputs(EnhancedAnimationController<P> controller) {
-    final current = _safeNumber(getter: () => controller.currentValue, fieldName: 'currentValue');
-    final min = _safeNumber(getter: () => controller.rangeMin, fieldName: 'rangeMin');
-    final max = _safeNumber(getter: () => controller.rangeMax, fieldName: 'rangeMax');
-    final absMin = _safeNumber(getter: () => controller.absoluteMin, fieldName: 'absoluteMin');
-    final absMax = _safeNumber(getter: () => controller.absoluteMax, fieldName: 'absoluteMax');
-    if (current == null || min == null || max == null || absMin == null || absMax == null) {
+    final current = _safeNumber(
+        getter: () => controller.currentValue, fieldName: 'currentValue');
+    final min =
+        _safeNumber(getter: () => controller.rangeMin, fieldName: 'rangeMin');
+    final max =
+        _safeNumber(getter: () => controller.rangeMax, fieldName: 'rangeMax');
+    final absMin = _safeNumber(
+        getter: () => controller.absoluteMin, fieldName: 'absoluteMin');
+    final absMax = _safeNumber(
+        getter: () => controller.absoluteMax, fieldName: 'absoluteMax');
+    if (current == null ||
+        min == null ||
+        max == null ||
+        absMin == null ||
+        absMax == null) {
       return false;
     }
     return min <= max && absMin <= absMax;
@@ -256,24 +265,24 @@ class _EnhancedAnimationPanelState<P>
 
   void _syncFromController({bool force = false}) {
     if (!mounted) return;
-    
+
     final c = widget.controller;
     try {
       final newCurrent = c.currentValue;
       final newMin = c.rangeMin;
       final newMax = c.rangeMax;
-      
+
       // Only update if values changed or force is true
       final currentChanged = (newCurrent - _lastValidCurrent).abs() > 1e-6;
       final minChanged = (newMin - _lastValidMin).abs() > 1e-6;
       final maxChanged = (newMax - _lastValidMax).abs() > 1e-6;
-      
+
       if (force || currentChanged || minChanged || maxChanged) {
         setState(() {
           _lastValidCurrent = newCurrent;
           _lastValidMin = newMin;
           _lastValidMax = newMax;
-          
+
           // Don't overwrite focused field unless force=true
           if (force || !(_currentFocus?.hasFocus ?? false)) {
             _currentCtrl.text = _format(_lastValidCurrent);
@@ -284,7 +293,7 @@ class _EnhancedAnimationPanelState<P>
           if (force || !(_maxFocus?.hasFocus ?? false)) {
             _maxCtrl.text = _format(_lastValidMax);
           }
-          
+
           _currentError = null;
           _minError = null;
           _maxError = null;
@@ -304,8 +313,10 @@ class _EnhancedAnimationPanelState<P>
 
   void _sanitizeAndApply() {
     final c = widget.controller;
-    final absMin = _safeNumber(getter: () => c.absoluteMin, fieldName: 'absoluteMin');
-    final absMax = _safeNumber(getter: () => c.absoluteMax, fieldName: 'absoluteMax');
+    final absMin =
+        _safeNumber(getter: () => c.absoluteMin, fieldName: 'absoluteMin');
+    final absMax =
+        _safeNumber(getter: () => c.absoluteMax, fieldName: 'absoluteMax');
     if (absMin == null || absMax == null) {
       _currentError = 'Unavailable';
       _minError = 'Unavailable';
@@ -406,19 +417,18 @@ class _EnhancedAnimationPanelState<P>
         ),
         suffixIcon: Padding(
           padding: const EdgeInsets.only(right: 8),
-            child: Center(
-              widthFactor: 1.0,
-              child: LatexText(
-                suffixTex,
-                style: const TextStyle(
-                  fontSize: GraphPanelTextStyles.small,
-                  fontStyle: FontStyle.normal,
-                ),
+          child: Center(
+            widthFactor: 1.0,
+            child: LatexText(
+              suffixTex,
+              style: const TextStyle(
+                fontSize: GraphPanelTextStyles.small,
+                fontStyle: FontStyle.normal,
               ),
             ),
+          ),
         ),
-        suffixIconConstraints:
-            const BoxConstraints(minWidth: 0, minHeight: 0),
+        suffixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
         errorText: errorText,
         isDense: true,
         border: const OutlineInputBorder(),
@@ -631,8 +641,9 @@ class _EnhancedAnimationPanelState<P>
                             '--',
                             style: TextStyle(
                               fontSize: GraphPanelTextStyles.hint,
-                              color:
-                                  Theme.of(context).colorScheme.onSurfaceVariant,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
                               fontStyle: FontStyle.normal,
                             ),
                           ),
@@ -653,8 +664,9 @@ class _EnhancedAnimationPanelState<P>
                             textAlign: TextAlign.right,
                             style: TextStyle(
                               fontSize: GraphPanelTextStyles.hint,
-                              color:
-                                  Theme.of(context).colorScheme.onSurfaceVariant,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
                               fontStyle: FontStyle.normal,
                             ),
                           ),
@@ -752,8 +764,9 @@ class _EnhancedAnimationPanelState<P>
                         : (controller.isAnimating
                             ? controller.pause
                             : controller.play),
-                    icon: Icon(
-                        controller.isAnimating ? Icons.pause : Icons.play_arrow),
+                    icon: Icon(controller.isAnimating
+                        ? Icons.pause
+                        : Icons.play_arrow),
                     label: Text(
                       controller.isAnimating ? 'Pause' : 'Play',
                       style: const TextStyle(
@@ -766,11 +779,11 @@ class _EnhancedAnimationPanelState<P>
                     onPressed: !canAnimate
                         ? null
                         : () {
-                      controller.restart();
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (mounted) _syncFromController(force: true);
-                      });
-                    },
+                            controller.restart();
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              if (mounted) _syncFromController(force: true);
+                            });
+                          },
                     icon: const Icon(Icons.restart_alt),
                     label: const Text(
                       'Restart',
@@ -784,11 +797,11 @@ class _EnhancedAnimationPanelState<P>
                     onPressed: !canAnimate
                         ? null
                         : () {
-                      controller.resetRangeToDefault();
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (mounted) _syncFromController(force: true);
-                      });
-                    },
+                            controller.resetRangeToDefault();
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              if (mounted) _syncFromController(force: true);
+                            });
+                          },
                     icon: const Icon(Icons.settings_backup_restore),
                     label: const Text(
                       'Reset Range',

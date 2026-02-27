@@ -40,7 +40,7 @@ class LatexNumberFormatter {
         .replaceAll(RegExp(r'0+$'), '')
         .replaceAll(RegExp(r'\.$'), '');
     if (exponent == 0) return mantissaStr;
-    return '$mantissaStr\u00d710^$exponent';
+    return '$mantissaStr\u00d710${_toSuperscript(exponent)}';
   }
 
   /// Format for axis ticks (cleaner format).
@@ -104,5 +104,27 @@ class LatexNumberFormatter {
       return trimmed;
     }
     return '$_rm{$trimmed}';
+  }
+
+  static String _toSuperscript(int value) {
+    const map = <String, String>{
+      '-': '\u207b',
+      '0': '\u2070',
+      '1': '\u00b9',
+      '2': '\u00b2',
+      '3': '\u00b3',
+      '4': '\u2074',
+      '5': '\u2075',
+      '6': '\u2076',
+      '7': '\u2077',
+      '8': '\u2078',
+      '9': '\u2079',
+    };
+    final raw = value.toString();
+    final out = StringBuffer();
+    for (final ch in raw.split('')) {
+      out.write(map[ch] ?? ch);
+    }
+    return out.toString();
   }
 }

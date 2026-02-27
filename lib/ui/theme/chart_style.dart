@@ -1,12 +1,11 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 
 /// Shared chart styling for consistent typography and spacing across all graphs.
-/// 
+///
 /// Usage:
 /// ```dart
 /// final chartStyle = AppChartStyle.of(context);
-/// 
+///
 /// AxisTitles(
 ///   axisNameWidget: Text('E (eV)', style: chartStyle.axisTitleTextStyle),
 ///   sideTitles: SideTitles(
@@ -165,7 +164,8 @@ class AppChartStyle {
       tickTextStyle: tickTextStyle ?? this.tickTextStyle,
       legendTextStyle: legendTextStyle ?? this.legendTextStyle,
       tooltipTextStyle: tooltipTextStyle ?? this.tooltipTextStyle,
-      tooltipTitleTextStyle: tooltipTitleTextStyle ?? this.tooltipTitleTextStyle,
+      tooltipTitleTextStyle:
+          tooltipTitleTextStyle ?? this.tooltipTitleTextStyle,
       panelTitleTextStyle: panelTitleTextStyle ?? this.panelTitleTextStyle,
       panelBodyTextStyle: panelBodyTextStyle ?? this.panelBodyTextStyle,
       leftReservedSize: leftReservedSize ?? this.leftReservedSize,
@@ -181,11 +181,11 @@ class AppChartStyle {
   }
 
   /// Helper to compute safe tick interval based on available space.
-  /// 
+  ///
   /// [axisRangeLogical] is the range in data units (e.g., 10.0 for -5 to +5).
   /// [axisSizePx] is the pixel size of the axis (width for X, height for Y).
   /// [baseInterval] is the desired interval in data units (e.g., 0.5).
-  /// 
+  ///
   /// Returns adjusted interval that ensures labels don't overlap.
   double safeTickInterval({
     required double axisRangeLogical,
@@ -211,7 +211,7 @@ class AppChartStyle {
   }
 
   /// Helper to decide if a tick label should be shown (for manual filtering).
-  /// 
+  ///
   /// [value] is the tick value.
   /// [interval] is the tick interval.
   /// [skipFactor] determines how many ticks to skip (e.g., 2 = show every other).

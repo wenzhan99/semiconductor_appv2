@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
@@ -14,7 +14,6 @@ import '../graphs/common/parameters_card.dart';
 import '../graphs/common/viewport_state.dart';
 import '../graphs/core/graph_config.dart';
 import '../graphs/core/standard_graph_page_scaffold.dart';
-import '../graphs/core/standard_panel_stack.dart';
 
 class DirectIndirectGraphPage extends StatefulWidget {
   const DirectIndirectGraphPage({super.key});
@@ -66,6 +65,15 @@ class _HoverInfo {
 
 class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
     with GraphController {
+  static const int _maxPins = 2;
+  static const Color _conductionCurveColor = Color(0xFF4F56A6);
+  static const Color _valenceCurveColor = Color(0xFFB23A48);
+  static const Color _hoverConductionColor = Color(0xFF1E88E5);
+  static const Color _hoverValenceColor = Color(0xFFE53935);
+  static const Duration _hoverCommitMinInterval = Duration(milliseconds: 16);
+  static const double _hoverMinKStep = 0.0001;
+  static const double _hoverMinPixelStep = 1.0;
+
   GapType _gapType = GapType.direct;
   String _preset = 'GaAs (Direct)';
 
@@ -74,7 +82,7 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
   double _mpEff = 0.50;
   double _k0Scaled = 0.0;
   double _kMaxScaled = 1.2;
-  double _points = 600;
+  double _points = 420;
 
   bool _showTransitions = true;
   bool _showBandEdges = true;
@@ -105,8 +113,9 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
   List<FlSpot>? _baselineCurveConduction;
   List<FlSpot>? _baselineCurveValence;
 
-  _SelectedPoint? _selectedPoint;
+  final List<_SelectedPoint> _pinnedPoints = [];
   _HoverInfo? _hoverInfo;
+  DateTime? _lastHoverCommitAt;
 
   static const double _kDisplayScale = 1e10;
   static const double _hbar = 1.054571817e-34;
@@ -176,20 +185,24 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
 
     final egDirect = (ecAtGamma - evAtVbm).clamp(-100.0, 100.0);
     final egIndirect = (ecAtK0 - evAtVbm).clamp(-100.0, 100.0);
-    final panelConfig = _buildPanelConfig(egDirect, egIndirect, kCbmScaled, ec, ev);
+    final panelConfig =
+        _buildPanelConfig(egDirect, egIndirect, kCbmScaled, ec, ev);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Direct vs Indirect Bandgap')),
       body: StandardGraphPageScaffold(
-        config: const GraphConfig(
+        config: panelConfig.copyWith(
           title: 'Direct vs Indirect Bandgap (Schematic E-k)',
           subtitle: 'Energy & Band Structure',
           mainEquation:
               r'E_c(k) = E_c + \frac{\hbar^2 (k-k_0)^2}{2 m_e^*}, \quad E_v(k) = E_v - \frac{\hbar^2 k^2}{2 m_h^*}',
-          controls: ControlsConfig(children: []),
         ),
         aboutSection: _buildAboutCard(context),
         observeSection: _buildObserveCard(context),
+        placeSectionsInWideLeftColumn: true,
+        useTwoColumnRightPanelInWide: true,
+        wideLeftColumnSectionIds: const ['point_inspector', 'animation'],
+        wideRightColumnSectionIds: const ['notes', 'controls'],
         chartBuilder: (context) => _buildChartCard(
           context,
           ec,
@@ -202,12 +215,11 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
           egDirect,
           egIndirect,
         ),
-        rightPanelBuilder: (context, config) =>
-            StandardPanelStack(config: panelConfig),
       ),
     );
   }
 
+  // ignore: unused_element
   Widget _buildHeader(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -230,10 +242,14 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
           child: Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primary.withOpacity(0.05),
+              color:
+                  Theme.of(context).colorScheme.primary.withValues(alpha: 0.05),
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
-                color: Theme.of(context).colorScheme.primary.withOpacity(0.2),
+                color: Theme.of(context)
+                    .colorScheme
+                    .primary
+                    .withValues(alpha: 0.2),
               ),
             ),
             child: const Column(
@@ -296,9 +312,9 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
           _bullet(
               r'Indirect: CBM shifted to $k_0 \neq 0$ -> phonon needed for momentum.'),
           _bullet(
-              r'Animating $m^*$: Band edges stay fixed, only curvature changes.'),
+              r'Animating $m^{*}$: Band edges stay fixed, only curvature changes.'),
           _bullet(
-              r'Smaller $m^*$ -> steeper parabola (energy grows faster with k).'),
+              r'Smaller $m^{*}$ -> steeper parabola (energy grows faster with k).'),
           const SizedBox(height: 8),
           Text('Try this:',
               style: Theme.of(context)
@@ -306,10 +322,10 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
                   .bodyMedium
                   ?.copyWith(fontWeight: FontWeight.w700)),
           _bullet(
-              r'Animate $m_n^*$ with overlay ON to see curvature change clearly.'),
+              r'Animate $m_n^{*}$ with overlay ON to see curvature change clearly.'),
           _bullet('Use PingPong mode to see effect in both directions.'),
           _bullet('Lock y-axis to prevent apparent vertical shifting.'),
-          _bullet(r'Set custom range to focus on specific $m^*$ values.'),
+          _bullet(r'Set custom range to focus on specific $m^{*}$ values.'),
         ],
       ),
     );
@@ -385,7 +401,6 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
     ];
 
     return GraphConfig(
-      readouts: _buildReadouts(egDirect, egIndirect, kCbmScaled, ec, ev),
       pointInspector: _buildInspectorConfig(),
       animation: _buildAnimationConfig(),
       insights: _buildInsightsConfig(egDirect, egIndirect, kCbmScaled),
@@ -397,6 +412,7 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
     );
   }
 
+  // ignore: unused_element
   List<ReadoutItem> _buildReadouts(
     double egDirect,
     double egIndirect,
@@ -417,7 +433,8 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
       ),
       ReadoutItem(
         label: r'k_0',
-        value: '${kCbmScaled.toStringAsFixed(3)}\\times 10^{10}\\ \\mathrm{m^{-1}}',
+        value:
+            '${kCbmScaled.toStringAsFixed(3)}\\times 10^{10}\\ \\mathrm{m^{-1}}',
       ),
       ReadoutItem(
         label: r'E_c',
@@ -435,26 +452,42 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
   }
 
   PointInspectorConfig _buildInspectorConfig() {
+    final pinned = _pinnedPoints.isNotEmpty ? _pinnedPoints.last : null;
+    final hover = _hoverInfo;
+
     return PointInspectorConfig(
       enabled: true,
-      emptyMessage: 'Hover the chart to inspect k, E_c(k), E_v(k), and local gap.',
-      onClear: () => updateChart(() => _selectedPoint = null),
+      emptyMessage: 'Hover over a curve to inspect. Tap curve to pin points.',
+      onClear: () => updateChart(() {
+        _pinnedPoints.clear();
+      }),
+      interactionHint: 'Tap curve to pin/unpin (max $_maxPins).',
+      isPinned: pinned != null,
       builder: () {
         final lines = <String>[];
-        final hover = _hoverInfo;
-        if (hover != null) {
-          lines.add('Hover band: ${hover.activeBand}');
-          lines.add('k = ${hover.kScaled.toStringAsFixed(3)} x10^10 m^-1');
-          lines.add('E_c(k) = ${_formatEnergy(hover.ec)} eV');
-          lines.add('E_v(k) = ${_formatEnergy(hover.ev)} eV');
-          lines.add('Local gap = ${_formatEnergy(hover.deltaE)} eV');
+
+        if (pinned != null) {
+          lines.add('Pinned: ${pinned.band}');
+          lines.add(
+              'k = ${pinned.kScaled.toStringAsFixed(3)}\\times 10^{10}\\,\\mathrm{m^{-1}}');
+          lines.add('E = ${_formatEnergy(pinned.energy)}\\,\\mathrm{eV}');
         }
 
-        final sp = _selectedPoint;
-        if (sp != null) {
-          lines.add('Selected: ${sp.band}');
-          lines.add('k = ${sp.kScaled.toStringAsFixed(3)} x10^10 m^-1');
-          lines.add('E = ${sp.energy.toStringAsFixed(4)} eV');
+        if (hover != null) {
+          final activeEnergy =
+              hover.activeBand == 'Conduction' ? hover.ec : hover.ev;
+          final otherEnergy =
+              hover.activeBand == 'Conduction' ? hover.ev : hover.ec;
+          final otherLabel =
+              hover.activeBand == 'Conduction' ? r'E_v(k)' : r'E_c(k)';
+          lines.add('Hover: ${hover.activeBand}');
+          lines.add(
+              'k = ${hover.kScaled.toStringAsFixed(3)}\\times 10^{10}\\,\\mathrm{m^{-1}}');
+          lines.add('E(k) = ${_formatEnergy(activeEnergy)}\\,\\mathrm{eV}');
+          lines.add(
+              '$otherLabel = ${_formatEnergy(otherEnergy)}\\,\\mathrm{eV}');
+          lines.add(
+              '\\Delta E_{\\mathrm{local}} = ${_formatEnergy(hover.deltaE)}\\,\\mathrm{eV}');
         }
 
         if (lines.isEmpty) {
@@ -500,9 +533,11 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
       final rangeMax = isSelected ? _animateRangeMax : defaultRange.max;
       return AnimatableParameter(
         id: _animateParamId(param),
-        label: _getParamName(param).replaceAll(r'$', ''),
-        symbol: _getParamName(param).replaceAll(r'$', ''),
-        unit: param == AnimateParam.k0 ? r'10^{10}\,m^{-1}' : (param == AnimateParam.eg ? r'eV' : r'm_0'),
+        label: _getParamLabel(param),
+        symbol: _getParamSymbol(param),
+        unit: param == AnimateParam.k0
+            ? r'\times 10^{10}\,\mathrm{m^{-1}}'
+            : (param == AnimateParam.eg ? r'\mathrm{eV}' : r'm_0'),
         currentValue: _getCurrentParamValue(param),
         rangeMin: rangeMin,
         rangeMax: rangeMax,
@@ -557,22 +592,36 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
         onPause: _stopAnimation,
         onRestart: _restartAnimation,
         onSpeedChanged: (speed) => setState(() => _animateSpeed = speed),
-        onReverseChanged: (reverse) => setState(() => _reverseDirection = reverse),
+        onReverseChanged: (reverse) =>
+            setState(() => _reverseDirection = reverse),
         onLoopChanged: (loop) => setState(() => _loopEnabled = loop),
       ),
     );
   }
 
-  String _getParamName(AnimateParam param) {
+  String _getParamSymbol(AnimateParam param) {
     switch (param) {
       case AnimateParam.k0:
-        return r'$k_0$';
+        return r'k_0';
       case AnimateParam.eg:
-        return r'$E_g$';
+        return r'E_g';
       case AnimateParam.mnStar:
-        return r'$m_n^*$';
+        return r'm_n^{*}';
       case AnimateParam.mpStar:
-        return r'$m_p^*$';
+        return r'm_p^{*}';
+    }
+  }
+
+  String _getParamLabel(AnimateParam param) {
+    switch (param) {
+      case AnimateParam.k0:
+        return r'k_0 (k-offset)';
+      case AnimateParam.eg:
+        return r'E_g (bandgap)';
+      case AnimateParam.mnStar:
+        return r'm_n^{*} (electron mass)';
+      case AnimateParam.mpStar:
+        return r'm_p^{*} (hole mass)';
     }
   }
 
@@ -646,7 +695,7 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
         onSelectionChanged: (s) => updateChart(() {
           _gapType = s.first;
           if (_gapType == GapType.direct) _k0Scaled = 0.0;
-          _selectedPoint = null;
+          _pinnedPoints.clear();
         }),
       ),
       ParameterDropdown<String>(
@@ -655,7 +704,8 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
         items: const [
           DropdownMenuItem(
               value: 'GaAs (Direct)', child: Text('GaAs (Direct)')),
-          DropdownMenuItem(value: 'Si (Indirect)', child: Text('Si (Indirect)')),
+          DropdownMenuItem(
+              value: 'Si (Indirect)', child: Text('Si (Indirect)')),
           DropdownMenuItem(value: 'Custom', child: Text('Custom')),
         ],
         onChanged: (v) => updateChart(() {
@@ -666,19 +716,23 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
       ParameterDropdown<EnergyReference>(
         label: 'Energy reference',
         value: _energyReference,
-        items: const [
+        items: const <DropdownMenuItem<EnergyReference>>[
           DropdownMenuItem(
               value: EnergyReference.midgap, child: Text('Midgap = 0')),
-          DropdownMenuItem(value: EnergyReference.evZero, child: Text('Ev = 0')),
-          DropdownMenuItem(value: EnergyReference.ecZero, child: Text('Ec = 0')),
+          DropdownMenuItem(
+              value: EnergyReference.evZero,
+              child: LatexText(r'E_v = 0', scale: 0.95)),
+          DropdownMenuItem(
+              value: EnergyReference.ecZero,
+              child: LatexText(r'E_c = 0', scale: 0.95)),
         ],
         onChanged: (v) => updateChart(() {
           _energyReference = v!;
-          _selectedPoint = null;
+          _pinnedPoints.clear();
         }),
       ),
       ParameterSlider(
-        label: r'$E_g$ (eV)',
+        label: r'E_g\ (\mathrm{eV})',
         value: _eg,
         min: 0.2,
         max: 2.5,
@@ -687,7 +741,8 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
             _updateCustom(() => _eg = double.parse(v.toStringAsFixed(3))),
       ),
       ParameterSlider(
-        label: r'$m_n^*$ (x$m_0$)',
+        label: r'\frac{m_n^{*}}{m_0}',
+        plainSuffix: '(electron mass ratio)',
         value: _mnEff,
         min: 0.05,
         max: 2.0,
@@ -697,7 +752,8 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
         subtitle: 'Affects conduction band curvature only',
       ),
       ParameterSlider(
-        label: r'$m_p^*$ (x$m_0$)',
+        label: r'\frac{m_p^{*}}{m_0}',
+        plainSuffix: '(hole mass ratio)',
         value: _mpEff,
         min: 0.05,
         max: 2.0,
@@ -707,24 +763,24 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
         subtitle: 'Affects valence band curvature only',
       ),
       ParameterSlider(
-        label: r'$k_0$ (x10^10 m^-1)',
+        label: r'k_0\ (\times 10^{10}\,\mathrm{m^{-1}})',
         value: _k0Scaled,
         min: 0.0,
         max: 1.5,
         divisions: 150,
         onChanged: _gapType == GapType.indirect
-            ? (v) =>
-                _updateCustom(() => _k0Scaled = double.parse(v.toStringAsFixed(3)))
+            ? (v) => _updateCustom(
+                () => _k0Scaled = double.parse(v.toStringAsFixed(3)))
             : null,
       ),
       ParameterSlider(
-        label: r'$k_{\\mathrm{max}}$ (x10^10 m^-1)',
+        label: r'k_{\max}\ (\times 10^{10}\,\mathrm{m^{-1}})',
         value: _kMaxScaled,
         min: 0.5,
         max: 2.0,
         divisions: 150,
-        onChanged: (v) =>
-            _updateCustom(() => _kMaxScaled = double.parse(v.toStringAsFixed(2))),
+        onChanged: (v) => _updateCustom(
+            () => _kMaxScaled = double.parse(v.toStringAsFixed(2))),
       ),
       ParameterSwitch(
         label: 'Show transitions',
@@ -741,7 +797,8 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
         onPressed: _resetDemo,
         icon: const Icon(Icons.restart_alt, size: 18),
         label: const Text('Reset Demo'),
-        style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 36)),
+        style: ElevatedButton.styleFrom(
+            minimumSize: const Size(double.infinity, 36)),
       ),
     ];
   }
@@ -755,7 +812,15 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
     return InsightsConfig(
       dynamicObservations: dynamicObs.isNotEmpty ? dynamicObs : null,
       staticObservations: staticObs,
-      dynamicTitle: 'Current Configuration',
+      dynamicTitle:
+          _pinnedPoints.isNotEmpty ? 'From Your Pins' : 'Current Configuration',
+      pinnedCount: _pinnedPoints.length,
+      maxPins: _maxPins,
+      onClearPins: _pinnedPoints.isEmpty
+          ? null
+          : () => updateChart(() {
+                _pinnedPoints.clear();
+              }),
     );
   }
 
@@ -765,26 +830,29 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
 
     if (_gapType == GapType.direct) {
       obs.add(
-          'Direct gap: CBM and VBM at k~=0 -> vertical photon transition. \$E_{g,\\mathrm{dir}} = ${egDirect.toStringAsFixed(3)}\$ eV.');
+          'Direct gap: CBM and VBM at \$k \\approx 0\$ -> vertical photon transition. '
+          '\$E_{g,\\mathrm{dir}} = ${egDirect.toStringAsFixed(3)}\\,\\mathrm{eV}\$.');
     } else {
       obs.add(
-          'Indirect gap: CBM at \$k_0 = ${kCbmScaled.toStringAsFixed(3)} \\times 10^{10}\$ m^-1 -> phonon needed. \$E_{g,\\mathrm{ind}} = ${egIndirect.toStringAsFixed(3)}\$ eV.');
+          'Indirect gap: CBM at \$k_0 = ${kCbmScaled.toStringAsFixed(3)}\\times 10^{10}\\,\\mathrm{m^{-1}}\$ -> phonon needed. '
+          '\$E_{g,\\mathrm{ind}} = ${egIndirect.toStringAsFixed(3)}\\,\\mathrm{eV}\$.');
       final deltaK = kCbmScaled.abs();
       obs.add(
-          'CBM shift: \$\\Delta k = ${deltaK.toStringAsFixed(3)} \\times 10^{10}\$ m^-1 from Gamma.');
+          'CBM shift: \$\\Delta k = ${deltaK.toStringAsFixed(3)}\\times 10^{10}\\,\\mathrm{m^{-1}}\$ from \$\\Gamma\$.');
     }
 
     // Curvature analysis
-    final probeK = _kMaxScaled * 0.5 * _kDisplayScale;
-    final deltaEc = _bandEnergyTerm(probeK, _mnEff);
-    final deltaEv = _bandEnergyTerm(probeK, _mpEff);
-    obs.add(
-        'Curvature: \$m_n^* = ${_mnEff.toStringAsFixed(3)}\$, \$m_p^* = ${_mpEff.toStringAsFixed(3)}\$. Smaller \$m^*\$ -> steeper bands.');
+    obs.add(r'Curvature: $m_n^{*} = ' +
+        _mnEff.toStringAsFixed(3) +
+        r'$, $m_p^{*} = ' +
+        _mpEff.toStringAsFixed(3) +
+        r'$. Smaller $m^{*}$ -> steeper bands.');
 
-    if (_selectedPoint != null) {
-      final sp = _selectedPoint!;
+    for (var i = 0; i < _pinnedPoints.length; i++) {
+      final pin = _pinnedPoints[i];
       obs.add(
-          'Selected: k=${sp.kScaled.toStringAsFixed(3)} x10^10 m^-1, E=${sp.energy.toStringAsFixed(3)} eV.');
+          'Pin ${i + 1} (${pin.band}): \$k = ${pin.kScaled.toStringAsFixed(3)}\\times 10^{10}\\,\\mathrm{m^{-1}}\$'
+          ', \$E = ${_formatEnergy(pin.energy)}\\,\\mathrm{eV}\$.');
     }
 
     return obs;
@@ -792,8 +860,8 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
 
   List<String> _buildStaticObservations() {
     return [
-      r'Parabolic bands: $E \propto k^2$; smaller $m^*$ -> steeper curvature.',
-      r'Band edges ($E_c$, $E_v$) stay fixed at extrema; $m^*$ only affects curvature.',
+      r'Parabolic bands: $E \propto k^{2}$; smaller $m^{*}$ -> steeper curvature.',
+      r'Band edges ($E_c$, $E_v$) stay fixed at extrema; $m^{*}$ only affects curvature.',
       r'Direct materials (GaAs): efficient light emission (LEDs, lasers).',
       r'Indirect materials (Si): phonon required -> less efficient light emission.',
     ];
@@ -811,12 +879,12 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
       double egDirect,
       double egIndirect) {
     final bandColors = (
-      conduction: Theme.of(context).colorScheme.primary,
-      valence: Theme.of(context).colorScheme.tertiary,
+      conduction: _conductionCurveColor,
+      valence: _valenceCurveColor,
     );
     final transitionColors = (
       photon: Theme.of(context).colorScheme.secondary,
-      phonon: Theme.of(context).colorScheme.error.withOpacity(0.7),
+      phonon: Theme.of(context).colorScheme.error.withValues(alpha: 0.7),
     );
 
     return Card(
@@ -831,7 +899,10 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primary.withOpacity(0.06),
+                color: Theme.of(context)
+                    .colorScheme
+                    .primary
+                    .withValues(alpha: 0.06),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
@@ -857,7 +928,8 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
                       if (_overlayPreviousCurve &&
                           (_baselineCurveConduction != null ||
                               _baselineCurveValence != null))
-                        _legendSwatch(Colors.grey.withOpacity(0.4), 'Baseline'),
+                        _legendSwatch(
+                            Colors.grey.withValues(alpha: 0.4), 'Baseline'),
                       if (_showTransitions)
                         _legendDash(transitionColors.photon, 'Photon'),
                       if (_showTransitions && _gapType == GapType.indirect)
@@ -948,14 +1020,14 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
       lineBars.add(LineChartBarData(
         spots: _baselineCurveConduction!,
         isCurved: false,
-        color: Colors.grey.withOpacity(0.35),
+        color: Colors.grey.withValues(alpha: 0.35),
         barWidth: lineWidth * 0.8,
         dotData: const FlDotData(show: false),
       ));
       lineBars.add(LineChartBarData(
         spots: _baselineCurveValence!,
         isCurved: false,
-        color: Colors.grey.withOpacity(0.35),
+        color: Colors.grey.withValues(alpha: 0.35),
         barWidth: lineWidth * 0.8,
         dotData: const FlDotData(show: false),
       ));
@@ -973,7 +1045,7 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
       spots: data.valence.map((p) => FlSpot(p.kScaled, p.energy)).toList(),
       isCurved: false,
       color: bandColors.valence,
-      barWidth: lineWidth,
+      barWidth: math.max(lineWidth, 2.4),
       dotData: const FlDotData(show: false),
     ));
 
@@ -1025,8 +1097,52 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
         _showTransitions ? (_gapType == GapType.indirect ? 2 : 1) : 0;
     final conductionIndex = lineBars.length - (2 + transitionCount);
     final valenceIndex = conductionIndex + 1;
-    final conductionBarData = lineBars[conductionIndex];
-    final valenceBarData = lineBars[valenceIndex];
+    for (final entry in _pinnedPoints.asMap().entries) {
+      final pin = entry.value;
+      final markerColor =
+          pin.band == 'Conduction' ? _hoverConductionColor : _hoverValenceColor;
+      lineBars.add(
+        LineChartBarData(
+          spots: [FlSpot(pin.kScaled, pin.energy)],
+          isCurved: false,
+          color: markerColor.withValues(alpha: 0.0),
+          barWidth: 1,
+          dotData: FlDotData(
+            show: true,
+            getDotPainter: (_, __, ___, ____) => FlDotCirclePainter(
+              radius: 6,
+              color: markerColor,
+              strokeWidth: 2.2,
+              strokeColor: Colors.white,
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (_hoverInfo != null) {
+      final hoverIsConduction = _hoverInfo!.activeBand == 'Conduction';
+      final hoverY = hoverIsConduction ? _hoverInfo!.ec : _hoverInfo!.ev;
+      final hoverColor =
+          hoverIsConduction ? _hoverConductionColor : _hoverValenceColor;
+      lineBars.add(
+        LineChartBarData(
+          spots: [FlSpot(_hoverInfo!.kScaled, hoverY)],
+          isCurved: false,
+          color: Colors.transparent,
+          barWidth: 1,
+          dotData: FlDotData(
+            show: true,
+            getDotPainter: (_, __, ___, ____) => FlDotCirclePainter(
+              radius: 5.2,
+              color: hoverColor,
+              strokeWidth: 1.6,
+              strokeColor: Colors.white,
+            ),
+          ),
+        ),
+      );
+    }
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -1036,6 +1152,7 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
             LineChart(
               key: ValueKey('direct-$chartVersion'),
               LineChartData(
+                clipData: const FlClipData.all(),
                 minX: _viewport.minX,
                 maxX: _viewport.maxX,
                 minY: zoomedMinY,
@@ -1045,12 +1162,13 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
                         horizontalLines: [
                           HorizontalLine(
                               y: _bandEdges().ec,
-                              color: bandColors.conduction.withOpacity(0.35),
+                              color:
+                                  bandColors.conduction.withValues(alpha: 0.35),
                               strokeWidth: 1,
                               dashArray: [4, 4]),
                           HorizontalLine(
                               y: _bandEdges().ev,
-                              color: bandColors.valence.withOpacity(0.35),
+                              color: bandColors.valence.withValues(alpha: 0.35),
                               strokeWidth: 1,
                               dashArray: [4, 4]),
                         ],
@@ -1058,72 +1176,44 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
                     : null,
                 lineTouchData: LineTouchData(
                   enabled: true,
-                  handleBuiltInTouches: true,
-                  touchSpotThreshold: 24,
-                  getTouchedSpotIndicator: (barData, indexes) {
-                    final activeBand = _hoverInfo?.activeBand;
-                    final isConduction = identical(barData, conductionBarData);
-                    final isValence = identical(barData, valenceBarData);
-                    if (!(isConduction || isValence)) return [];
-                    if (activeBand == 'Conduction' && !isConduction) return [];
-                    if (activeBand == 'Valence' && !isValence) return [];
-                    final color = identical(barData, conductionBarData)
-                        ? bandColors.conduction
-                        : bandColors.valence;
-                    return indexes
-                        .map(
-                          (_) => TouchedSpotIndicatorData(
-                            FlLine(
-                              color: color.withOpacity(0.4),
-                              strokeWidth: 1.5,
-                              dashArray: [4, 4],
-                            ),
-                            FlDotData(
-                              show: true,
-                              getDotPainter: (_, __, ___, ____) =>
-                                  FlDotCirclePainter(
-                                radius: 3.5,
-                                color: color,
-                                strokeWidth: 1,
-                                strokeColor: Colors.white,
-                              ),
-                            ),
-                          ),
-                        )
-                        .toList();
+                  handleBuiltInTouches: false,
+                  touchSpotThreshold: 44,
+                  distanceCalculator: (touchPoint, spotPixelCoordinates) {
+                    final delta = touchPoint - spotPixelCoordinates;
+                    return delta.distance;
                   },
                   touchCallback: (event, response) {
-                    if (event is FlPointerExitEvent ||
-                        response == null ||
-                        (response.lineBarSpots?.isEmpty ?? true)) {
-                      setState(() => _hoverInfo = null);
+                    final isHoverIntent = event is FlPointerHoverEvent ||
+                        event is FlPanUpdateEvent;
+                    final isPinIntent =
+                        event is FlTapDownEvent || event is FlLongPressStart;
+
+                    if (event is FlPointerExitEvent) {
+                      if (_hoverInfo != null) {
+                        setState(() => _hoverInfo = null);
+                      }
                       return;
                     }
 
-                    final hoverable = (response.lineBarSpots ?? [])
+                    if (_isAnimating && isHoverIntent) {
+                      return;
+                    }
+
+                    final hoverable = (response?.lineBarSpots ?? [])
                         .where((s) =>
                             s.barIndex == conductionIndex ||
                             s.barIndex == valenceIndex)
                         .toList();
                     if (hoverable.isEmpty) {
+                      if (!isHoverIntent || _hoverInfo == null) {
+                        return;
+                      }
                       setState(() => _hoverInfo = null);
                       return;
                     }
 
-                    LineBarSpot chosen = hoverable.first;
-                    if (_hoverInfo != null) {
-                      final desiredBand = _hoverInfo!.activeBand;
-                      final preferred = hoverable.firstWhere(
-                        (s) =>
-                            (desiredBand == 'Conduction' &&
-                                s.barIndex == conductionIndex) ||
-                            (desiredBand == 'Valence' &&
-                                s.barIndex == valenceIndex),
-                        orElse: () => hoverable.first,
-                      );
-                      chosen = preferred;
-                    }
-
+                    final chosen = hoverable
+                        .reduce((a, b) => a.distance <= b.distance ? a : b);
                     final kScaled = chosen.x;
                     final k = kScaled * _kDisplayScale;
                     final ecHover = _conductionEnergy(k: k);
@@ -1132,24 +1222,31 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
                     final band = chosen.barIndex == conductionIndex
                         ? 'Conduction'
                         : 'Valence';
+                    final nextHover = _HoverInfo(
+                      k: k,
+                      kScaled: kScaled,
+                      ec: ecHover,
+                      ev: evHover,
+                      deltaE: delta,
+                      activeBand: band,
+                      localPosition: event.localPosition ?? Offset.zero,
+                    );
+
+                    if (!isPinIntent &&
+                        isHoverIntent &&
+                        !_shouldCommitHoverUpdate(nextHover)) {
+                      return;
+                    }
 
                     setState(() {
-                      _hoverInfo = _HoverInfo(
-                        k: k,
-                        kScaled: kScaled,
-                        ec: ecHover,
-                        ev: evHover,
-                        deltaE: delta,
-                        activeBand: band,
-                        localPosition: event.localPosition ?? Offset.zero,
-                      );
-                      if (event is FlTapUpEvent) {
-                        _selectedPoint = _SelectedPoint(
+                      _hoverInfo = nextHover;
+                      if (isPinIntent) {
+                        _togglePinnedPoint(_SelectedPoint(
                           band: band,
                           k: k,
                           kScaled: kScaled,
                           energy: band == 'Conduction' ? ecHover : evHover,
-                        );
+                        ));
                       }
                     });
                   },
@@ -1189,10 +1286,10 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
                       ),
                     ),
                   ),
-                  rightTitles:
-                      const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                  topTitles:
-                      const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  rightTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false)),
+                  topTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false)),
                 ),
                 borderData: FlBorderData(show: true),
                 lineBarsData: lineBars,
@@ -1291,12 +1388,6 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
     return (min, max);
   }
 
-  _GraphPoint? _nearestPoint(List<_GraphPoint> pts, double xScaled) {
-    if (pts.isEmpty) return null;
-    return pts.reduce((a, b) =>
-        (a.kScaled - xScaled).abs() < (b.kScaled - xScaled).abs() ? a : b);
-  }
-
   void _applyPreset(String preset) {
     final p = _presets[preset];
     if (p != null) {
@@ -1306,7 +1397,7 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
       _k0Scaled = p.k0Scaled;
       _kMaxScaled = p.kMaxScaled;
       _gapType = p.gapType;
-      _selectedPoint = null;
+      _pinnedPoints.clear();
     }
   }
 
@@ -1315,11 +1406,11 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
     updateChart(() {
       _preset = 'GaAs (Direct)';
       _applyPreset(_preset);
-      _points = 600;
+      _points = 420;
       _showTransitions = true;
       _showBandEdges = true;
       _energyReference = EnergyReference.midgap;
-      _selectedPoint = null;
+      _pinnedPoints.clear();
       _viewport.reset();
       _lockYAxis = false;
       _overlayPreviousCurve = true;
@@ -1335,22 +1426,65 @@ class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
       update();
       if (_preset != 'Custom') _preset = 'Custom';
       if (_gapType == GapType.direct) _k0Scaled = 0.0;
-      _selectedPoint = null;
+      _pinnedPoints.clear();
       bumpChart();
     });
+  }
+
+  bool _shouldCommitHoverUpdate(_HoverInfo next) {
+    final now = DateTime.now();
+    final previous = _hoverInfo;
+    if (previous == null) {
+      _lastHoverCommitAt = now;
+      return true;
+    }
+
+    if ((next.kScaled - previous.kScaled).abs() < 1e-6 &&
+        (next.ec - previous.ec).abs() < 1e-6 &&
+        (next.ev - previous.ev).abs() < 1e-6 &&
+        next.activeBand == previous.activeBand) {
+      return false;
+    }
+
+    final kDelta = (next.kScaled - previous.kScaled).abs();
+    final dx = (next.localPosition.dx - previous.localPosition.dx).abs();
+    final dy = (next.localPosition.dy - previous.localPosition.dy).abs();
+    final movedEnough = kDelta >= _hoverMinKStep ||
+        dx >= _hoverMinPixelStep ||
+        dy >= _hoverMinPixelStep ||
+        next.activeBand != previous.activeBand;
+    if (!movedEnough) return false;
+
+    if (_lastHoverCommitAt != null &&
+        now.difference(_lastHoverCommitAt!) < _hoverCommitMinInterval) {
+      return false;
+    }
+
+    _lastHoverCommitAt = now;
+    return true;
+  }
+
+  bool _samePinnedPoint(_SelectedPoint a, _SelectedPoint b) {
+    return a.band == b.band && (a.kScaled - b.kScaled).abs() < 1e-4;
+  }
+
+  void _togglePinnedPoint(_SelectedPoint point) {
+    final existing =
+        _pinnedPoints.indexWhere((p) => _samePinnedPoint(p, point));
+    if (existing >= 0) {
+      _pinnedPoints.removeAt(existing);
+    } else {
+      _pinnedPoints.add(point);
+      if (_pinnedPoints.length > _maxPins) {
+        _pinnedPoints.removeAt(0);
+      }
+    }
   }
 
   String _formatEnergy(double value) {
     final adjusted = value.abs() < 0.0005 ? 0.0 : value;
     final sign = adjusted >= 0 ? '+' : '';
     return '$sign${adjusted.toStringAsFixed(3)}';
-  }
-
-  String _sci3(double value) {
-    if (value == 0) return '0';
-    final exp = (math.log(value.abs()) / math.ln10).floor();
-    final mant = value / math.pow(10, exp);
-    return '${mant.toStringAsFixed(3)}x10^$exp';
   }
 
   Widget _legendSwatch(Color color, String label) {
@@ -1549,27 +1683,31 @@ class _Preset {
 class _HoverTooltip extends StatelessWidget {
   final _HoverInfo info;
   final double maxWidth;
-  final double maxTooltipWidth;
   final bool isIndirect;
 
   const _HoverTooltip({
     required this.info,
     required this.maxWidth,
-    this.maxTooltipWidth = 240,
     this.isIndirect = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    const maxTooltipWidth = 300.0;
     final width = math.min(maxTooltipWidth, maxWidth - 8);
-    const estimatedHeight = 110.0;
+    const estimatedHeight = 150.0;
     final left = (info.localPosition.dx + 12)
         .clamp(4.0, math.max(4.0, maxWidth - width - 4))
         .toDouble();
-    final top =
-        (info.localPosition.dy - estimatedHeight - 12).clamp(4.0, 240.0).toDouble();
-    final deltaLabel =
-        isIndirect ? r'\Delta E_{\\mathrm{local}}' : r'\Delta E_{\\mathrm{hover}}';
+    final top = (info.localPosition.dy - estimatedHeight - 12)
+        .clamp(4.0, 240.0)
+        .toDouble();
+    final deltaLabel = isIndirect
+        ? r'\Delta E_{\mathrm{local}}'
+        : r'\Delta E_{\mathrm{hover}}';
+    final activeEnergy = info.activeBand == 'Conduction' ? info.ec : info.ev;
+    final otherEnergy = info.activeBand == 'Conduction' ? info.ev : info.ec;
+    final otherLabel = info.activeBand == 'Conduction' ? r'E_v' : r'E_c';
 
     return Positioned(
       left: left,
@@ -1600,7 +1738,7 @@ class _HoverTooltip extends StatelessWidget {
                       color: Theme.of(context)
                           .colorScheme
                           .primary
-                          .withOpacity(0.08),
+                          .withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(info.activeBand,
@@ -1608,23 +1746,33 @@ class _HoverTooltip extends StatelessWidget {
                   )
                 ],
               ),
-              const SizedBox(height: 6),
-              LatexText(
-                  r'k = ' +
-                      info.kScaled.toStringAsFixed(3) +
-                      r'\times 10^{10}\ \mathrm{m^{-1}}',
-                  scale: 0.9),
-              LatexText(r'E_c = ' + info.ec.toStringAsFixed(3) + r'\ \mathrm{eV}',
-                  scale: 0.9),
-              LatexText(r'E_v = ' + info.ev.toStringAsFixed(3) + r'\ \mathrm{eV}',
-                  scale: 0.9),
-              LatexText(
-                  '$deltaLabel = ${info.deltaE.toStringAsFixed(3)}\\ \\mathrm{eV}',
-                  scale: 0.9),
+              const SizedBox(height: 8),
+              _metricRow(
+                context,
+                label: r'k',
+                valueLatex:
+                    '${info.kScaled.toStringAsFixed(3)}\\times 10^{10}\\ \\mathrm{m^{-1}}',
+              ),
+              _metricRow(
+                context,
+                label: r'E',
+                valueLatex: '${activeEnergy.toStringAsFixed(3)}\\ \\mathrm{eV}',
+              ),
+              _metricRow(
+                context,
+                label: otherLabel,
+                valueLatex: '${otherEnergy.toStringAsFixed(3)}\\ \\mathrm{eV}',
+              ),
+              _metricRow(
+                context,
+                label: deltaLabel,
+                valueLatex: '${info.deltaE.toStringAsFixed(3)}\\ \\mathrm{eV}',
+              ),
               if (isIndirect)
                 Padding(
-                  padding: const EdgeInsets.only(top: 2),
-                  child: Text('Local vertical gap at cursor (not Eg for indirect).',
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                      'Local vertical gap at cursor (not Eg for indirect).',
                       style: Theme.of(context).textTheme.bodySmall),
                 ),
             ],
@@ -1633,13 +1781,31 @@ class _HoverTooltip extends StatelessWidget {
       ),
     );
   }
+
+  Widget _metricRow(
+    BuildContext context, {
+    required String label,
+    required String valueLatex,
+  }) {
+    final textStyle = Theme.of(context).textTheme.bodySmall?.copyWith(
+              fontSize: 12,
+              height: 1.25,
+            ) ??
+        const TextStyle(fontSize: 12, height: 1.25);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 58,
+            child: LatexText('$label =', style: textStyle),
+          ),
+          Expanded(
+            child: LatexText(valueLatex, style: textStyle),
+          ),
+        ],
+      ),
+    );
+  }
 }
-
-
-
-
-
-
-
-
-

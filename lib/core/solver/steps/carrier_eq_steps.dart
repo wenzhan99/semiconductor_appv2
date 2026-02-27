@@ -101,7 +101,6 @@ class CarrierEqSteps {
     required NumberFormatter formatter,
     UnitConverter? unitConverter,
     required String primaryEnergyUnit,
-    UnitConversionLog? conversions,
   }) {
     if (solveFor != 'n_0' && solveFor != 'n_i' && solveFor != 'E_F' && solveFor != 'E_i' && solveFor != 'T') {
       return null;
@@ -261,7 +260,6 @@ class CarrierEqSteps {
     required NumberFormatter formatter,
     UnitConverter? unitConverter,
     required String primaryEnergyUnit,
-    UnitConversionLog? conversions,
   }) {
     if (solveFor != 'p_0' && solveFor != 'n_i' && solveFor != 'E_F' && solveFor != 'E_i' && solveFor != 'T') {
       return null;
@@ -420,7 +418,6 @@ class CarrierEqSteps {
     required LatexSymbolMap latexMap,
     required NumberFormatter formatter,
     UnitConverter? unitConverter,
-    UnitConversionLog? conversions,
   }) {
     if (solveFor != 'n_0' && solveFor != 'p_0' && solveFor != 'n_i') {
       return null;
@@ -1026,56 +1023,6 @@ class CarrierEqSteps {
 
   static String _sym(String key, LatexSymbolMap latexMap) {
     return latexMap.latexOf(key);
-  }
-
-  static String? _densityConversionLine({
-    required String key,
-    required SymbolValue? value,
-    required String displayUnit,
-    required LatexSymbolMap latexMap,
-    required NumberFormatter formatter,
-    UnitConverter? converter,
-  }) {
-    if (value == null) return null;
-    final baseUnit = value.unit.isNotEmpty ? value.unit : 'm^-3';
-    if (displayUnit == baseUnit) return null;
-    if (converter == null) return null;
-    final converted = converter.convertDensity(value.value, baseUnit, displayUnit);
-    if (converted == null) return null;
-    final convertedFmt = formatter.formatLatexWithUnit(converted, displayUnit);
-    final baseFmt = formatter.formatLatexWithUnit(value.value, baseUnit);
-    return '${_sym(key, latexMap)} = $convertedFmt = $baseFmt';
-  }
-
-  static List<String>? _energyConversionLines({
-    required String key,
-    required double? valueJ,
-    required SymbolContext context,
-    required LatexSymbolMap latexMap,
-    required NumberFormatter formatter,
-    UnitConverter? converter,
-    required String primaryEnergyUnit,
-  }) {
-    if (valueJ == null) return null;
-    if (primaryEnergyUnit != 'eV') return null;
-    if (converter == null) return null;
-    final converted = converter.convertEnergy(valueJ, 'J', 'eV', symbol: 'q', reason: 'carrier eq display');
-    if (converted == null) return null;
-
-    final sym = _sym(key, latexMap);
-    final evFmt = formatter.formatLatexWithUnit(converted, 'eV');
-    final jFmt = formatter.formatLatexWithUnit(valueJ, 'J');
-
-    // q for 1 eV = q J (fallback to context if converter unavailable)
-    final qValue = converter.convertEnergy(1.0, 'eV', 'J') ?? context.getValue('q');
-    final qNum = qValue != null ? formatter.formatLatex(qValue) : _sym('q', latexMap);
-    final qSymbol = _sym('q', latexMap);
-
-    final lines = <String>[];
-    lines.add('$sym = $evFmt');
-    lines.add(r'1\,\mathrm{eV} = ' + qSymbol + r'\,\mathrm{J} = (' + qNum + r')\,\mathrm{J}');
-    lines.add('$sym = ($evFmt) \\times (${qNum}\\,\\mathrm{J/eV}) = $jFmt');
-    return lines;
   }
 
   static double? _convertDensity(double? value, String fromUnit, String toUnit, UnitConverter? converter) {

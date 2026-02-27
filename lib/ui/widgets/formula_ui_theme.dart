@@ -4,17 +4,18 @@ import 'latex_text.dart';
 
 /// Shared metrics and widgets for formula input UI.
 class FormulaUiTheme {
-  static const double fieldHeight = 48;
+  static const double fieldHeight = 52;
   static const double unitMinWidth = 112;
   static const double dropdownWidth = 120;
-  static const EdgeInsets contentPadding = EdgeInsets.symmetric(horizontal: 12, vertical: 12);
+  static const EdgeInsets contentPadding =
+      EdgeInsets.symmetric(horizontal: 12, vertical: 14);
   static const BorderRadius fieldRadius = BorderRadius.all(Radius.circular(8));
   // Step-by-step typography (universally applied across all formulas)
-  static const double stepSectionTitleFontSize = 16; // "Step-by-step working" (unchanged)
-  static const double stepHeaderFontSize = 15; // Step 1/2/3/4 headers (unchanged)
-  static const double stepBodyFontSize = 16; // descriptive lines (increased for readability)
-  static const double stepMathFontSize = 18; // equations (increased for better legibility)
-  static const double stepMathScale = 1.15; // LaTeX scale multiplier (increased for fractions/exponents)
+  static const double stepSectionTitleFontSize = 17; // "Step-by-step working"
+  static const double stepHeaderFontSize = 16; // Step 1/2/3/4 headers
+  static const double stepBodyFontSize = 17; // descriptive lines
+  static const double stepMathFontSize = 20; // equations
+  static const double stepMathScale = 1.2; // LaTeX scale multiplier
 
   // Step title styles
   static TextStyle stepSectionTitleStyle(BuildContext context) {
@@ -25,10 +26,14 @@ class FormulaUiTheme {
     );
   }
 
-  static TextStyle? inputTextStyle(BuildContext context) => Theme.of(context).textTheme.bodyMedium;
+  static TextStyle? inputTextStyle(BuildContext context) =>
+      Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 15);
 
   static TextStyle? unitTextStyle(BuildContext context) =>
-      inputTextStyle(context)?.copyWith(fontWeight: FontWeight.w400);
+      inputTextStyle(context)?.copyWith(
+        fontSize: 15,
+        fontWeight: FontWeight.w400,
+      );
 
   static TextStyle stepHeaderTextStyle(BuildContext context) {
     final base = Theme.of(context).textTheme.bodyMedium;
@@ -99,7 +104,8 @@ class UnitCell extends StatelessWidget {
         decoration: BoxDecoration(
           border: Border.all(color: Theme.of(context).dividerColor),
           borderRadius: FormulaUiTheme.fieldRadius,
-          color: backgroundColor ?? Theme.of(context).colorScheme.surfaceContainerHigh,
+          color: backgroundColor ??
+              Theme.of(context).colorScheme.surfaceContainerHigh,
         ),
         child: Center(
           child: LatexText(
@@ -132,7 +138,7 @@ class UnitDropdown<T> extends StatelessWidget {
       width: width ?? FormulaUiTheme.dropdownWidth,
       height: FormulaUiTheme.fieldHeight,
       child: DropdownButtonFormField<T>(
-        value: value,
+        initialValue: value,
         decoration: FormulaUiTheme.inputDecoration(
           context,
           hintText: null,

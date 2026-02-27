@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -11,17 +10,17 @@ import '../formula_ui_theme.dart';
 import '../latex_text.dart';
 
 /// **CANONICAL STEP-BY-STEP WIDGET** (Single Source of Truth)
-/// 
+///
 /// This is the ONLY widget used to render step-by-step working across ALL formulas.
 /// All formula panels must use this component via FormulaPanel widget.
-/// 
+///
 /// Features:
 /// - Optional animated playback with Play/Pause/Skip/Speed controls
 /// - Discovery hint when animation disabled (one-click enable)
 /// - Respects user preference from Settings > Appearance
 /// - Respects reduced motion accessibility setting
 /// - Persists animation state across app restarts
-/// 
+///
 /// DO NOT create duplicate step rendering widgets. If you need to modify
 /// step display behavior, modify this widget only.
 class StepsCard extends StatefulWidget {
@@ -47,7 +46,7 @@ class _StepsCardState extends State<StepsCard> with TickerProviderStateMixin {
   int _revealedItemsCount = 0;
   AnimationSpeed _speed = AnimationSpeed.normal;
   Timer? _revealTimer;
-  
+
   // Used to detect when steps change (new solve)
   int? _lastStepsHash;
 
@@ -76,13 +75,13 @@ class _StepsCardState extends State<StepsCard> with TickerProviderStateMixin {
   void _checkForNewSteps() {
     final steps = widget.controller.lastSteps;
     if (steps == null) return;
-    
+
     final newHash = steps.workingItems.length;
     if (_lastStepsHash != newHash) {
       // New steps detected - reset animation state
       _lastStepsHash = newHash;
       _revealTimer?.cancel();
-      
+
       // Use post-frame callback to avoid setState during build
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -111,7 +110,8 @@ class _StepsCardState extends State<StepsCard> with TickerProviderStateMixin {
     if (steps == null || steps.workingItems.isEmpty) return;
 
     // Check for reduced motion preference
-    final reducedMotion = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    final reducedMotion =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
     if (reducedMotion) {
       // Skip animation and show all steps immediately
       setState(() {
@@ -188,7 +188,7 @@ class _StepsCardState extends State<StepsCard> with TickerProviderStateMixin {
     setState(() {
       _speed = newSpeed;
     });
-    
+
     if (wasPlaying) {
       // Restart timer with new speed
       _revealTimer?.cancel();
@@ -199,18 +199,23 @@ class _StepsCardState extends State<StepsCard> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final steps = widget.controller.lastSteps;
-    if (steps == null || steps.workingItems.isEmpty) return const SizedBox.shrink();
-    
+    if (steps == null || steps.workingItems.isEmpty)
+      return const SizedBox.shrink();
+
     final appState = context.watch<AppState>();
     final animationEnabled = appState.animateSteps;
-    final reducedMotion = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
-    
+    final reducedMotion =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+
     // DEBUG: Print animation state
-    debugPrint('🎬 StepsCard build: animationEnabled=$animationEnabled, reducedMotion=$reducedMotion, stepsCount=${steps.workingItems.length}, isPlaying=$_isPlaying, revealed=$_revealedItemsCount');
-    
+    debugPrint(
+        '🎬 StepsCard build: animationEnabled=$animationEnabled, reducedMotion=$reducedMotion, stepsCount=${steps.workingItems.length}, isPlaying=$_isPlaying, revealed=$_revealedItemsCount');
+
     // If animation is disabled globally, show all steps
-    final displayItemsCount = animationEnabled 
-        ? (_revealedItemsCount > 0 ? _revealedItemsCount : steps.workingItems.length)
+    final displayItemsCount = animationEnabled
+        ? (_revealedItemsCount > 0
+            ? _revealedItemsCount
+            : steps.workingItems.length)
         : steps.workingItems.length;
 
     final sectionTitleStyle = FormulaUiTheme.stepSectionTitleStyle(context);
@@ -238,11 +243,16 @@ class _StepsCardState extends State<StepsCard> with TickerProviderStateMixin {
                 ? _buildAnimationControls(context, steps.workingItems.length)
                 : _buildEnableAnimationHint(context),
             const SizedBox(height: 8),
-            ...steps.workingItems.take(displayItemsCount).toList().asMap().entries.map((entry) {
+            ...steps.workingItems
+                .take(displayItemsCount)
+                .toList()
+                .asMap()
+                .entries
+                .map((entry) {
               final index = entry.key;
               final item = entry.value;
-              final isMathHeader =
-                  item.type == StepItemType.math && item.latex.trim().startsWith(r'\textbf{Step');
+              final isMathHeader = item.type == StepItemType.math &&
+                  item.latex.trim().startsWith(r'\textbf{Step');
               if (item.type == StepItemType.text) {
                 return Padding(
                   key: ValueKey('step_item_${index}_text'),
@@ -294,8 +304,8 @@ class _StepsCardState extends State<StepsCard> with TickerProviderStateMixin {
             child: Text(
               'Enable animation to watch steps unfold line-by-line',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
             ),
           ),
           const SizedBox(width: 8),
@@ -402,7 +412,8 @@ class _StepsCardState extends State<StepsCard> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildSpeedButton(BuildContext context, AnimationSpeed speed, String label) {
+  Widget _buildSpeedButton(
+      BuildContext context, AnimationSpeed speed, String label) {
     final isSelected = _speed == speed;
     return InkWell(
       onTap: () => _changeSpeed(speed),
@@ -410,7 +421,7 @@ class _StepsCardState extends State<StepsCard> with TickerProviderStateMixin {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: isSelected 
+          color: isSelected
               ? Theme.of(context).colorScheme.primaryContainer
               : Colors.transparent,
           borderRadius: BorderRadius.circular(4),
@@ -424,11 +435,11 @@ class _StepsCardState extends State<StepsCard> with TickerProviderStateMixin {
         child: Text(
           label,
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: isSelected
-                ? Theme.of(context).colorScheme.onPrimaryContainer
-                : Theme.of(context).colorScheme.onSurface,
-            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-          ),
+                color: isSelected
+                    ? Theme.of(context).colorScheme.onPrimaryContainer
+                    : Theme.of(context).colorScheme.onSurface,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+              ),
         ),
       ),
     );

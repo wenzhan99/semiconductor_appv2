@@ -148,7 +148,6 @@ class UnitConverter {
         return null;
     }
 
-    if (converted == null) return null;
     final activeLog = log ?? this.log;
     if (activeLog != null && (converted != coerced || fromUnit != toUnit)) {
       final sym = symbol ?? toUnit;

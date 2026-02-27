@@ -1,4 +1,4 @@
-﻿import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 
@@ -60,7 +60,8 @@ class LatexText extends StatelessWidget {
           debugPrint('LaTeX parse failed for: $texLine');
         }
         if (kShowLatexDebug) {
-          return _LatexErrorWidget(latex: texLine, error: error.toString(), style: s);
+          return _LatexErrorWidget(
+              latex: texLine, error: error.toString(), style: s);
         }
         return Text(
           'Step contains unsupported formatting',
@@ -81,11 +82,21 @@ class LatexText extends StatelessWidget {
       out = out.substring(1, out.length - 1).trim();
     }
 
-    // Replace common unicode math glyphs with TeX
-    out = out.replaceAll('x', r'\times');
-    out = out.replaceAll('*', r'\cdot');
-    out = out.replaceAll('-', '-');
+    // Some upstream strings arrive JSON-escaped (for example `\\mathrm`).
+    // Normalize only command-style escapes so TeX line breaks (`\\`) remain intact.
+    out = out.replaceAllMapped(
+      RegExp(r'\\{2,}(?=[A-Za-z])'),
+      (_) => r'\',
+    );
+
+    // Normalize only specific unicode math glyphs to TeX.
+    // Do not rewrite plain ASCII tokens (for example "x"), which corrupts
+    // valid math identifiers like x, k_x, max, etc.
     out = out.replaceAll('\u00A0', ' ');
+    out = out.replaceAll('\u2212', '-'); // unicode minus
+    out = out.replaceAll('\u00d7', r'\times '); // multiplication sign
+    out = out.replaceAll('\u22c5', r'\cdot '); // dot operator
+    out = out.replaceAll('\u00b7', r'\cdot '); // middle dot
 
     return out;
   }
@@ -96,7 +107,8 @@ class _LatexErrorWidget extends StatelessWidget {
   final String error;
   final TextStyle? style;
 
-  const _LatexErrorWidget({required this.latex, required this.error, this.style});
+  const _LatexErrorWidget(
+      {required this.latex, required this.error, this.style});
 
   @override
   Widget build(BuildContext context) {
@@ -106,12 +118,13 @@ class _LatexErrorWidget extends StatelessWidget {
       children: [
         Text('Latex failed', style: style?.copyWith(color: Colors.red)),
         const SizedBox(height: 4),
-        SelectableText(latex, style: const TextStyle(fontFamily: 'monospace', fontSize: 11)),
+        SelectableText(latex,
+            style: const TextStyle(fontFamily: 'monospace', fontSize: 11)),
         const SizedBox(height: 4),
-        SelectableText(error, style: const TextStyle(fontFamily: 'monospace', fontSize: 10, color: Colors.red)),
+        SelectableText(error,
+            style: const TextStyle(
+                fontFamily: 'monospace', fontSize: 10, color: Colors.red)),
       ],
     );
   }
 }
-
-

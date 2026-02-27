@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/formulas/formula_repository.dart';
-import '../../core/formulas/formula.dart';
 import '../../core/models/workspace.dart';
 import '../../core/models/unit_preferences.dart';
 import '../../services/app_state.dart';
@@ -76,8 +75,10 @@ class _WorkspacePageState extends State<WorkspacePage> {
                       const SizedBox(height: 4),
                       SegmentedButton<UnitSystem>(
                         segments: const [
-                          ButtonSegment(value: UnitSystem.si, label: Text('SI')),
-                          ButtonSegment(value: UnitSystem.cm, label: Text('cm')),
+                          ButtonSegment(
+                              value: UnitSystem.si, label: Text('SI')),
+                          ButtonSegment(
+                              value: UnitSystem.cm, label: Text('cm')),
                         ],
                         selected: {workspace.unitSystem},
                         onSelectionChanged: (s) {
@@ -147,7 +148,8 @@ class _WorkspacePageState extends State<WorkspacePage> {
             onPressed: () {
               // TODO: Navigate to topics tab
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Navigate to Topics tab to add formulas')),
+                const SnackBar(
+                    content: Text('Navigate to Topics tab to add formulas')),
               );
             },
             icon: const Icon(Icons.add),
@@ -193,7 +195,8 @@ class _WorkspacePageState extends State<WorkspacePage> {
             children: [
               // Control bar
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
                   color: Theme.of(context).colorScheme.surfaceContainerHighest,
                   borderRadius: const BorderRadius.only(
@@ -214,20 +217,23 @@ class _WorkspacePageState extends State<WorkspacePage> {
                         icon: const Icon(Icons.arrow_upward),
                         iconSize: 20,
                         tooltip: 'Move up',
-                        onPressed: () => _movePanel(context, appState, panel.id, -1),
+                        onPressed: () =>
+                            _movePanel(context, appState, panel.id, -1),
                       ),
                     if (index < sortedPanels.length - 1)
                       IconButton(
                         icon: const Icon(Icons.arrow_downward),
                         iconSize: 20,
                         tooltip: 'Move down',
-                        onPressed: () => _movePanel(context, appState, panel.id, 1),
+                        onPressed: () =>
+                            _movePanel(context, appState, panel.id, 1),
                       ),
                     IconButton(
                       icon: const Icon(Icons.close),
                       iconSize: 20,
                       tooltip: 'Remove',
-                      onPressed: () => _removePanel(context, appState, panel.id),
+                      onPressed: () =>
+                          _removePanel(context, appState, panel.id),
                     ),
                   ],
                 ),
@@ -292,9 +298,9 @@ class _WorkspacePageState extends State<WorkspacePage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: statusColor.withOpacity(0.1),
+        color: statusColor.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: statusColor.withOpacity(0.3)),
+        border: Border.all(color: statusColor.withValues(alpha: 0.3)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -358,28 +364,18 @@ class _WorkspacePageState extends State<WorkspacePage> {
     );
   }
 
-  void _updatePanel(BuildContext context, AppState appState, WorkspacePanel panel) {
-    final workspace = appState.currentWorkspace;
-    if (workspace == null) return;
-
-    final updatedPanels = workspace.panels.map((p) {
-      return p.id == panel.id ? panel : p;
-    }).toList();
-
-    final updatedWorkspace = workspace.copyWith(panels: updatedPanels);
-    appState.updateCurrentWorkspace(updatedWorkspace);
-  }
-
   void _removePanel(BuildContext context, AppState appState, String panelId) {
     final workspace = appState.currentWorkspace;
     if (workspace == null) return;
 
-    final updatedPanels = workspace.panels.where((p) => p.id != panelId).toList();
+    final updatedPanels =
+        workspace.panels.where((p) => p.id != panelId).toList();
     final updatedWorkspace = workspace.copyWith(panels: updatedPanels);
     appState.updateCurrentWorkspace(updatedWorkspace);
   }
 
-  void _movePanel(BuildContext context, AppState appState, String panelId, int direction) {
+  void _movePanel(
+      BuildContext context, AppState appState, String panelId, int direction) {
     final workspace = appState.currentWorkspace;
     if (workspace == null) return;
 
@@ -412,5 +408,3 @@ class _WorkspacePageState extends State<WorkspacePage> {
     appState.updateCurrentWorkspace(updatedWorkspace);
   }
 }
-
-

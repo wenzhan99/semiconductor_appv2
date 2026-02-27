@@ -34,7 +34,7 @@ class _TopicsPageState extends State<TopicsPage> {
     super.initState();
     _formulaRepo = FormulaRepository();
     _loadFormulas();
-    
+
     // Initialize expansion state for each category
     for (final category in formulaCategories) {
       _categoryExpanded[category.id] = false;
@@ -71,12 +71,14 @@ class _TopicsPageState extends State<TopicsPage> {
     return Consumer<AppState>(
       builder: (context, appState, _) {
         final workspace = appState.currentWorkspace;
-        
+
         // Sync selected formulas with workspace panels
         if (workspace != null) {
-          final workspaceFormulaIds = workspace.panels.map((p) => p.formulaId).toSet();
+          final workspaceFormulaIds =
+              workspace.panels.map((p) => p.formulaId).toSet();
           // Remove selections that are no longer in workspace
-          _selectedFormulas.removeWhere((id, _) => !workspaceFormulaIds.contains(id));
+          _selectedFormulas
+              .removeWhere((id, _) => !workspaceFormulaIds.contains(id));
           // Add selections for formulas that are in workspace
           for (final id in workspaceFormulaIds) {
             _selectedFormulas[id] = true;
@@ -173,27 +175,34 @@ class _TopicsPageState extends State<TopicsPage> {
 
   List<Widget> _buildCategorySections() {
     final widgets = <Widget>[];
-    
+    const hiddenCategoryIds = <String>{
+      'contacts_breakdown',
+    };
+
     // Build sections for all categories from registry (always show all categories)
     for (final category in formulaCategories) {
+      if (hiddenCategoryIds.contains(category.id)) {
+        continue;
+      }
       final formulas = _formulaRepo.getFormulasInCategory(category.id);
-      
+
       // Filter by selection if needed
       if (_showSelectedOnly) {
-        final hasSelection = formulas.any((f) => _selectedFormulas[f.id] ?? false);
+        final hasSelection =
+            formulas.any((f) => _selectedFormulas[f.id] ?? false);
         if (!hasSelection) continue;
       }
-      
+
       // Always build the category card, even if formulas list is empty
       widgets.add(_buildCategoryCard(category, formulas));
     }
-    
+
     return widgets;
   }
 
   Widget _buildCategoryCard(FormulaCategory category, List<Formula> formulas) {
     final expanded = _categoryExpanded[category.id] ?? false;
-    
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: ExpansionTile(
@@ -220,7 +229,8 @@ class _TopicsPageState extends State<TopicsPage> {
                     child: Text(
                       'No formulas loaded for this category yet',
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant,
                             fontStyle: FontStyle.italic,
                           ),
                     ),
@@ -230,9 +240,11 @@ class _TopicsPageState extends State<TopicsPage> {
                     builder: (context, constraints) {
                       final crossAxisCount = constraints.maxWidth < 360 ? 1 : 2;
                       const spacing = 12.0;
-                      final availableWidth = constraints.maxWidth - spacing * (crossAxisCount - 1);
+                      final availableWidth =
+                          constraints.maxWidth - spacing * (crossAxisCount - 1);
                       final tileWidth = availableWidth / crossAxisCount;
-                      final targetHeight = constraints.maxWidth < 720 ? 140.0 : 120.0;
+                      final targetHeight =
+                          constraints.maxWidth < 720 ? 140.0 : 120.0;
                       final aspectRatio = tileWidth / targetHeight;
                       return GridView.builder(
                         primary: false,
@@ -246,18 +258,22 @@ class _TopicsPageState extends State<TopicsPage> {
                           childAspectRatio: aspectRatio,
                         ),
                         itemCount: formulas.length,
-                        itemBuilder: (context, index) => _safeFormulaCard(formulas[index]),
+                        itemBuilder: (context, index) =>
+                            _safeFormulaCard(formulas[index]),
                       );
                     },
                   )
-                else if (category.id == 'density_of_states_statistics' || category.id == 'carrier_concentration_equilibrium')
+                else if (category.id == 'density_of_states_statistics' ||
+                    category.id == 'carrier_concentration_equilibrium')
                   LayoutBuilder(
                     builder: (context, constraints) {
                       final crossAxisCount = constraints.maxWidth < 360 ? 1 : 2;
                       const spacing = 12.0;
-                      final availableWidth = constraints.maxWidth - spacing * (crossAxisCount - 1);
+                      final availableWidth =
+                          constraints.maxWidth - spacing * (crossAxisCount - 1);
                       final tileWidth = availableWidth / crossAxisCount;
-                      final targetHeight = constraints.maxWidth < 720 ? 190.0 : 160.0;
+                      final targetHeight =
+                          constraints.maxWidth < 720 ? 190.0 : 160.0;
                       final aspectRatio = tileWidth / targetHeight;
                       return GridView.builder(
                         primary: false,
@@ -271,7 +287,8 @@ class _TopicsPageState extends State<TopicsPage> {
                           childAspectRatio: aspectRatio,
                         ),
                         itemCount: formulas.length,
-                        itemBuilder: (context, index) => _safeFormulaCard(formulas[index]),
+                        itemBuilder: (context, index) =>
+                            _safeFormulaCard(formulas[index]),
                       );
                     },
                   )
@@ -280,9 +297,11 @@ class _TopicsPageState extends State<TopicsPage> {
                     builder: (context, constraints) {
                       final crossAxisCount = constraints.maxWidth < 360 ? 1 : 2;
                       const spacing = 12.0;
-                      final availableWidth = constraints.maxWidth - spacing * (crossAxisCount - 1);
+                      final availableWidth =
+                          constraints.maxWidth - spacing * (crossAxisCount - 1);
                       final tileWidth = availableWidth / crossAxisCount;
-                      final targetHeight = constraints.maxWidth < 720 ? 170.0 : 150.0;
+                      final targetHeight =
+                          constraints.maxWidth < 720 ? 170.0 : 150.0;
                       final aspectRatio = tileWidth / targetHeight;
                       return GridView.builder(
                         primary: false,
@@ -296,12 +315,14 @@ class _TopicsPageState extends State<TopicsPage> {
                           childAspectRatio: aspectRatio,
                         ),
                         itemCount: formulas.length,
-                        itemBuilder: (context, index) => _safeFormulaCard(formulas[index]),
+                        itemBuilder: (context, index) =>
+                            _safeFormulaCard(formulas[index]),
                       );
                     },
                   )
                 else
-                  ...formulas.map<Widget>((formula) => _safeFormulaCard(formula)),
+                  ...formulas
+                      .map<Widget>((formula) => _safeFormulaCard(formula)),
               ],
             ),
           ),
@@ -348,7 +369,7 @@ class _TopicsPageState extends State<TopicsPage> {
   Widget _buildFormulaCard(Formula formula) {
     final isSelected = _selectedFormulas[formula.id] ?? false;
     final latexMap = context.read<LatexSymbolMap>();
-    
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -377,10 +398,12 @@ class _TopicsPageState extends State<TopicsPage> {
                   Padding(
                     padding: const EdgeInsets.only(top: 8),
                     child: SingleChildScrollView(
-                      key: PageStorageKey('formula_equation_preview_${formula.id}'),
+                      key: PageStorageKey(
+                          'formula_equation_preview_${formula.id}'),
                       scrollDirection: Axis.horizontal,
                       child: LatexText(
-                        latexMap.sanitizeEquationLatexForRender(formula.equationLatex),
+                        latexMap.sanitizeEquationLatexForRender(
+                            formula.equationLatex),
                         style: const TextStyle(fontSize: 14),
                         displayMode: true,
                         scale: 1.3,
@@ -392,7 +415,8 @@ class _TopicsPageState extends State<TopicsPage> {
             ),
             if (isSelected)
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                 decoration: BoxDecoration(
                   color: Theme.of(context).colorScheme.primaryContainer,
                   borderRadius: BorderRadius.circular(12),
@@ -454,8 +478,10 @@ class _TopicsPageState extends State<TopicsPage> {
                       const SizedBox(height: 4),
                       SegmentedButton<UnitSystem>(
                         segments: const [
-                          ButtonSegment(value: UnitSystem.si, label: Text('SI')),
-                          ButtonSegment(value: UnitSystem.cm, label: Text('cm')),
+                          ButtonSegment(
+                              value: UnitSystem.si, label: Text('SI')),
+                          ButtonSegment(
+                              value: UnitSystem.cm, label: Text('cm')),
                         ],
                         selected: {workspace.unitSystem},
                         onSelectionChanged: (s) {
@@ -474,7 +500,8 @@ class _TopicsPageState extends State<TopicsPage> {
                   onPressed: () {
                     // TODO: Implement compute all
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Computing all formulas...')),
+                      const SnackBar(
+                          content: Text('Computing all formulas...')),
                     );
                   },
                   icon: const Icon(Icons.calculate),
@@ -557,18 +584,21 @@ class _TopicsPageState extends State<TopicsPage> {
 
   Future<void> _addFormulaToWorkspace(List<String> formulaIds) async {
     final appState = context.read<AppState>();
-    
+
     // Ensure workspace exists (creates one if needed)
-    final workspace = await appState.ensureWorkspaceForFormula(formulaIds.first);
-    
+    final workspace =
+        await appState.ensureWorkspaceForFormula(formulaIds.first);
+
     final newPanels = <WorkspacePanel>[];
     int maxOrder = workspace.panels.isEmpty
         ? 0
-        : workspace.panels.map((p) => p.orderIndex).reduce((a, b) => a > b ? a : b);
+        : workspace.panels
+            .map((p) => p.orderIndex)
+            .reduce((a, b) => a > b ? a : b);
 
     for (final formulaId in formulaIds) {
-      final alreadyExists = workspace.panels
-          .any((panel) => panel.formulaId == formulaId);
+      final alreadyExists =
+          workspace.panels.any((panel) => panel.formulaId == formulaId);
       if (alreadyExists) continue;
       newPanels.add(WorkspacePanel.create(formulaId, ++maxOrder));
       _selectedFormulas[formulaId] = true;
@@ -606,8 +636,9 @@ class _TopicsPageState extends State<TopicsPage> {
     final appState = context.read<AppState>();
     final workspace = appState.currentWorkspace;
     if (workspace == null) return;
-    
-    final updatedPanels = workspace.panels.where((p) => p.formulaId != formulaId).toList();
+
+    final updatedPanels =
+        workspace.panels.where((p) => p.formulaId != formulaId).toList();
     appState.updateCurrentWorkspace(workspace.copyWith(panels: updatedPanels));
   }
 
@@ -616,12 +647,12 @@ class _TopicsPageState extends State<TopicsPage> {
     if (workspace == null) return;
 
     final panel = workspace.panels.firstWhere((p) => p.id == panelId);
-    final updatedPanels = workspace.panels.where((p) => p.id != panelId).toList();
+    final updatedPanels =
+        workspace.panels.where((p) => p.id != panelId).toList();
     appState.updateCurrentWorkspace(workspace.copyWith(panels: updatedPanels));
 
     setState(() {
       _selectedFormulas.remove(panel.formulaId);
     });
   }
-
 }

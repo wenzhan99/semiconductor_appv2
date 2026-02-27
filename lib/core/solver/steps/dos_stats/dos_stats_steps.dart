@@ -149,7 +149,8 @@ class DosStatsSteps {
     required bool isValence,
   }) {
     final fmt6 = formatter.withSigFigs(6);
-    final densityDisplayUnit = context.getUnit('__meta__density_unit') ?? 'm^-3';
+    final densityDisplayUnit =
+        context.getUnit('__meta__density_unit') ?? 'm^-3';
     final densityKey = isValence ? 'N_v' : 'N_c';
     final massKey = isValence ? 'm_p_star' : 'm_n_star';
     final densitySym = _safeSymbol(densityKey, latexMap);
@@ -158,7 +159,8 @@ class DosStatsSteps {
     final tSym = _safeSymbol('T', latexMap);
     final hSym = _safeSymbol('h', latexMap);
 
-    if (solveFor != densityKey && solveFor != massKey && solveFor != 'T') return null;
+    if (solveFor != densityKey && solveFor != massKey && solveFor != 'T')
+      return null;
 
     final density = context.getSymbolValue(densityKey);
     final mass = context.getSymbolValue(massKey);
@@ -175,7 +177,8 @@ class DosStatsSteps {
       formatter: formatter,
       converter: unitConverter,
     );
-    if (densityConversionLine != null) unitConversionLines.add(densityConversionLine);
+    if (densityConversionLine != null)
+      unitConversionLines.add(densityConversionLine);
 
     final densityConversion = _maybeConvertDensity(
       density,
@@ -187,17 +190,26 @@ class DosStatsSteps {
 
     final rearrangeLines = <String>[];
     if (solveFor == densityKey) {
-      rearrangeLines.add('$densitySym = 2\\left(\\frac{2\\pi $massSym $kSym $tSym}{{$hSym}^{2}}\\right)^{3/2}');
+      rearrangeLines.add(
+          '$densitySym = 2\\left(\\frac{2\\pi $massSym $kSym $tSym}{{$hSym}^{2}}\\right)^{3/2}');
     } else if (solveFor == massKey) {
-      rearrangeLines.add('$densitySym = 2\\left(\\frac{2\\pi $massSym $kSym $tSym}{{$hSym}^{2}}\\right)^{3/2}');
-      rearrangeLines.add('\\frac{$densitySym}{2} = \\left(\\frac{2\\pi $massSym $kSym $tSym}{{$hSym}^{2}}\\right)^{3/2}');
-      rearrangeLines.add('\\left(\\frac{$densitySym}{2}\\right)^{2/3} = \\frac{2\\pi $massSym $kSym $tSym}{{$hSym}^{2}}');
-      rearrangeLines.add('$massSym = \\frac{{$hSym}^{2}}{2\\pi $kSym $tSym}\\left(\\frac{$densitySym}{2}\\right)^{2/3}');
+      rearrangeLines.add(
+          '$densitySym = 2\\left(\\frac{2\\pi $massSym $kSym $tSym}{{$hSym}^{2}}\\right)^{3/2}');
+      rearrangeLines.add(
+          '\\frac{$densitySym}{2} = \\left(\\frac{2\\pi $massSym $kSym $tSym}{{$hSym}^{2}}\\right)^{3/2}');
+      rearrangeLines.add(
+          '\\left(\\frac{$densitySym}{2}\\right)^{2/3} = \\frac{2\\pi $massSym $kSym $tSym}{{$hSym}^{2}}');
+      rearrangeLines.add(
+          '$massSym = \\frac{{$hSym}^{2}}{2\\pi $kSym $tSym}\\left(\\frac{$densitySym}{2}\\right)^{2/3}');
     } else {
-      rearrangeLines.add('$densitySym = 2\\left(\\frac{2\\pi $massSym $kSym $tSym}{{$hSym}^{2}}\\right)^{3/2}');
-      rearrangeLines.add('\\frac{$densitySym}{2} = \\left(\\frac{2\\pi $massSym $kSym $tSym}{{$hSym}^{2}}\\right)^{3/2}');
-      rearrangeLines.add('\\left(\\frac{$densitySym}{2}\\right)^{2/3} = \\frac{2\\pi $massSym $kSym $tSym}{{$hSym}^{2}}');
-      rearrangeLines.add('$tSym = \\frac{{$hSym}^{2}}{2\\pi $massSym $kSym}\\left(\\frac{$densitySym}{2}\\right)^{2/3}');
+      rearrangeLines.add(
+          '$densitySym = 2\\left(\\frac{2\\pi $massSym $kSym $tSym}{{$hSym}^{2}}\\right)^{3/2}');
+      rearrangeLines.add(
+          '\\frac{$densitySym}{2} = \\left(\\frac{2\\pi $massSym $kSym $tSym}{{$hSym}^{2}}\\right)^{3/2}');
+      rearrangeLines.add(
+          '\\left(\\frac{$densitySym}{2}\\right)^{2/3} = \\frac{2\\pi $massSym $kSym $tSym}{{$hSym}^{2}}');
+      rearrangeLines.add(
+          '$tSym = \\frac{{$hSym}^{2}}{2\\pi $massSym $kSym}\\left(\\frac{$densitySym}{2}\\right)^{2/3}');
     }
 
     final substitutionLines = <String>[];
@@ -209,9 +221,14 @@ class DosStatsSteps {
     final densityBase = densityConversion?.converted ?? density;
     final densityBaseVal = densityConversion?.baseValue ?? density?.value;
     final densityKnown = densityBaseVal != null
-        ? fmt6.valueLatex(densityBaseVal, unit: (densityBase?.unit.isNotEmpty == true ? densityBase!.unit : 'm^-3'), sigFigs: 6)
+        ? fmt6.valueLatex(densityBaseVal,
+            unit: (densityBase?.unit.isNotEmpty == true
+                ? densityBase!.unit
+                : 'm^-3'),
+            sigFigs: 6)
         : null;
-    if (densityKnown != null) substitutionLines.add('$densitySym = $densityKnown');
+    if (densityKnown != null)
+      substitutionLines.add('$densitySym = $densityKnown');
     final massKnown = formatKnown(massKey, mass, defaultUnit: 'kg');
     if (massKnown != null) substitutionLines.add('$massSym = $massKnown');
     final kKnown = formatKnown('k', k, defaultUnit: 'J/K');
@@ -238,7 +255,8 @@ class DosStatsSteps {
       final mSub = massKnown ?? massSym;
       final kSub = kKnown ?? kSym;
       final tSub = tKnown ?? tSym;
-      final expr = '$densitySym = 2\\left(\\frac{2\\pi ($mSub)($kSub)($tSub)}{(${hSub})^{2}}\\right)^{3/2}';
+      final expr =
+          '$densitySym = 2\\left(\\frac{2\\pi ($mSub)($kSub)($tSub)}{(${hSub})^{2}}\\right)^{3/2}';
       substitutionEvaluation = result6 != null ? '$expr = $result6' : expr;
     } else if (solveFor == massKey) {
       final hSub = hKnown ?? hSym;
@@ -253,7 +271,8 @@ class DosStatsSteps {
       final mSub = massKnown ?? massSym;
       final kSub = kKnown ?? kSym;
       final densSub = densityKnown ?? densitySym;
-      final expr = '$tSym = \\frac{(${hSub})^{2}}{2\\pi(${mSub})(${kSub})}\\left(\\frac{$densSub}{2}\\right)^{2/3}';
+      final expr =
+          '$tSym = \\frac{(${hSub})^{2}}{2\\pi(${mSub})(${kSub})}\\left(\\frac{$densSub}{2}\\right)^{2/3}';
       substitutionEvaluation = result6 != null ? '$expr = $result6' : expr;
     }
 
@@ -280,7 +299,10 @@ class DosStatsSteps {
     UnitConverter? unitConverter,
     required String primaryEnergyUnit,
   }) {
-    if (solveFor != 'f_E' && solveFor != 'E_F' && solveFor != 'E' && solveFor != 'T') return null;
+    if (solveFor != 'f_E' &&
+        solveFor != 'E_F' &&
+        solveFor != 'E' &&
+        solveFor != 'T') return null;
 
     final fmt6 = formatter.withSigFigs(6);
     final energyUnit = primaryEnergyUnit.isNotEmpty ? primaryEnergyUnit : 'J';
@@ -313,7 +335,6 @@ class DosStatsSteps {
       energyUnit: energyUnit,
     );
 
-
     final suppressUnitLinesForEvT = solveFor == 'T' && energyUnit == 'eV';
     final unitConversions = <String>[];
     if (!suppressUnitLinesForEvT) {
@@ -339,7 +360,8 @@ class DosStatsSteps {
     final rearrangeLines = <String>[];
     switch (solveFor) {
       case 'f_E':
-        rearrangeLines.add(r'f(E)=\frac{1}{1+\exp\left(\frac{E-E_F}{kT}\right)}');
+        rearrangeLines
+            .add(r'f(E)=\frac{1}{1+\exp\left(\frac{E-E_F}{kT}\right)}');
         break;
       case 'E_F':
         rearrangeLines.addAll([
@@ -373,7 +395,8 @@ class DosStatsSteps {
     final substitutionLines = <String>[];
     void addKnown(String key, SymbolValue? val, {String? defaultUnit}) {
       if (val == null) return;
-      final latexVal = _formatSymbol(fmt6, latexMap, key, val, defaultUnit: defaultUnit);
+      final latexVal =
+          _formatSymbol(fmt6, latexMap, key, val, defaultUnit: defaultUnit);
       substitutionLines.add('${_safeSymbol(key, latexMap)} = $latexVal');
     }
 
@@ -384,62 +407,79 @@ class DosStatsSteps {
 
       String? _energyWithUnit(SymbolValue? val, _EnergyConversion? conv) {
         if (val == null) return null;
-        final unit = (conv?.baseUnit ?? val.unit).isNotEmpty ? (conv?.baseUnit ?? val.unit) : 'J';
+        final unit = (conv?.baseUnit ?? val.unit).isNotEmpty
+            ? (conv?.baseUnit ?? val.unit)
+            : 'J';
         final baseVal = (conv?.baseValue ?? val.value);
         return fmt6.valueLatex(baseVal, unit: unit, sigFigs: 6);
       }
 
       if (eBase != null) {
-        substitutionLines.add('${_safeSymbol('E', latexMap)} = ${_energyWithUnit(eBase, eConv)}');
+        substitutionLines.add(
+            '${_safeSymbol('E', latexMap)} = ${_energyWithUnit(eBase, eConv)}');
       }
       if (efBase != null) {
-        substitutionLines.add('${_safeSymbol('E_F', latexMap)} = ${_energyWithUnit(efBase, efConv)}');
+        substitutionLines.add(
+            '${_safeSymbol('E_F', latexMap)} = ${_energyWithUnit(efBase, efConv)}');
       }
       final kBase = kConv?.converted ?? k;
-      addKnown('k', kBase, defaultUnit: kBase?.unit.isNotEmpty == true ? kBase!.unit : '$energyUnit/K');
+      addKnown('k', kBase,
+          defaultUnit:
+              kBase?.unit.isNotEmpty == true ? kBase!.unit : '$energyUnit/K');
       addKnown('T', t, defaultUnit: 'K');
     } else {
       // Pedagogical, fully numeric substitution for T using eV throughout.
-      final fmtPedag = NumberFormatter(significantFigures: 8, sciThresholdExp: 3);
+      final fmtPedag =
+          NumberFormatter(significantFigures: 8, sciThresholdExp: 3);
       substitutionLines.add(r'\text{List known values}');
       if (f?.value != null) {
         substitutionLines.add('f(E)=' + fmtPedag.formatLatex(f!.value));
       }
       final eDisplayVal = eConv?.baseValue ?? e?.value;
-      final eDisplayUnit = eConv?.baseUnit.isNotEmpty == true ? eConv!.baseUnit : energyUnit;
+      final eDisplayUnit =
+          eConv?.baseUnit.isNotEmpty == true ? eConv!.baseUnit : energyUnit;
       if (eDisplayVal != null) {
-        substitutionLines.add('E = ' + fmtPedag.formatLatexWithUnit(eDisplayVal, eDisplayUnit));
+        substitutionLines.add(
+            'E = ' + fmtPedag.formatLatexWithUnit(eDisplayVal, eDisplayUnit));
       }
       final efDisplayVal = efConv?.baseValue ?? ef?.value;
-      final efDisplayUnit = efConv?.baseUnit.isNotEmpty == true ? efConv!.baseUnit : energyUnit;
+      final efDisplayUnit =
+          efConv?.baseUnit.isNotEmpty == true ? efConv!.baseUnit : energyUnit;
       if (efDisplayVal != null) {
-        substitutionLines.add('E_F = ' + fmtPedag.formatLatexWithUnit(efDisplayVal, efDisplayUnit));
+        substitutionLines.add('E_F = ' +
+            fmtPedag.formatLatexWithUnit(efDisplayVal, efDisplayUnit));
       }
       if (kConv?.baseValue != null || k?.value != null) {
         final kValDisplay = kConv?.baseValue ?? k!.value;
-        final kUnitDisplay = kConv?.baseUnit.isNotEmpty == true ? kConv!.baseUnit : '$energyUnit/K';
-        substitutionLines.add('${_safeSymbol('k', latexMap)} = ' + fmtPedag.formatLatexWithUnit(kValDisplay, kUnitDisplay));
+        final kUnitDisplay = kConv?.baseUnit.isNotEmpty == true
+            ? kConv!.baseUnit
+            : '$energyUnit/K';
+        substitutionLines.add('${_safeSymbol('k', latexMap)} = ' +
+            fmtPedag.formatLatexWithUnit(kValDisplay, kUnitDisplay));
       }
 
       final eValPedag = eConv?.baseValue ?? e?.value;
       final efValPedag = efConv?.baseValue ?? ef?.value;
-      final kValPedag = kConv?.baseValue ?? k?.value;
       final fValPedag = f?.value;
 
-      final energyDiff = (eValPedag != null && efValPedag != null) ? eValPedag - efValPedag : null;
+      final energyDiff = (eValPedag != null && efValPedag != null)
+          ? eValPedag - efValPedag
+          : null;
       if (energyDiff != null) {
-        substitutionLines.add(r'(E-E_F)=' +
-            fmtPedag.formatLatexWithUnit(energyDiff, energyUnit));
+        substitutionLines.add(
+            r'(E-E_F)=' + fmtPedag.formatLatexWithUnit(energyDiff, energyUnit));
       }
 
       final logArg = fValPedag != null ? (1 / fValPedag) - 1 : null;
       if (logArg != null) {
-        substitutionLines.add(r'\frac{1}{f(E)}-1=' + fmtPedag.formatLatex(logArg));
+        substitutionLines
+            .add(r'\frac{1}{f(E)}-1=' + fmtPedag.formatLatex(logArg));
       }
 
       final lnTermVal = logArg != null ? math.log(logArg) : null;
       if (lnTermVal != null) {
-        substitutionLines.add(r'\ln\left(\frac{1}{f(E)}-1\right)=' + fmtPedag.formatLatex(lnTermVal));
+        substitutionLines.add(r'\ln\left(\frac{1}{f(E)}-1\right)=' +
+            fmtPedag.formatLatex(lnTermVal));
       }
     }
 
@@ -475,93 +515,133 @@ class DosStatsSteps {
 
     String substitutionEvaluation;
     switch (solveFor) {
-      case 'f_E': {
-        final numStr = (eVal != null && efVal != null && kVal != null && tVal != null)
-            ? fmt6.formatLatex((eVal - efVal) / (kVal * tVal))
-            : r'\frac{E-E_F}{kT}';
-        final expr = 'f(E) = \\frac{1}{1+\\exp\\left(' + numStr + r'\right)}';
-        substitutionLines.add(expr);
-        substitutionEvaluation = result6 != null ? '$expr = $result6' : expr;
-        break;
-      }
-      case 'E_F': {
-        final kTVal = (kVal != null && tVal != null) ? kVal * tVal : null;
-        final kT = kTVal != null ? fmt6.formatLatexWithUnit(kTVal, energyUnit) : r'kT';
-        final eLeft = eVal != null ? fmt6.formatLatexWithUnit(eVal, energyUnit) : _safeSymbol('E', latexMap);
-        final lnTerm = lnTermRaw();
-        final lnTermEvaluated = lnTermEval();
-        final substituted = '${_safeSymbol('E_F', latexMap)} = $eLeft - ($kT)\\,$lnTerm';
-        final computed = (eVal != null && kTVal != null && fVal != null)
-            ? fmt6.valueLatex(eVal - kTVal * math.log((1 / fVal) - 1), unit: 'J', sigFigs: 6)
-            : null;
-        substitutionLines.add(substituted);
-        final evaluated = '${_safeSymbol('E_F', latexMap)} = $eLeft - ($kT)\\,$lnTermEvaluated';
-        substitutionEvaluation = computed != null ? '$evaluated = $computed' : evaluated;
-        break;
-      }
-      case 'E': {
-        final kTVal = (kVal != null && tVal != null) ? kVal * tVal : null;
-        final kT = kTVal != null ? fmt6.formatLatexWithUnit(kTVal, energyUnit) : r'kT';
-        final efLeft = efVal != null ? fmt6.formatLatexWithUnit(efVal, energyUnit) : _safeSymbol('E_F', latexMap);
-        final lnTerm = lnTermRaw();
-        final lnTermEvaluated = lnTermEval();
-        final computedJ = (efVal != null && kTVal != null && fVal != null)
-            ? fmt6.valueLatex(efVal + kTVal * math.log((1 / fVal) - 1), unit: energyUnit, sigFigs: 6)
-            : null;
-        final resultEnergyUnit = result?.unit ?? 'J';
-        String conversionSuffix = '';
-        if (result != null &&
-            unitConverter != null &&
-            (resultEnergyUnit == 'eV' || primaryEnergyUnit == 'eV') &&
-            resultEnergyUnit != 'J') {
-          final toEv = unitConverter.convertEnergy(result.value, resultEnergyUnit, 'eV');
-          if (toEv != null && resultEnergyUnit != 'eV') {
-            conversionSuffix = ' = ${fmt6.formatLatexWithUnit(toEv, 'eV')}';
+      case 'f_E':
+        {
+          final numStr =
+              (eVal != null && efVal != null && kVal != null && tVal != null)
+                  ? fmt6.formatLatex((eVal - efVal) / (kVal * tVal))
+                  : r'\frac{E-E_F}{kT}';
+          final expr = 'f(E) = \\frac{1}{1+\\exp\\left(' + numStr + r'\right)}';
+          substitutionLines.add(expr);
+          substitutionEvaluation = result6 != null ? '$expr = $result6' : expr;
+          break;
+        }
+      case 'E_F':
+        {
+          final kTVal = (kVal != null && tVal != null) ? kVal * tVal : null;
+          final kT = kTVal != null
+              ? fmt6.formatLatexWithUnit(kTVal, energyUnit)
+              : r'kT';
+          final eLeft = eVal != null
+              ? fmt6.formatLatexWithUnit(eVal, energyUnit)
+              : _safeSymbol('E', latexMap);
+          final lnTerm = lnTermRaw();
+          final lnTermEvaluated = lnTermEval();
+          final substituted =
+              '${_safeSymbol('E_F', latexMap)} = $eLeft - ($kT)\\,$lnTerm';
+          final computed = (eVal != null && kTVal != null && fVal != null)
+              ? fmt6.valueLatex(eVal - kTVal * math.log((1 / fVal) - 1),
+                  unit: 'J', sigFigs: 6)
+              : null;
+          substitutionLines.add(substituted);
+          final evaluated =
+              '${_safeSymbol('E_F', latexMap)} = $eLeft - ($kT)\\,$lnTermEvaluated';
+          substitutionEvaluation =
+              computed != null ? '$evaluated = $computed' : evaluated;
+          break;
+        }
+      case 'E':
+        {
+          final kTVal = (kVal != null && tVal != null) ? kVal * tVal : null;
+          final kT = kTVal != null
+              ? fmt6.formatLatexWithUnit(kTVal, energyUnit)
+              : r'kT';
+          final efLeft = efVal != null
+              ? fmt6.formatLatexWithUnit(efVal, energyUnit)
+              : _safeSymbol('E_F', latexMap);
+          final lnTerm = lnTermRaw();
+          final lnTermEvaluated = lnTermEval();
+          final computedJ = (efVal != null && kTVal != null && fVal != null)
+              ? fmt6.valueLatex(efVal + kTVal * math.log((1 / fVal) - 1),
+                  unit: energyUnit, sigFigs: 6)
+              : null;
+          final resultEnergyUnit = result?.unit ?? 'J';
+          String conversionSuffix = '';
+          if (result != null &&
+              unitConverter != null &&
+              (resultEnergyUnit == 'eV' || primaryEnergyUnit == 'eV') &&
+              resultEnergyUnit != 'J') {
+            final toEv = unitConverter.convertEnergy(
+                result.value, resultEnergyUnit, 'eV');
+            if (toEv != null && resultEnergyUnit != 'eV') {
+              conversionSuffix = ' = ${fmt6.formatLatexWithUnit(toEv, 'eV')}';
+            }
           }
+          final expr =
+              '${_safeSymbol('E', latexMap)} = $efLeft + ($kT)\\,$lnTerm';
+          substitutionLines.add(expr);
+          final evaluatedExpr =
+              '${_safeSymbol('E', latexMap)} = $efLeft + ($kT)\\,$lnTermEvaluated';
+          final evaluated = computedJ != null
+              ? '$evaluatedExpr = $computedJ$conversionSuffix'
+              : evaluatedExpr;
+          substitutionEvaluation =
+              result6 != null ? '$evaluated = $result6' : evaluated;
+          break;
         }
-        final expr = '${_safeSymbol('E', latexMap)} = $efLeft + ($kT)\\,$lnTerm';
-        substitutionLines.add(expr);
-        final evaluatedExpr = '${_safeSymbol('E', latexMap)} = $efLeft + ($kT)\\,$lnTermEvaluated';
-        final evaluated = computedJ != null ? '$evaluatedExpr = $computedJ$conversionSuffix' : evaluatedExpr;
-        substitutionEvaluation = result6 != null ? '$evaluated = $result6' : evaluated;
-        break;
-      }
       case 'T':
-      default: {
-        final fmtPedag = NumberFormatter(significantFigures: 8, sciThresholdExp: 3);
-        final energyDiff = (eVal != null && efVal != null) ? (eVal - efVal) : null;
-        final logArgVal = fVal != null ? (1 / fVal) - 1 : null;
-        final lnVal = logArgVal != null ? math.log(logArgVal) : null;
-        final kDisplay = (kVal != null) ? fmtPedag.formatLatexWithUnit(kVal, '$energyUnit/K') : r'k';
-        final numDisplay = energyDiff != null
-            ? fmtPedag.formatLatexWithUnit(energyDiff, energyUnit)
-            : r'(E-E_F)';
-        final lnDisplay = lnVal != null ? fmtPedag.formatLatex(lnVal) : lnTermRaw();
+      default:
+        {
+          final fmtPedag =
+              NumberFormatter(significantFigures: 8, sciThresholdExp: 3);
+          final energyDiff =
+              (eVal != null && efVal != null) ? (eVal - efVal) : null;
+          final logArgVal = fVal != null ? (1 / fVal) - 1 : null;
+          final lnVal = logArgVal != null ? math.log(logArgVal) : null;
+          final kDisplay = (kVal != null)
+              ? fmtPedag.formatLatexWithUnit(kVal, '$energyUnit/K')
+              : r'k';
+          final numDisplay = energyDiff != null
+              ? fmtPedag.formatLatexWithUnit(energyDiff, energyUnit)
+              : r'(E-E_F)';
+          final lnDisplay =
+              lnVal != null ? fmtPedag.formatLatex(lnVal) : lnTermRaw();
 
-        final expr = r'T = \frac{' + numDisplay + r'}{(' + kDisplay + r')(' + lnDisplay + r')}';
-        substitutionLines.add(expr);
+          final expr = r'T = \frac{' +
+              numDisplay +
+              r'}{(' +
+              kDisplay +
+              r')(' +
+              lnDisplay +
+              r')}';
+          substitutionLines.add(expr);
 
-        double? tComputed;
-        if (energyDiff != null && kVal != null && lnVal != null) {
-          tComputed = energyDiff / (kVal * lnVal);
+          double? tComputed;
+          if (energyDiff != null && kVal != null && lnVal != null) {
+            tComputed = energyDiff / (kVal * lnVal);
+          }
+          final tNumericNoUnit = tComputed != null
+              ? NumberFormatter(significantFigures: 6, sciThresholdExp: 3)
+                  .formatLatex(tComputed)
+              : null;
+          if (tNumericNoUnit != null) {
+            final numCompact = energyDiff != null
+                ? fmtPedag.formatLatex(energyDiff)
+                : r'(E-E_F)';
+            final kCompact = kVal != null ? fmtPedag.formatLatex(kVal) : r'k';
+            substitutionLines.add(
+                'T=($numCompact)/(($kCompact)($lnDisplay))=$tNumericNoUnit');
+          }
+          final tDisplay = tComputed != null
+              ? NumberFormatter(significantFigures: 6, sciThresholdExp: 3)
+                  .formatLatexWithUnit(tComputed, 'K')
+              : _safeSymbol('T', latexMap);
+          substitutionEvaluation = '$expr=$tDisplay';
+          if (result6 != null && tComputed == null) {
+            substitutionEvaluation = '$substitutionEvaluation=$result6';
+          }
+          break;
         }
-        final tNumericNoUnit = tComputed != null
-            ? NumberFormatter(significantFigures: 6, sciThresholdExp: 3).formatLatex(tComputed)
-            : null;
-        if (tNumericNoUnit != null) {
-          final numCompact = energyDiff != null ? fmtPedag.formatLatex(energyDiff) : r'(E-E_F)';
-          final kCompact = kVal != null ? fmtPedag.formatLatex(kVal) : r'k';
-          substitutionLines.add('T=($numCompact)/(($kCompact)($lnDisplay))=$tNumericNoUnit');
-        }
-        final tDisplay = tComputed != null
-            ? NumberFormatter(significantFigures: 6, sciThresholdExp: 3).formatLatexWithUnit(tComputed, 'K')
-            : _safeSymbol('T', latexMap);
-        substitutionEvaluation = '$expr=$tDisplay';
-        if (result6 != null && tComputed == null) {
-          substitutionEvaluation = '$substitutionEvaluation=$result6';
-        }
-        break;
-      }
     }
 
     return _buildWithTemplate(
@@ -588,12 +668,17 @@ class DosStatsSteps {
     UnitConverter? unitConverter,
     required String primaryEnergyUnit,
   }) {
-    if (solveFor != 'n_i' && solveFor != 'E_g' && solveFor != 'T' && solveFor != 'N_c' && solveFor != 'N_v') {
+    if (solveFor != 'n_i' &&
+        solveFor != 'E_g' &&
+        solveFor != 'T' &&
+        solveFor != 'N_c' &&
+        solveFor != 'N_v') {
       return null;
     }
 
     final fmt6 = formatter.withSigFigs(6);
-    final densityDisplayUnit = context.getUnit('__meta__density_unit') ?? 'm^-3';
+    final densityDisplayUnit =
+        context.getUnit('__meta__density_unit') ?? 'm^-3';
     final energyUnit = primaryEnergyUnit.isNotEmpty ? primaryEnergyUnit : 'J';
     final nc = context.getSymbolValue('N_c');
     final nv = context.getSymbolValue('N_v');
@@ -602,9 +687,15 @@ class DosStatsSteps {
     final k = context.getSymbolValue('k');
     final t = context.getSymbolValue('T');
 
-    final ncConv = _maybeConvertDensity(nc, unitConverter, targetUnit: 'm^-3', formatter: formatter, symbolKey: 'N_c');
-    final nvConv = _maybeConvertDensity(nv, unitConverter, targetUnit: 'm^-3', formatter: formatter, symbolKey: 'N_v');
-    final egConv = _maybeEnergyConversion(eg, unitConverter, label: latexMap.latexOf('E_g'), formatter: formatter, symbolKey: 'E_g', preferredUnit: energyUnit);
+    final ncConv = _maybeConvertDensity(nc, unitConverter,
+        targetUnit: 'm^-3', formatter: formatter, symbolKey: 'N_c');
+    final nvConv = _maybeConvertDensity(nv, unitConverter,
+        targetUnit: 'm^-3', formatter: formatter, symbolKey: 'N_v');
+    final egConv = _maybeEnergyConversion(eg, unitConverter,
+        label: latexMap.latexOf('E_g'),
+        formatter: formatter,
+        symbolKey: 'E_g',
+        preferredUnit: energyUnit);
     final kConv = _maybeBoltzmannConversion(
       kSymbol: k,
       converter: unitConverter,
@@ -649,7 +740,8 @@ class DosStatsSteps {
     final rearrangeLines = <String>[];
     switch (solveFor) {
       case 'n_i':
-        rearrangeLines.add(r'n_i = \sqrt{N_c N_v\, \exp\left(\frac{-E_g}{kT}\right)}');
+        rearrangeLines
+            .add(r'n_i = \sqrt{N_c N_v\, \exp\left(\frac{-E_g}{kT}\right)}');
         break;
       case 'E_g':
         rearrangeLines.addAll([
@@ -691,7 +783,8 @@ class DosStatsSteps {
     final substitutionLines = <String>[];
     void addKnown(String key, SymbolValue? val, {String? defaultUnit}) {
       if (val == null) return;
-      final latexVal = _formatSymbol(fmt6, latexMap, key, val, defaultUnit: defaultUnit);
+      final latexVal =
+          _formatSymbol(fmt6, latexMap, key, val, defaultUnit: defaultUnit);
       substitutionLines.add('${_safeSymbol(key, latexMap)} = $latexVal');
     }
 
@@ -700,17 +793,22 @@ class DosStatsSteps {
     final egBase = egConv?.converted ?? eg;
 
     if (ncBase != null) {
-      substitutionLines.add('${_safeSymbol('N_c', latexMap)} = ${fmt6.valueLatex(ncConv?.baseValue ?? ncBase.value, unit: ncBase.unit.isNotEmpty ? ncBase.unit : 'm^-3', sigFigs: 6)}');
+      substitutionLines.add(
+          '${_safeSymbol('N_c', latexMap)} = ${fmt6.valueLatex(ncConv?.baseValue ?? ncBase.value, unit: ncBase.unit.isNotEmpty ? ncBase.unit : 'm^-3', sigFigs: 6)}');
     }
     if (nvBase != null) {
-      substitutionLines.add('${_safeSymbol('N_v', latexMap)} = ${fmt6.valueLatex(nvConv?.baseValue ?? nvBase.value, unit: nvBase.unit.isNotEmpty ? nvBase.unit : 'm^-3', sigFigs: 6)}');
+      substitutionLines.add(
+          '${_safeSymbol('N_v', latexMap)} = ${fmt6.valueLatex(nvConv?.baseValue ?? nvBase.value, unit: nvBase.unit.isNotEmpty ? nvBase.unit : 'm^-3', sigFigs: 6)}');
     }
     addKnown('n_i', ni, defaultUnit: 'm^-3');
     if (egBase != null) {
-      substitutionLines.add('${_safeSymbol('E_g', latexMap)} = ${fmt6.valueLatex(egConv?.baseValue ?? egBase.value, unit: egBase.unit.isNotEmpty ? egBase.unit : energyUnit, sigFigs: 6)}');
+      substitutionLines.add(
+          '${_safeSymbol('E_g', latexMap)} = ${fmt6.valueLatex(egConv?.baseValue ?? egBase.value, unit: egBase.unit.isNotEmpty ? egBase.unit : energyUnit, sigFigs: 6)}');
     }
     final kBase = kConv?.converted ?? k;
-    addKnown('k', kBase, defaultUnit: kBase?.unit.isNotEmpty == true ? kBase!.unit : '$energyUnit/K');
+    addKnown('k', kBase,
+        defaultUnit:
+            kBase?.unit.isNotEmpty == true ? kBase!.unit : '$energyUnit/K');
     addKnown('T', t, defaultUnit: 'K');
 
     final ncVal = ncConv?.baseValue ?? nc?.value;
@@ -728,7 +826,7 @@ class DosStatsSteps {
             context: context,
             unitConverter: unitConverter,
             primaryEnergyUnit: primaryEnergyUnit,
-      )
+          )
         : null;
 
     String substitutionEvaluation;
@@ -739,41 +837,56 @@ class DosStatsSteps {
             ? (-egVal) / (kVal * tVal)
             : null;
         if (kTVal != null) {
-          substitutionLines.add(r'kT = ' + fmt6.formatLatexWithUnit(kTVal, energyUnit));
+          substitutionLines
+              .add(r'kT = ' + fmt6.formatLatexWithUnit(kTVal, energyUnit));
         }
         if (exponentVal != null) {
-          substitutionLines.add(r'\frac{-E_g}{kT} = ' + fmt6.formatLatex(exponentVal));
+          substitutionLines
+              .add(r'\frac{-E_g}{kT} = ' + fmt6.formatLatex(exponentVal));
         }
         final egTerm = exponentVal != null
             ? fmt6.formatLatex(exponentVal)
             : r'\frac{-E_g}{kT}';
-        final ncSub = ncVal != null ? fmt6.formatLatexWithUnit(ncVal, 'm^{-3}') : latexMap.latexOf('N_c');
-        final nvSub = nvVal != null ? fmt6.formatLatexWithUnit(nvVal, 'm^{-3}') : latexMap.latexOf('N_v');
-        final expr = '${_safeSymbol('n_i', latexMap)} = \\sqrt{(' + ncSub + ')(' + nvSub + ') \\exp(' + egTerm + ')}';
+        final ncSub = ncVal != null
+            ? fmt6.formatLatexWithUnit(ncVal, 'm^{-3}')
+            : latexMap.latexOf('N_c');
+        final nvSub = nvVal != null
+            ? fmt6.formatLatexWithUnit(nvVal, 'm^{-3}')
+            : latexMap.latexOf('N_v');
+        final expr = '${_safeSymbol('n_i', latexMap)} = \\sqrt{(' +
+            ncSub +
+            ')(' +
+            nvSub +
+            ') \\exp(' +
+            egTerm +
+            ')}';
         substitutionEvaluation = result6 != null ? '$expr = $result6' : expr;
         break;
       case 'E_g':
         final logArg = (niVal != null && ncVal != null && nvVal != null)
             ? fmt6.formatLatex((niVal * niVal) / (ncVal * nvVal))
             : r'\frac{n_i^{2}}{N_c N_v}';
-        final symbolic = '${_safeSymbol('E_g', latexMap)} = -kT\\,\\ln\\left(\\frac{n_i^{2}}{N_c N_v}\\right)';
+        final symbolic =
+            '${_safeSymbol('E_g', latexMap)} = -kT\\,\\ln\\left(\\frac{n_i^{2}}{N_c N_v}\\right)';
         substitutionLines.add(symbolic);
-        final niSub = niVal != null ? fmt6.formatLatexWithUnit(niVal, 'm^{-3}') : _safeSymbol('n_i', latexMap);
-        final ncSub = ncVal != null ? fmt6.formatLatexWithUnit(ncVal, 'm^{-3}') : _safeSymbol('N_c', latexMap);
-        final nvSub = nvVal != null ? fmt6.formatLatexWithUnit(nvVal, 'm^{-3}') : _safeSymbol('N_v', latexMap);
-        final expr =
-            '${_safeSymbol('E_g', latexMap)} = -(k)(T)\\,\\ln\\left(\\frac{(${niSub})^{2}}{(${ncSub})(${nvSub})}\\right)';
-        final exprEvaluated = '${_safeSymbol('E_g', latexMap)} = -kT\\,\\ln(' + logArg + ')';
-        substitutionEvaluation = result6 != null ? '$exprEvaluated = $result6' : exprEvaluated;
+        final exprEvaluated =
+            '${_safeSymbol('E_g', latexMap)} = -kT\\,\\ln(' + logArg + ')';
+        substitutionEvaluation =
+            result6 != null ? '$exprEvaluated = $result6' : exprEvaluated;
         break;
       case 'T':
-        final numStr = egVal != null ? fmt6.formatLatexWithUnit(egVal, energyUnit) : r'E_g';
+        final numStr = egVal != null
+            ? fmt6.formatLatexWithUnit(egVal, energyUnit)
+            : r'E_g';
         final denom = (niVal != null && ncVal != null && nvVal != null)
             ? fmt6.formatLatex(math.log((niVal * niVal) / (ncVal * nvVal)))
             : r'\ln\left(\frac{n_i^{2}}{N_c N_v}\right)';
-        final symbolic = '${_safeSymbol('T', latexMap)} = -\\frac{E_g}{k\\,\\ln\\left(\\frac{n_i^{2}}{N_c N_v}\right)}';
+        final symbolic =
+            '${_safeSymbol('T', latexMap)} = -\\frac{E_g}{k\\,\\ln\\left(\\frac{n_i^{2}}{N_c N_v}\right)}';
         substitutionLines.add(symbolic);
-        final expr = '${_safeSymbol('T', latexMap)} = -\\frac{$numStr}{k\\,' + denom + '}';
+        final expr = '${_safeSymbol('T', latexMap)} = -\\frac{$numStr}{k\\,' +
+            denom +
+            '}';
         substitutionEvaluation = result6 != null ? '$expr = $result6' : expr;
         break;
       case 'N_c':
@@ -782,38 +895,55 @@ class DosStatsSteps {
             ? (-egVal) / (kVal * tVal)
             : null;
         if (kTVal != null) {
-          substitutionLines.add(r'kT = ' + fmt6.formatLatexWithUnit(kTVal, energyUnit));
+          substitutionLines
+              .add(r'kT = ' + fmt6.formatLatexWithUnit(kTVal, energyUnit));
         }
         if (exponentVal != null) {
-          substitutionLines.add(r'\frac{-E_g}{kT} = ' + fmt6.formatLatex(exponentVal));
+          substitutionLines
+              .add(r'\frac{-E_g}{kT} = ' + fmt6.formatLatex(exponentVal));
         }
-        
+
         // Build substitution with bracketed values
         final niSym = latexMap.latexOf('n_i');
         final nvSym = latexMap.latexOf('N_v');
         final egSym = latexMap.latexOf('E_g');
         final kSym = latexMap.latexOf('k');
         final tSym = latexMap.latexOf('T');
-        
+
         // First show the isolated form with symbolic substitution
-        final niStr = niVal != null ? fmt6.formatLatexWithUnit(niVal, 'm^{-3}') : niSym;
-        final nvStr = nvVal != null ? fmt6.formatLatexWithUnit(nvVal, 'm^{-3}') : nvSym;
-        final egStr = egVal != null ? fmt6.formatLatexWithUnit(egVal, energyUnit) : egSym;
-        final kStr = kVal != null ? fmt6.formatLatexWithUnit(kVal, energyUnit + '/K') : kSym;
+        final niStr =
+            niVal != null ? fmt6.formatLatexWithUnit(niVal, 'm^{-3}') : niSym;
+        final nvStr =
+            nvVal != null ? fmt6.formatLatexWithUnit(nvVal, 'm^{-3}') : nvSym;
+        final egStr =
+            egVal != null ? fmt6.formatLatexWithUnit(egVal, energyUnit) : egSym;
+        final kStr = kVal != null
+            ? fmt6.formatLatexWithUnit(kVal, energyUnit + '/K')
+            : kSym;
         final tStr = tVal != null ? fmt6.formatLatexWithUnit(tVal, 'K') : tSym;
-        
-        final exprWithBrackets = '${_safeSymbol('N_c', latexMap)} = \\frac{($niStr)^{2}}{($nvStr)\\exp\\left(\\frac{-($egStr)}{($kStr)($tStr)}\\right)}';
+
+        final exprWithBrackets =
+            '${_safeSymbol('N_c', latexMap)} = \\frac{($niStr)^{2}}{($nvStr)\\exp\\left(\\frac{-($egStr)}{($kStr)($tStr)}\\right)}';
         substitutionLines.add(exprWithBrackets);
-        
+
         // Then show simplified form if all values are known
         if (exponentVal != null) {
           final egTerm = fmt6.formatLatex(exponentVal);
-          final numStr = niVal != null ? fmt6.formatLatexWithUnit(niVal * niVal, 'm^{-6}') : r'n_i^{2}';
-          final denomNv = nvVal != null ? fmt6.formatLatexWithUnit(nvVal, 'm^{-3}') : nvSym;
-          final simplified = '${_safeSymbol('N_c', latexMap)} = \\frac{$numStr}{($denomNv)\\exp(' + egTerm + ')}';
-          substitutionEvaluation = result6 != null ? '$simplified = $result6' : simplified;
+          final numStr = niVal != null
+              ? fmt6.formatLatexWithUnit(niVal * niVal, 'm^{-6}')
+              : r'n_i^{2}';
+          final denomNv =
+              nvVal != null ? fmt6.formatLatexWithUnit(nvVal, 'm^{-3}') : nvSym;
+          final simplified =
+              '${_safeSymbol('N_c', latexMap)} = \\frac{$numStr}{($denomNv)\\exp(' +
+                  egTerm +
+                  ')}';
+          substitutionEvaluation =
+              result6 != null ? '$simplified = $result6' : simplified;
         } else {
-          substitutionEvaluation = result6 != null ? '$exprWithBrackets = $result6' : exprWithBrackets;
+          substitutionEvaluation = result6 != null
+              ? '$exprWithBrackets = $result6'
+              : exprWithBrackets;
         }
         break;
       case 'N_v':
@@ -823,38 +953,55 @@ class DosStatsSteps {
             ? (-egVal) / (kVal * tVal)
             : null;
         if (kTVal != null) {
-          substitutionLines.add(r'kT = ' + fmt6.formatLatexWithUnit(kTVal, energyUnit));
+          substitutionLines
+              .add(r'kT = ' + fmt6.formatLatexWithUnit(kTVal, energyUnit));
         }
         if (exponentVal != null) {
-          substitutionLines.add(r'\frac{-E_g}{kT} = ' + fmt6.formatLatex(exponentVal));
+          substitutionLines
+              .add(r'\frac{-E_g}{kT} = ' + fmt6.formatLatex(exponentVal));
         }
-        
+
         // Build substitution with bracketed values
         final niSym = latexMap.latexOf('n_i');
         final ncSym = latexMap.latexOf('N_c');
         final egSym = latexMap.latexOf('E_g');
         final kSym = latexMap.latexOf('k');
         final tSym = latexMap.latexOf('T');
-        
+
         // First show the isolated form with symbolic substitution
-        final niStr = niVal != null ? fmt6.formatLatexWithUnit(niVal, 'm^{-3}') : niSym;
-        final ncStr = ncVal != null ? fmt6.formatLatexWithUnit(ncVal, 'm^{-3}') : ncSym;
-        final egStr = egVal != null ? fmt6.formatLatexWithUnit(egVal, energyUnit) : egSym;
-        final kStr = kVal != null ? fmt6.formatLatexWithUnit(kVal, energyUnit + '/K') : kSym;
+        final niStr =
+            niVal != null ? fmt6.formatLatexWithUnit(niVal, 'm^{-3}') : niSym;
+        final ncStr =
+            ncVal != null ? fmt6.formatLatexWithUnit(ncVal, 'm^{-3}') : ncSym;
+        final egStr =
+            egVal != null ? fmt6.formatLatexWithUnit(egVal, energyUnit) : egSym;
+        final kStr = kVal != null
+            ? fmt6.formatLatexWithUnit(kVal, energyUnit + '/K')
+            : kSym;
         final tStr = tVal != null ? fmt6.formatLatexWithUnit(tVal, 'K') : tSym;
-        
-        final exprWithBrackets = '${_safeSymbol('N_v', latexMap)} = \\frac{($niStr)^{2}}{($ncStr)\\exp\\left(\\frac{-($egStr)}{($kStr)($tStr)}\\right)}';
+
+        final exprWithBrackets =
+            '${_safeSymbol('N_v', latexMap)} = \\frac{($niStr)^{2}}{($ncStr)\\exp\\left(\\frac{-($egStr)}{($kStr)($tStr)}\\right)}';
         substitutionLines.add(exprWithBrackets);
-        
+
         // Then show simplified form if all values are known
         if (exponentVal != null) {
           final egTerm = fmt6.formatLatex(exponentVal);
-          final numStr = niVal != null ? fmt6.formatLatexWithUnit(niVal * niVal, 'm^{-6}') : r'n_i^{2}';
-          final denomNc = ncVal != null ? fmt6.formatLatexWithUnit(ncVal, 'm^{-3}') : ncSym;
-          final simplified = '${_safeSymbol('N_v', latexMap)} = \\frac{$numStr}{($denomNc)\\exp(' + egTerm + ')}';
-          substitutionEvaluation = result6 != null ? '$simplified = $result6' : simplified;
+          final numStr = niVal != null
+              ? fmt6.formatLatexWithUnit(niVal * niVal, 'm^{-6}')
+              : r'n_i^{2}';
+          final denomNc =
+              ncVal != null ? fmt6.formatLatexWithUnit(ncVal, 'm^{-3}') : ncSym;
+          final simplified =
+              '${_safeSymbol('N_v', latexMap)} = \\frac{$numStr}{($denomNc)\\exp(' +
+                  egTerm +
+                  ')}';
+          substitutionEvaluation =
+              result6 != null ? '$simplified = $result6' : simplified;
         } else {
-          substitutionEvaluation = result6 != null ? '$exprWithBrackets = $result6' : exprWithBrackets;
+          substitutionEvaluation = result6 != null
+              ? '$exprWithBrackets = $result6'
+              : exprWithBrackets;
         }
         break;
     }
@@ -883,7 +1030,8 @@ class DosStatsSteps {
     UnitConverter? unitConverter,
     required String primaryEnergyUnit,
   }) {
-    if (solveFor != 'E_mid' && solveFor != 'E_c' && solveFor != 'E_v') return null;
+    if (solveFor != 'E_mid' && solveFor != 'E_c' && solveFor != 'E_v')
+      return null;
 
     final fmt6 = formatter.withSigFigs(6);
     final energyUnit = primaryEnergyUnit.isNotEmpty ? primaryEnergyUnit : 'J';
@@ -961,9 +1109,12 @@ class DosStatsSteps {
     final emidStr6 = energyVal(eMid, midConv);
 
     // List known values, but skip the target variable to avoid identity lines.
-    if (solveFor != 'E_c' && ecStr6 != null) substitutionLines.add('${_safeSymbol('E_c', latexMap)} = $ecStr6');
-    if (solveFor != 'E_v' && evStr6 != null) substitutionLines.add('${_safeSymbol('E_v', latexMap)} = $evStr6');
-    if (solveFor != 'E_mid' && emidStr6 != null) substitutionLines.add('${_safeSymbol('E_mid', latexMap)} = $emidStr6');
+    if (solveFor != 'E_c' && ecStr6 != null)
+      substitutionLines.add('${_safeSymbol('E_c', latexMap)} = $ecStr6');
+    if (solveFor != 'E_v' && evStr6 != null)
+      substitutionLines.add('${_safeSymbol('E_v', latexMap)} = $evStr6');
+    if (solveFor != 'E_mid' && emidStr6 != null)
+      substitutionLines.add('${_safeSymbol('E_mid', latexMap)} = $emidStr6');
 
     final result = outputs[solveFor];
     final result6 = result != null
@@ -983,13 +1134,15 @@ class DosStatsSteps {
           '${_safeSymbol('E_mid', latexMap)} = \\frac{${ecStr6 ?? _safeSymbol('E_c', latexMap)} + ${evStr6 ?? _safeSymbol('E_v', latexMap)}}{2}';
       substitutionEvaluation = result6 != null ? '$expr = $result6' : expr;
     } else if (solveFor == 'E_c') {
-      final symbolic = '${_safeSymbol('E_c', latexMap)} = 2${_safeSymbol('E_mid', latexMap)} - ${_safeSymbol('E_v', latexMap)}';
+      final symbolic =
+          '${_safeSymbol('E_c', latexMap)} = 2${_safeSymbol('E_mid', latexMap)} - ${_safeSymbol('E_v', latexMap)}';
       substitutionLines.add(symbolic);
       final expr =
           '${_safeSymbol('E_c', latexMap)} = 2(${emidStr6 ?? _safeSymbol('E_mid', latexMap)}) - (${evStr6 ?? _safeSymbol('E_v', latexMap)})';
       substitutionEvaluation = result6 != null ? '$expr = $result6' : expr;
     } else {
-      final symbolic = '${_safeSymbol('E_v', latexMap)} = 2${_safeSymbol('E_mid', latexMap)} - ${_safeSymbol('E_c', latexMap)}';
+      final symbolic =
+          '${_safeSymbol('E_v', latexMap)} = 2${_safeSymbol('E_mid', latexMap)} - ${_safeSymbol('E_c', latexMap)}';
       substitutionLines.add(symbolic);
       final expr =
           '${_safeSymbol('E_v', latexMap)} = 2(${emidStr6 ?? _safeSymbol('E_mid', latexMap)}) - (${ecStr6 ?? _safeSymbol('E_c', latexMap)})';
@@ -1020,7 +1173,11 @@ class DosStatsSteps {
     UnitConverter? unitConverter,
     required String primaryEnergyUnit,
   }) {
-    if (solveFor != 'E_i' && solveFor != 'E_mid' && solveFor != 'T' && solveFor != 'm_p_star' && solveFor != 'm_n_star') {
+    if (solveFor != 'E_i' &&
+        solveFor != 'E_mid' &&
+        solveFor != 'T' &&
+        solveFor != 'm_p_star' &&
+        solveFor != 'm_n_star') {
       return null;
     }
 
@@ -1033,8 +1190,16 @@ class DosStatsSteps {
     final k = context.getSymbolValue('k');
     final t = context.getSymbolValue('T');
 
-    final eiConv = _maybeEnergyConversion(ei, unitConverter, label: latexMap.latexOf('E_i'), formatter: formatter, symbolKey: 'E_i', preferredUnit: energyUnit);
-    final emidConv = _maybeEnergyConversion(emid, unitConverter, label: latexMap.latexOf('E_mid'), formatter: formatter, symbolKey: 'E_mid', preferredUnit: energyUnit);
+    final eiConv = _maybeEnergyConversion(ei, unitConverter,
+        label: latexMap.latexOf('E_i'),
+        formatter: formatter,
+        symbolKey: 'E_i',
+        preferredUnit: energyUnit);
+    final emidConv = _maybeEnergyConversion(emid, unitConverter,
+        label: latexMap.latexOf('E_mid'),
+        formatter: formatter,
+        symbolKey: 'E_mid',
+        preferredUnit: energyUnit);
     final kConv = _maybeBoltzmannConversion(
       kSymbol: k,
       converter: unitConverter,
@@ -1051,7 +1216,8 @@ class DosStatsSteps {
     final rearrangeLines = <String>[];
     switch (solveFor) {
       case 'E_i':
-        rearrangeLines.add(r'E_i = E_{\mathrm{mid}} + \frac{3}{4} k T \ln\left(\frac{m_p^{*}}{m_n^{*}}\right)');
+        rearrangeLines.add(
+            r'E_i = E_{\mathrm{mid}} + \frac{3}{4} k T \ln\left(\frac{m_p^{*}}{m_n^{*}}\right)');
         break;
       case 'E_mid':
         rearrangeLines.addAll([
@@ -1100,15 +1266,24 @@ class DosStatsSteps {
 
     final eiStr6 = energyVal(ei, eiConv);
     final emidStr6 = energyVal(emid, emidConv);
-    if (eiStr6 != null) substitutionLines.add('${_safeSymbol('E_i', latexMap)} = $eiStr6');
-    if (emidStr6 != null) substitutionLines.add('${_safeSymbol('E_mid', latexMap)} = $emidStr6');
-    if (mp != null) substitutionLines.add('${_safeSymbol('m_p_star', latexMap)} = ${_formatSymbol(fmt6, latexMap, 'm_p_star', mp, defaultUnit: 'kg')}');
-    if (mn != null) substitutionLines.add('${_safeSymbol('m_n_star', latexMap)} = ${_formatSymbol(fmt6, latexMap, 'm_n_star', mn, defaultUnit: 'kg')}');
+    if (eiStr6 != null)
+      substitutionLines.add('${_safeSymbol('E_i', latexMap)} = $eiStr6');
+    if (emidStr6 != null)
+      substitutionLines.add('${_safeSymbol('E_mid', latexMap)} = $emidStr6');
+    if (mp != null)
+      substitutionLines.add(
+          '${_safeSymbol('m_p_star', latexMap)} = ${_formatSymbol(fmt6, latexMap, 'm_p_star', mp, defaultUnit: 'kg')}');
+    if (mn != null)
+      substitutionLines.add(
+          '${_safeSymbol('m_n_star', latexMap)} = ${_formatSymbol(fmt6, latexMap, 'm_n_star', mn, defaultUnit: 'kg')}');
     final kBase = kConv?.converted ?? k;
     if (kBase != null) {
-      substitutionLines.add('${_safeSymbol('k', latexMap)} = ${_formatSymbol(fmt6, latexMap, 'k', kBase, defaultUnit: kBase.unit.isNotEmpty ? kBase.unit : '$energyUnit/K')}');
+      substitutionLines.add(
+          '${_safeSymbol('k', latexMap)} = ${_formatSymbol(fmt6, latexMap, 'k', kBase, defaultUnit: kBase.unit.isNotEmpty ? kBase.unit : '$energyUnit/K')}');
     }
-    if (t != null) substitutionLines.add('${_safeSymbol('T', latexMap)} = ${_formatSymbol(fmt6, latexMap, 'T', t, defaultUnit: 'K')}');
+    if (t != null)
+      substitutionLines.add(
+          '${_safeSymbol('T', latexMap)} = ${_formatSymbol(fmt6, latexMap, 'T', t, defaultUnit: 'K')}');
 
     final eiVal = eiConv?.baseValue ?? ei?.value;
     final emidVal = emidConv?.baseValue ?? emid?.value;
@@ -1149,7 +1324,9 @@ class DosStatsSteps {
     String substitutionEvaluation;
     switch (solveFor) {
       case 'E_i':
-        final kTerm = (kVal != null && tVal != null) ? fmt6.formatLatexWithUnit((3 / 4) * kVal * tVal, energyUnit) : r'\frac{3}{4}kT';
+        final kTerm = (kVal != null && tVal != null)
+            ? fmt6.formatLatexWithUnit((3 / 4) * kVal * tVal, energyUnit)
+            : r'\frac{3}{4}kT';
         final exprRaw = '${_safeSymbol('E_i', latexMap)} = ' +
             (emidStr6 ?? _safeSymbol('E_mid', latexMap)) +
             ' + (' +
@@ -1163,39 +1340,50 @@ class DosStatsSteps {
             ') ' +
             logTermEval();
         substitutionLines.add(exprRaw);
-        substitutionEvaluation = result6 != null ? '$exprEval = $result6' : exprEval;
+        substitutionEvaluation =
+            result6 != null ? '$exprEval = $result6' : exprEval;
         break;
       case 'E_mid':
         // Show intermediate calculations
-        final kTVal = (kVal != null && tVal != null) ? (3 / 4) * kVal * tVal : null;
+        final kTVal =
+            (kVal != null && tVal != null) ? (3 / 4) * kVal * tVal : null;
         if (kTVal != null) {
-          substitutionLines.add(r'\frac{3}{4}kT = ' + fmt6.formatLatexWithUnit(kTVal, energyUnit));
+          substitutionLines.add(r'\frac{3}{4}kT = ' +
+              fmt6.formatLatexWithUnit(kTVal, energyUnit));
         }
-        
+
         // Show ln term evaluation if possible
         if (mpVal != null && mnVal != null) {
           final lnVal = math.log(mpVal / mnVal);
-          substitutionLines.add(r'\ln\left(\frac{m_p^{*}}{m_n^{*}}\right) = ' + fmt6.formatLatex(lnVal));
+          substitutionLines.add(r'\ln\left(\frac{m_p^{*}}{m_n^{*}}\right) = ' +
+              fmt6.formatLatex(lnVal));
         }
-        
+
         // Build expression with bracketed values
         final eiSym = latexMap.latexOf('E_i');
         final kSym = latexMap.latexOf('k');
         final tSym = latexMap.latexOf('T');
         final mpSym = latexMap.latexOf('m_p_star');
         final mnSym = latexMap.latexOf('m_n_star');
-        
+
         final eiStr = eiStr6 ?? eiSym;
-        final kStr = kVal != null ? fmt6.formatLatexWithUnit(kVal, energyUnit + '/K') : kSym;
+        final kStr = kVal != null
+            ? fmt6.formatLatexWithUnit(kVal, energyUnit + '/K')
+            : kSym;
         final tStr = tVal != null ? fmt6.formatLatexWithUnit(tVal, 'K') : tSym;
-        final mpStr = mpVal != null ? fmt6.formatLatexWithUnit(mpVal, 'kg') : mpSym;
-        final mnStr = mnVal != null ? fmt6.formatLatexWithUnit(mnVal, 'kg') : mnSym;
-        
-        final exprWithBrackets = '${_safeSymbol('E_mid', latexMap)} = ($eiStr) - \\frac{3}{4}($kStr)($tStr)\\ln\\left(\\frac{$mpStr}{$mnStr}\\right)';
+        final mpStr =
+            mpVal != null ? fmt6.formatLatexWithUnit(mpVal, 'kg') : mpSym;
+        final mnStr =
+            mnVal != null ? fmt6.formatLatexWithUnit(mnVal, 'kg') : mnSym;
+
+        final exprWithBrackets =
+            '${_safeSymbol('E_mid', latexMap)} = ($eiStr) - \\frac{3}{4}($kStr)($tStr)\\ln\\left(\\frac{$mpStr}{$mnStr}\\right)';
         substitutionLines.add(exprWithBrackets);
-        
+
         // Build simplified evaluation if all values known
-        final kTerm = kTVal != null ? fmt6.formatLatexWithUnit(kTVal, energyUnit) : r'\frac{3}{4}kT';
+        final kTerm = kTVal != null
+            ? fmt6.formatLatexWithUnit(kTVal, energyUnit)
+            : r'\frac{3}{4}kT';
         final lnTerm = logTermEval();
         final exprEval = '${_safeSymbol('E_mid', latexMap)} = ' +
             (eiStr6 ?? _safeSymbol('E_i', latexMap)) +
@@ -1204,30 +1392,54 @@ class DosStatsSteps {
             ')(' +
             lnTerm +
             ')';
-        substitutionEvaluation = result6 != null ? '$exprEval = $result6' : exprEval;
+        substitutionEvaluation =
+            result6 != null ? '$exprEval = $result6' : exprEval;
         break;
       case 'T':
-        final num = (eiVal != null && emidVal != null) ? fmt6.formatLatexWithUnit(eiVal - emidVal, 'J') : r'(E_i - E_{\mathrm{mid}})';
-        final expr = '${_safeSymbol('T', latexMap)} = \\frac{$num}{\\frac{3}{4}k ' + logTermRaw() + '}';
-        final evaluated = '${_safeSymbol('T', latexMap)} = \\frac{$num}{\\frac{3}{4}k ' + logTermEval() + '}';
+        final num = (eiVal != null && emidVal != null)
+            ? fmt6.formatLatexWithUnit(eiVal - emidVal, 'J')
+            : r'(E_i - E_{\mathrm{mid}})';
+        final expr =
+            '${_safeSymbol('T', latexMap)} = \\frac{$num}{\\frac{3}{4}k ' +
+                logTermRaw() +
+                '}';
+        final evaluated =
+            '${_safeSymbol('T', latexMap)} = \\frac{$num}{\\frac{3}{4}k ' +
+                logTermEval() +
+                '}';
         substitutionLines.add(expr);
-        substitutionEvaluation = result6 != null ? '$evaluated = $result6' : evaluated;
+        substitutionEvaluation =
+            result6 != null ? '$evaluated = $result6' : evaluated;
         break;
       case 'm_p_star':
-        final num = (eiVal != null && emidVal != null && kVal != null && tVal != null)
-            ? fmt6.formatLatex((4 / 3) * (eiVal - emidVal) / (kVal * tVal))
-            : r'\frac{4}{3}\frac{E_i - E_{\mathrm{mid}}}{kT}';
-        final mnStr = mnVal != null ? fmt6.formatLatexWithUnit(mnVal, 'kg') : latexMap.latexOf('m_n_star');
-        final expr = '${_safeSymbol('m_p_star', latexMap)} = ' + mnStr + r'\,\exp(' + num + ')';
+        final num =
+            (eiVal != null && emidVal != null && kVal != null && tVal != null)
+                ? fmt6.formatLatex((4 / 3) * (eiVal - emidVal) / (kVal * tVal))
+                : r'\frac{4}{3}\frac{E_i - E_{\mathrm{mid}}}{kT}';
+        final mnStr = mnVal != null
+            ? fmt6.formatLatexWithUnit(mnVal, 'kg')
+            : latexMap.latexOf('m_n_star');
+        final expr = '${_safeSymbol('m_p_star', latexMap)} = ' +
+            mnStr +
+            r'\,\exp(' +
+            num +
+            ')';
         substitutionEvaluation = result6 != null ? '$expr = $result6' : expr;
         break;
       case 'm_n_star':
       default:
-        final num = (eiVal != null && emidVal != null && kVal != null && tVal != null)
-            ? fmt6.formatLatex(-(4 / 3) * (eiVal - emidVal) / (kVal * tVal))
-            : r'-\frac{4}{3}\frac{E_i - E_{\mathrm{mid}}}{kT}';
-        final mpStr = mpVal != null ? fmt6.formatLatexWithUnit(mpVal, 'kg') : latexMap.latexOf('m_p_star');
-        final expr = '${_safeSymbol('m_n_star', latexMap)} = ' + mpStr + r'\,\exp(' + num + ')';
+        final num =
+            (eiVal != null && emidVal != null && kVal != null && tVal != null)
+                ? fmt6.formatLatex(-(4 / 3) * (eiVal - emidVal) / (kVal * tVal))
+                : r'-\frac{4}{3}\frac{E_i - E_{\mathrm{mid}}}{kT}';
+        final mpStr = mpVal != null
+            ? fmt6.formatLatexWithUnit(mpVal, 'kg')
+            : latexMap.latexOf('m_p_star');
+        final expr = '${_safeSymbol('m_n_star', latexMap)} = ' +
+            mpStr +
+            r'\,\exp(' +
+            num +
+            ')';
         substitutionEvaluation = result6 != null ? '$expr = $result6' : expr;
         break;
     }
@@ -1285,9 +1497,12 @@ class DosStatsSteps {
     }
 
     // Energy preference handling
-    if ((unit == 'J' || unit == 'eV') && unitConverter != null && primaryEnergyUnit.isNotEmpty) {
+    if ((unit == 'J' || unit == 'eV') &&
+        unitConverter != null &&
+        primaryEnergyUnit.isNotEmpty) {
       if (primaryEnergyUnit != unit) {
-        final converted = unitConverter.convertEnergy(value, unit, primaryEnergyUnit);
+        final converted =
+            unitConverter.convertEnergy(value, unit, primaryEnergyUnit);
         if (converted != null) {
           value = converted;
           unit = primaryEnergyUnit;
@@ -1352,8 +1567,12 @@ class DosStatsSteps {
       return r'\mathrm{' + normalized + '}';
     }
 
-    final convertedFmt = formatter.formatLatex(converted) + r'\,' + _densityUnitLatex(displayUnit);
-    final baseFmt = formatter.formatLatex(value.value) + r'\,' + _densityUnitLatex(baseUnit);
+    final convertedFmt = formatter.formatLatex(converted) +
+        r'\,' +
+        _densityUnitLatex(displayUnit);
+    final baseFmt = formatter.formatLatex(value.value) +
+        r'\,' +
+        _densityUnitLatex(baseUnit);
     return '${_safeSymbol(key, latexMap)} = $convertedFmt = $baseFmt';
   }
 
@@ -1368,7 +1587,9 @@ class DosStatsSteps {
   }) {
     if (symbol == null) return null;
 
-    String baseUnit = preferredUnit?.isNotEmpty == true ? preferredUnit! : (symbol.unit.isNotEmpty ? symbol.unit : '');
+    String baseUnit = preferredUnit?.isNotEmpty == true
+        ? preferredUnit!
+        : (symbol.unit.isNotEmpty ? symbol.unit : '');
     double baseValue = symbol.value;
     String? line;
 
@@ -1388,7 +1609,8 @@ class DosStatsSteps {
       if (converted != null) {
         baseValue = converted;
         baseUnit = preferredUnit;
-        final fromStr = formatter.formatLatexWithUnit(symbol.value, symbol.unit);
+        final fromStr =
+            formatter.formatLatexWithUnit(symbol.value, symbol.unit);
         final toStr = formatter.formatLatexWithUnit(converted, preferredUnit);
         line = '$label = $fromStr = $toStr';
       }
@@ -1426,7 +1648,8 @@ class DosStatsSteps {
       );
       if (converted != null) {
         baseValue = converted;
-        final fromStr = formatter.formatLatexWithUnit(metaInput.value, metaInput.unit);
+        final fromStr =
+            formatter.formatLatexWithUnit(metaInput.value, metaInput.unit);
         final toStr = formatter.formatLatexWithUnit(baseValue, baseUnit);
         line = '$label = $fromStr = $toStr';
       }
@@ -1441,7 +1664,8 @@ class DosStatsSteps {
       baseUnit: baseUnit,
       baseStr: baseStr,
       line: line,
-      converted: SymbolValue(value: baseValue, unit: baseUnit, source: symbol.source),
+      converted:
+          SymbolValue(value: baseValue, unit: baseUnit, source: symbol.source),
     );
   }
 
@@ -1459,7 +1683,8 @@ class DosStatsSteps {
       return _EnergyConversion(
         baseValue: kSymbol.value,
         baseUnit: kSymbol.unit,
-        baseStr: formatter.formatLatexWithUnit(kSymbol.value, kSymbol.unit.isNotEmpty ? kSymbol.unit : targetUnit),
+        baseStr: formatter.formatLatexWithUnit(
+            kSymbol.value, kSymbol.unit.isNotEmpty ? kSymbol.unit : targetUnit),
         converted: kSymbol,
       );
     }
@@ -1468,13 +1693,18 @@ class DosStatsSteps {
       return _EnergyConversion(
         baseValue: kSymbol.value,
         baseUnit: kSymbol.unit,
-        baseStr: formatter.formatLatexWithUnit(kSymbol.value, kSymbol.unit.isNotEmpty ? kSymbol.unit : targetUnit),
+        baseStr: formatter.formatLatexWithUnit(
+            kSymbol.value, kSymbol.unit.isNotEmpty ? kSymbol.unit : targetUnit),
         converted: kSymbol,
       );
     }
 
     // Convert energy part of k using energy conversion.
-    final fromEnergyUnit = kSymbol.unit.replaceAll('/K', '').replaceAll('K^-1', '').replaceAll(' per K', '').replaceAll(' ', '');
+    final fromEnergyUnit = kSymbol.unit
+        .replaceAll('/K', '')
+        .replaceAll('K^-1', '')
+        .replaceAll(' per K', '')
+        .replaceAll(' ', '');
     final converted = converter.convertEnergy(
       kSymbol.value,
       fromEnergyUnit.isNotEmpty ? fromEnergyUnit : 'J',
@@ -1486,19 +1716,22 @@ class DosStatsSteps {
       return _EnergyConversion(
         baseValue: kSymbol.value,
         baseUnit: kSymbol.unit,
-        baseStr: formatter.formatLatexWithUnit(kSymbol.value, kSymbol.unit.isNotEmpty ? kSymbol.unit : targetUnit),
+        baseStr: formatter.formatLatexWithUnit(
+            kSymbol.value, kSymbol.unit.isNotEmpty ? kSymbol.unit : targetUnit),
         converted: kSymbol,
       );
     }
 
-    final fromStr = formatter.formatLatexWithUnit(kSymbol.value, kSymbol.unit.isNotEmpty ? kSymbol.unit : 'J/K');
+    final fromStr = formatter.formatLatexWithUnit(
+        kSymbol.value, kSymbol.unit.isNotEmpty ? kSymbol.unit : 'J/K');
     final toStr = formatter.formatLatexWithUnit(converted, targetUnit);
     return _EnergyConversion(
       baseValue: converted,
       baseUnit: targetUnit,
       baseStr: toStr,
       line: 'k = $fromStr = $toStr',
-      converted: SymbolValue(value: converted, unit: targetUnit, source: kSymbol.source),
+      converted: SymbolValue(
+          value: converted, unit: targetUnit, source: kSymbol.source),
     );
   }
 
@@ -1525,7 +1758,8 @@ class DosStatsSteps {
       baseValue: converted,
       baseUnit: targetUnit,
       line: '$fromStr = $toStr',
-      converted: SymbolValue(value: converted, unit: targetUnit, source: symbol.source),
+      converted: SymbolValue(
+          value: converted, unit: targetUnit, source: symbol.source),
     );
   }
 }

@@ -58,9 +58,9 @@ String _trimTrailingZeros(String value) {
 }
 
 /// Card for parameter controls with LaTeX labels.
-/// 
+///
 /// Supports sliders, switches, dropdowns, and segmented buttons.
-/// 
+///
 /// Usage:
 /// ```dart
 /// ParametersCard(
@@ -177,10 +177,11 @@ class ParameterSlider extends StatelessWidget {
     final sliderValueText = valueFormatter != null
         ? valueFormatter!(value)
         : (valueLatexFormatter != null
-              ? formatSciPlain(value)
-              : value.toStringAsFixed(3));
-    final rangeFormatter =
-        rangeLatexFormatter ?? valueLatexFormatter ?? ((double x) => formatSciLatex(x));
+            ? formatSciPlain(value)
+            : value.toStringAsFixed(3));
+    final rangeFormatter = rangeLatexFormatter ??
+        valueLatexFormatter ??
+        ((double x) => formatSciLatex(x));
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
@@ -191,21 +192,10 @@ class ParameterSlider extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    LatexText(
-                      label,
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    if (plainSuffix != null) ...[
-                      const SizedBox(width: 4),
-                      Text(
-                        plainSuffix!,
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                    ],
-                  ],
+                child: _buildMixedLabel(
+                  label: label,
+                  plainSuffix: plainSuffix,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
               ),
               if (showValue) ...[
@@ -273,10 +263,10 @@ class ParameterSlider extends StatelessWidget {
           if (subtitle != null)
             Padding(
               padding: const EdgeInsets.only(top: 4),
-              child: Text(
+              child: _buildLatexAwareText(
                 subtitle!,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      fontSize: 10,
+                      fontSize: _Typo.small,
                       color: Colors.grey[600],
                     ),
               ),
@@ -307,15 +297,9 @@ class ParameterSwitch extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SwitchListTile(
-      title: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          LatexText(label),
-          if (plainSuffix != null) ...[
-            const SizedBox(width: 4),
-            Text(plainSuffix!),
-          ],
-        ],
+      title: _buildMixedLabel(
+        label: label,
+        plainSuffix: plainSuffix,
       ),
       subtitle: subtitle != null ? Text(subtitle!) : null,
       value: value,
@@ -349,8 +333,8 @@ class ParameterDropdown<T> extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          LatexRichText.parse(
-            label,
+          _buildMixedLabel(
+            label: label,
             style: const TextStyle(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 4),
@@ -391,21 +375,10 @@ class ParameterSegmented<T> extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              LatexText(
-                label,
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-              if (plainSuffix != null) ...[
-                const SizedBox(width: 4),
-                Text(
-                  plainSuffix!,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-              ],
-            ],
+          _buildMixedLabel(
+            label: label,
+            plainSuffix: plainSuffix,
+            style: const TextStyle(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 8),
           SegmentedButton<T>(
@@ -417,4 +390,50 @@ class ParameterSegmented<T> extends StatelessWidget {
       ),
     );
   }
+}
+
+Widget _buildMixedLabel({
+  required String label,
+  String? plainSuffix,
+  TextStyle? style,
+}) {
+  final trimmedSuffix = plainSuffix?.trim() ?? '';
+  final hasSuffix = trimmedSuffix.isNotEmpty;
+  final text = hasSuffix ? '$label $trimmedSuffix' : label;
+  final hasInlineLatexDelimiters = text.contains(r'$');
+  final labelLooksLikeLatex = _looksLikeLatex(label);
+
+  // Handles raw TeX labels such as `\varepsilon_r` or `N_A(\mathrm{cm^{-3}})`.
+  if (!hasInlineLatexDelimiters && labelLooksLikeLatex) {
+    if (!hasSuffix) {
+      return LatexText(label, style: style);
+    }
+    return Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        LatexText(label, style: style),
+        Text(' $trimmedSuffix', style: style),
+      ],
+    );
+  }
+
+  return LatexRichText.parse(text, style: style);
+}
+
+bool _looksLikeLatex(String text) {
+  final t = text.trim();
+  if (t.isEmpty) return false;
+  if (RegExp(r'\\[A-Za-z]+').hasMatch(t)) return true;
+  if (t.contains('_{') || t.contains('^{')) return true;
+  return !t.contains(' ') && (t.contains('^') || t.contains('_'));
+}
+
+Widget _buildLatexAwareText(String text, {TextStyle? style}) {
+  if (text.contains(r'$')) {
+    return LatexRichText.parse(text, style: style);
+  }
+  if (_looksLikeLatex(text)) {
+    return LatexText(text, style: style);
+  }
+  return Text(text, style: style);
 }
