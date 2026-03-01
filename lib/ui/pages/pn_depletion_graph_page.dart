@@ -700,8 +700,12 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
     } else if (ratio < 0.1) {
       obs.add(
           r'Highly asymmetric doping: $N_D \gg N_A$ -> depletion extends mostly into p-side ($x_p \gg x_n$).');
+    } else if (ratio >= 0.8 && ratio <= 1.25) {
+      obs.add(
+          r'Symmetric doping ($N_A \approx N_D$): depletion regions are balanced ($x_p \approx x_n$).');
     } else {
-      obs.add(r'Moderate doping asymmetry: depletion regions fairly balanced.');
+      obs.add(
+          r'Moderate doping asymmetry: depletion extends slightly more into the lower-doped side.');
     }
 
     return obs;
@@ -710,7 +714,7 @@ class _PnDepletionGraphViewState extends State<_PnDepletionGraphView>
   List<String> _buildStaticObservations() {
     return [
       r'Depletion width $W \propto \sqrt{V_{bi} - V_a}$; sensitive to bias.',
-      r'Peak field $E_{max} = -q N_A x_p / \varepsilon_s = q N_D x_n / \varepsilon_s$ at junction.',
+      r'Peak field magnitude: $|E_{max}| = q N_A x_p / \varepsilon_s = q N_D x_n / \varepsilon_s$ at junction.',
       r'Charge neutrality: $N_A x_p = N_D x_n$ (equal charge on both sides).',
       r'Higher doping -> narrower depletion on that side (one-sided junction approximation).',
     ];

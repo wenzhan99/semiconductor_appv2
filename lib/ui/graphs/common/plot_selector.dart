@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
 /// Selector for switching between multiple plots on multi-plot graph pages.
-/// 
+///
 /// Used for pages like:
 /// - Drift vs Diffusion (2 plots: n(x), J components)
 /// - PN Depletion (3 plots: rho(x), E(x), V(x))
-/// 
+///
 /// Usage:
 /// ```dart
 /// PlotSelector(
@@ -53,6 +53,8 @@ class PlotSelector extends StatelessWidget {
                 return ChoiceChip(
                   label: Text(option),
                   selected: isSelected,
+                  backgroundColor: Colors.white,
+                  selectedColor: Colors.white,
                   onSelected: (_) => onChanged(option),
                 );
               }).toList(),
