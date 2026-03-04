@@ -828,6 +828,10 @@ class _DriftDiffusionGraphViewState extends State<_DriftDiffusionGraphView>
         value: _n0Display,
         min: 1e14,
         max: 1e22,
+        valueFormatter: (v) => formatSciPlain(v, sigFigs: 3),
+        valueLatexFormatter: (v) => formatSciLatex(v, sigFigs: 3),
+        showRangeLabels: true,
+        rangeLatexFormatter: (v) => formatSciLatex(v, sigFigs: 3),
         onChanged: (v) {
           setState(() => _n0Display = v);
           updateChart(() {});

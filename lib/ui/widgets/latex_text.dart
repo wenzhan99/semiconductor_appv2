@@ -88,6 +88,9 @@ class LatexText extends StatelessWidget {
       RegExp(r'\\{2,}(?=[A-Za-z])'),
       (_) => r'\',
     );
+    // flutter_math_fork does not support \AA directly; normalize to supported accent form.
+    out = out.replaceAll(r'\AA', r'\mathring{A}');
+    out = out.replaceAll(r'\aa', r'\mathring{a}');
 
     // Normalize only specific unicode math glyphs to TeX.
     // Do not rewrite plain ASCII tokens (for example "x"), which corrupts

@@ -320,7 +320,7 @@ class _ConstantsUnitsPageState extends State<ConstantsUnitsPage> {
     );
     out = out.replaceAllMapped(
       RegExp(r'(?<![A-Za-z])Angstrom(?![A-Za-z])'),
-      (_) => r'$\AA$',
+      (_) => r'$\mathring{A}$',
     );
 
     // Symbols

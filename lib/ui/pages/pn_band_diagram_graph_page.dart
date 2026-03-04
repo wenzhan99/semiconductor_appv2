@@ -14,6 +14,7 @@ import '../graphs/core/animation_engine.dart';
 
 // Standardized components
 import '../graphs/common/enhanced_animation_panel.dart';
+import '../graphs/common/latex_rich_text.dart';
 import '../graphs/utils/latex_number_formatter.dart';
 import '../graphs/utils/pn_latex.dart';
 
@@ -633,9 +634,9 @@ class _PnBandDiagramViewState extends State<PnBandDiagramView> {
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         children: const [
           _Bullet(
-              r'E_c, E_v bend through the depletion region; forward bias flattens the bands.'),
+              r'$E_c$, $E_v$ bend through the depletion region; forward bias flattens the bands.'),
           _Bullet(
-              r'Quasi-Fermi splitting (E_{Fn}, E_{Fp}) grows with applied bias.'),
+              r'Quasi-Fermi splitting ($E_{Fn}$, $E_{Fp}$) grows with applied bias.'),
           _Bullet(
               r'Heavier doping shrinks depletion widths and steepens the band bending.'),
         ],
@@ -1249,8 +1250,8 @@ class _BandHoverTooltip extends StatelessWidget {
 }
 
 class _Bullet extends StatelessWidget {
-  final String latex;
-  const _Bullet(this.latex);
+  final String text;
+  const _Bullet(this.text);
 
   @override
   Widget build(BuildContext context) {
@@ -1261,7 +1262,11 @@ class _Bullet extends StatelessWidget {
         children: [
           Text('- ', style: TextStyle(fontSize: _Typo.body)),
           Expanded(
-              child: LatexText(latex, style: TextStyle(fontSize: _Typo.body))),
+            child: LatexRichText.parse(
+              text,
+              style: TextStyle(fontSize: _Typo.body),
+            ),
+          ),
         ],
       ),
     );
