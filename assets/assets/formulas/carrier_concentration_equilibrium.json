@@ -1,0 +1,297 @@
+{
+  "id": "carrier_concentration_equilibrium",
+  "name": "Carrier Concentration (Equilibrium)",
+  "formula_ids": [
+    "carrier_electron_concentration_n0",
+    "carrier_hole_concentration_p0",
+    "mass_action_law",
+    "doped_n_type_majority",
+    "doped_p_type_majority",
+    "charge_neutrality_equilibrium"
+  ],
+  "formulas": [
+    {
+      "id": "carrier_electron_concentration_n0",
+      "name": "Equilibrium electron concentration",
+      "equation_latex": "n_{0} = n_{i}\\,\\exp\\left(\\frac{E_{F} - E_{i}}{kT}\\right)",
+      "description": "",
+      "variables": [
+        {
+          "key": "n_0",
+          "name": "Equilibrium electron concentration",
+          "si_unit": "m^-3",
+          "preferred_units": ["m^-3", "cm^-3"],
+          "constraints": { "type": "positive" }
+        },
+        {
+          "key": "n_i",
+          "name": "Intrinsic carrier concentration",
+          "si_unit": "m^-3",
+          "preferred_units": ["m^-3", "cm^-3"],
+          "constraints": { "type": "positive" }
+        },
+        {
+          "key": "E_F",
+          "name": "Fermi level",
+          "si_unit": "J",
+          "preferred_units": ["J", "eV"],
+          "constraints": { "type": "finite" }
+        },
+        {
+          "key": "E_i",
+          "name": "Intrinsic energy level",
+          "si_unit": "J",
+          "preferred_units": ["J", "eV"],
+          "constraints": { "type": "finite" }
+        },
+        {
+          "key": "T",
+          "name": "Temperature",
+          "si_unit": "K",
+          "preferred_units": ["K"],
+          "constraints": { "type": "positive" }
+        }
+      ],
+      "constants_used": [
+        { "key": "k", "source": "physical_constants_table", "note": "Boltzmann constant" }
+      ],
+      "solvable_for": ["n_0", "E_F", "E_i", "T", "n_i"],
+      "compute": {
+        "n_0": "n_i*exp((E_F-E_i)/(k*T))",
+        "E_F": "E_i + (k*T)*ln(n_0/n_i)",
+        "E_i": "E_F - (k*T)*ln(n_0/n_i)",
+        "T": "(E_F-E_i)/(k*ln(n_0/n_i))",
+        "n_i": "n_0*exp(-(E_F-E_i)/(k*T))"
+      },
+      "version": 1
+    },
+    {
+      "id": "carrier_hole_concentration_p0",
+      "name": "Equilibrium hole concentration",
+      "equation_latex": "p_{0} = n_{i}\\,\\exp\\left(\\frac{E_{i} - E_{F}}{kT}\\right)",
+      "description": "",
+      "variables": [
+        {
+          "key": "p_0",
+          "name": "Equilibrium hole concentration",
+          "si_unit": "m^-3",
+          "preferred_units": ["m^-3", "cm^-3"],
+          "constraints": { "type": "positive" }
+        },
+        {
+          "key": "n_i",
+          "name": "Intrinsic carrier concentration",
+          "si_unit": "m^-3",
+          "preferred_units": ["m^-3", "cm^-3"],
+          "constraints": { "type": "positive" }
+        },
+        {
+          "key": "E_F",
+          "name": "Fermi level",
+          "si_unit": "J",
+          "preferred_units": ["J", "eV"],
+          "constraints": { "type": "finite" }
+        },
+        {
+          "key": "E_i",
+          "name": "Intrinsic energy level",
+          "si_unit": "J",
+          "preferred_units": ["J", "eV"],
+          "constraints": { "type": "finite" }
+        },
+        {
+          "key": "T",
+          "name": "Temperature",
+          "si_unit": "K",
+          "preferred_units": ["K"],
+          "constraints": { "type": "positive" }
+        }
+      ],
+      "constants_used": [
+        { "key": "k", "source": "physical_constants_table", "note": "Boltzmann constant" }
+      ],
+      "solvable_for": ["p_0", "E_F", "E_i", "T", "n_i"],
+      "compute": {
+        "p_0": "n_i*exp((E_i-E_F)/(k*T))",
+        "E_F": "E_i - (k*T)*ln(p_0/n_i)",
+        "E_i": "E_F + (k*T)*ln(p_0/n_i)",
+        "T": "(E_i-E_F)/(k*ln(p_0/n_i))",
+        "n_i": "p_0*exp(-(E_i-E_F)/(k*T))"
+      },
+      "version": 1
+    },
+    {
+      "id": "mass_action_law",
+      "name": "Mass action law",
+      "equation_latex": "n_i^2 = n_0 p_0",
+      "description": "",
+      "variables": [
+        {
+          "key": "n_i",
+          "name": "Intrinsic carrier concentration",
+          "si_unit": "m^-3",
+          "preferred_units": ["m^-3", "cm^-3"],
+          "constraints": { "type": "positive" }
+        },
+        {
+          "key": "n_0",
+          "name": "Equilibrium electron concentration",
+          "si_unit": "m^-3",
+          "preferred_units": ["m^-3", "cm^-3"],
+          "constraints": { "type": "positive" }
+        },
+        {
+          "key": "p_0",
+          "name": "Equilibrium hole concentration",
+          "si_unit": "m^-3",
+          "preferred_units": ["m^-3", "cm^-3"],
+          "constraints": { "type": "positive" }
+        }
+      ],
+      "constants_used": [],
+      "solvable_for": ["n_0", "p_0", "n_i"],
+      "compute": {
+        "n_0": "(n_i*n_i)/p_0",
+        "p_0": "(n_i*n_i)/n_0",
+        "n_i": "sqrt(n_0*p_0)"
+      },
+      "version": 1
+    },
+    {
+      "id": "doped_n_type_majority",
+      "name": "Equilibrium majority carrier (n-type, compensated)",
+      "equation_latex": "n_{0} = \\frac{(N_{D} - N_{A}) + \\sqrt{(N_{D} - N_{A})^{2} + 4 n_{i}^{2}}}{2}",
+      "description": "",
+      "variables": [
+        {
+          "key": "n_0",
+          "name": "Equilibrium electron concentration",
+          "si_unit": "m^-3",
+          "preferred_units": ["m^-3", "cm^-3"],
+          "constraints": { "type": "nonnegative" }
+        },
+        {
+          "key": "N_D",
+          "name": "Donor concentration",
+          "si_unit": "m^-3",
+          "preferred_units": ["m^-3", "cm^-3"],
+          "constraints": { "type": "nonnegative" }
+        },
+        {
+          "key": "N_A",
+          "name": "Acceptor concentration",
+          "si_unit": "m^-3",
+          "preferred_units": ["m^-3", "cm^-3"],
+          "constraints": { "type": "nonnegative" }
+        },
+        {
+          "key": "n_i",
+          "name": "Intrinsic carrier concentration",
+          "si_unit": "m^-3",
+          "preferred_units": ["m^-3", "cm^-3"],
+          "constraints": { "type": "positive" }
+        }
+      ],
+      "constants_used": [],
+      "solvable_for": ["n_0", "n_i", "N_A", "N_D"],
+      "compute": {
+        "n_0": "((N_D-N_A) + sqrt((N_D-N_A)*(N_D-N_A) + 4*n_i*n_i))/2",
+        "n_i": "0.5*sqrt(4*n_0*(N_A - N_D + n_0))",
+        "N_A": "N_D - n_0 + (n_i*n_i)/n_0",
+        "N_D": "N_A + n_0 - (n_i*n_i)/n_0"
+      },
+      "version": 1
+    },
+    {
+      "id": "doped_p_type_majority",
+      "name": "Equilibrium majority carrier (p-type, compensated)",
+      "equation_latex": "p_{0} = \\frac{(N_{A} - N_{D}) + \\sqrt{(N_{A} - N_{D})^{2} + 4 n_{i}^{2}}}{2}",
+      "description": "",
+      "variables": [
+        {
+          "key": "p_0",
+          "name": "Equilibrium hole concentration",
+          "si_unit": "m^-3",
+          "preferred_units": ["m^-3", "cm^-3"],
+          "constraints": { "type": "nonnegative" }
+        },
+        {
+          "key": "N_A",
+          "name": "Acceptor concentration",
+          "si_unit": "m^-3",
+          "preferred_units": ["m^-3", "cm^-3"],
+          "constraints": { "type": "nonnegative" }
+        },
+        {
+          "key": "N_D",
+          "name": "Donor concentration",
+          "si_unit": "m^-3",
+          "preferred_units": ["m^-3", "cm^-3"],
+          "constraints": { "type": "nonnegative" }
+        },
+        {
+          "key": "n_i",
+          "name": "Intrinsic carrier concentration",
+          "si_unit": "m^-3",
+          "preferred_units": ["m^-3", "cm^-3"],
+          "constraints": { "type": "positive" }
+        }
+      ],
+      "constants_used": [],
+      "solvable_for": ["p_0", "n_i", "N_D", "N_A"],
+      "compute": {
+        "p_0": "((N_A-N_D) + sqrt((N_A-N_D)*(N_A-N_D) + 4*n_i*n_i))/2",
+        "n_i": "0.5*sqrt(4*p_0*(N_D - N_A + p_0))",
+        "N_D": "N_A - p_0 + (n_i*n_i)/p_0",
+        "N_A": "N_D + p_0 - (n_i*n_i)/p_0"
+      },
+      "version": 1
+    },
+    {
+      "id": "charge_neutrality_equilibrium",
+      "name": "Charge neutrality (equilibrium)",
+      "equation_latex": "n_{0} + N_{A}^{-} = p_{0} + N_{D}^{+}",
+      "description": "",
+      "variables": [
+        {
+          "key": "n_0",
+          "name": "Equilibrium electron concentration",
+          "si_unit": "m^-3",
+          "preferred_units": ["m^-3", "cm^-3"],
+          "constraints": { "type": "nonnegative" }
+        },
+        {
+          "key": "p_0",
+          "name": "Equilibrium hole concentration",
+          "si_unit": "m^-3",
+          "preferred_units": ["m^-3", "cm^-3"],
+          "constraints": { "type": "nonnegative" }
+        },
+        {
+          "key": "N_A_minus",
+          "name": "Ionized acceptor concentration",
+          "si_unit": "m^-3",
+          "preferred_units": ["m^-3", "cm^-3"],
+          "constraints": { "type": "nonnegative" }
+        },
+        {
+          "key": "N_D_plus",
+          "name": "Ionized donor concentration",
+          "si_unit": "m^-3",
+          "preferred_units": ["m^-3", "cm^-3"],
+          "constraints": { "type": "nonnegative" }
+        }
+      ],
+      "constants_used": [],
+      "solvable_for": ["n_0", "p_0", "N_A_minus", "N_D_plus"],
+      "compute": {
+        "n_0": "p_0 + N_D_plus - N_A_minus",
+        "p_0": "n_0 + N_A_minus - N_D_plus",
+        "N_A_minus": "p_0 + N_D_plus - n_0",
+        "N_D_plus": "n_0 + N_A_minus - p_0"
+      },
+      "version": 1
+    }
+  ]
+}
+

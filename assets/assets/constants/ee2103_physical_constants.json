@@ -1,0 +1,24 @@
+{
+  "source": "EE2103 Appendix B (upgraded to CODATA 2018/SI-defined values)",
+  "type": "physical_constants",
+  "constants": [
+    { "id": "planck_constant", "name": "Planck's constant", "symbol": "h", "aliases": [], "value": 6.62607015e-34, "unit": "J*s", "category": "quantum", "note": "Exact (SI defining constant)" },
+    { "id": "speed_of_light", "name": "Speed of light in vacuum", "symbol": "c", "aliases": [], "value": 299792458.0, "unit": "m/s", "category": "electromagnetics", "note": "Exact (SI defining constant)" },
+    { "id": "elementary_charge", "name": "Electronic charge", "symbol": "q", "aliases": ["e"], "value": 1.602176634e-19, "unit": "C", "category": "semiconductor", "note": "Exact (SI defining constant)" },
+    { "id": "boltzmann_constant", "name": "Boltzmann constant", "symbol": "k", "aliases": ["k_B"], "value": 1.380649e-23, "unit": "J/K", "category": "thermodynamics", "note": "Exact (SI defining constant)" },
+    { "id": "boltzmann_constant_eV", "name": "Boltzmann constant in eV/K", "symbol": "k_eV", "aliases": ["k_B_eV"], "value": 8.617333262145e-5, "unit": "eV/K", "category": "thermodynamics", "note": "Derived from exact k and q: k/q = 8.617333262145e-5 eV/K" },
+    { "id": "electron_rest_mass", "name": "Free electron rest mass", "symbol": "m_0", "aliases": ["m_e"], "value": 9.1093837015e-31, "unit": "kg", "category": "particle", "note": "CODATA 2018 recommended value" },
+    { "id": "proton_rest_mass", "name": "Proton rest mass", "symbol": "m_p", "aliases": [], "value": 1.67262192369e-27, "unit": "kg", "category": "particle", "note": "CODATA 2018 recommended value" },
+    { "id": "avogadro_number", "name": "Avogadro's number", "symbol": "N_A", "aliases": [], "value": 6.02214076e23, "unit": "1/mol", "category": "chemistry", "note": "Exact (SI defining constant)" },
+    { "id": "mu0", "name": "Permeability of free space", "symbol": "mu_0", "aliases": [], "value": 1.25663706212e-6, "unit": "H/m", "expression": "4*pi*1e-7", "category": "electromagnetics", "note": "Exact: 4π × 10^-7 H/m" },
+    { "id": "eps0", "name": "Permittivity of free space", "symbol": "eps_0", "aliases": [], "value": 8.8541878128e-12, "unit": "F/m", "category": "electromagnetics", "note": "Derived from c and mu0: 1/(mu0*c^2)" },
+    { "id": "rydberg_constant", "name": "Rydberg constant", "symbol": "R_d", "aliases": ["R_inf"], "value": 10973731.568160, "unit": "1/m", "category": "quantum", "note": "CODATA 2018 recommended value" },
+    { "id": "bohr_radius", "name": "Bohr radius", "symbol": "a_0", "aliases": [], "value": 5.29177210903e-11, "unit": "m", "category": "quantum", "note": "CODATA 2018 recommended value" },
+    { "id": "gas_constant", "name": "Gas constant", "symbol": "R", "aliases": [], "value": 8.314462618, "unit": "J/(mol*K)", "category": "thermodynamics", "note": "Exact: N_A * k" },
+    { "id": "electron_volt", "name": "Electron-volt", "symbol": "eV", "aliases": [], "value": 1.602176634e-19, "unit": "J", "note": "Energy equivalent of 1 eV (exact, same as q)" },
+    { "id": "thermal_voltage_300K", "name": "Thermal voltage (T = 300 K)", "symbol": "V_T", "aliases": [], "value": 0.0259, "unit": "V", "definition": "k*T/q", "assumed_temperature_K": 300, "category": "semiconductor" }
+  ]
+}
+
+
+

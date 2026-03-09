@@ -1,0 +1,81 @@
+{
+  "id": "energy_band_structure",
+  "name": "Energy & Band Structure",
+  "formula_ids": [
+    "parabolic_band_dispersion",
+    "effective_mass_from_curvature"
+  ],
+  "formulas": [
+    {
+      "id": "parabolic_band_dispersion",
+      "name": "Parabolic band dispersion",
+      "equation_latex": "E = \\frac{\\hbar^{2} k^{2}}{2 m^{*}}",
+      "description": "Parabolic E–k dispersion near a band extremum (isotropic approximation).",
+      "variables": [
+        {
+          "key": "E",
+          "name": "Energy above band edge",
+          "si_unit": "J",
+          "preferred_units": ["J", "eV"],
+          "constraints": { "type": "nonnegative" }
+        },
+        {
+          "key": "k",
+          "name": "Wavevector",
+          "si_unit": "m^-1",
+          "preferred_units": ["m^-1"],
+          "constraints": { "type": "nonnegative" }
+        },
+        {
+          "key": "m_star",
+          "name": "Effective mass",
+          "si_unit": "kg",
+          "preferred_units": ["kg"],
+          "constraints": { "type": "positive" }
+        }
+      ],
+      "constants_used": [
+        { "key": "hbar", "source": "physical_constants_table", "note": "reduced Planck constant" },
+        { "key": "q", "source": "physical_constants_table", "note": "needed for J ↔ eV conversion in UI" }
+      ],
+      "solvable_for": ["E", "m_star", "k"],
+      "compute": {
+        "E": "(hbar*hbar*k*k)/(2*m_star)",
+        "m_star": "(hbar*hbar*k*k)/(2*E)",
+        "k": "sqrt((2*m_star*E)/(hbar*hbar))"
+      },
+      "version": 2
+    },
+    {
+      "id": "effective_mass_from_curvature",
+      "name": "Effective mass from curvature",
+      "equation_latex": "m^{*} = \\hbar^{2}\\left(\\frac{d^{2}E}{dk^{2}}\\right)^{-1}",
+      "description": "Effective mass defined from the curvature of the E–k relation at a band extremum.",
+      "variables": [
+        {
+          "key": "m_star",
+          "name": "Effective mass",
+          "si_unit": "kg",
+          "preferred_units": ["kg"],
+          "constraints": { "type": "positive" }
+        },
+        {
+          "key": "d2E_dk2",
+          "name": "Second derivative d^2E/dk^2",
+          "si_unit": "J*m^2",
+          "preferred_units": ["J*m^2"],
+          "constraints": { "type": "nonzero" }
+        }
+      ],
+      "constants_used": [
+        { "key": "hbar", "source": "physical_constants_table", "note": "reduced Planck constant" }
+      ],
+      "solvable_for": ["m_star", "d2E_dk2"],
+      "compute": {
+        "m_star": "(hbar*hbar)/d2E_dk2",
+        "d2E_dk2": "(hbar*hbar)/m_star"
+      },
+      "version": 2
+    }
+  ]
+}
