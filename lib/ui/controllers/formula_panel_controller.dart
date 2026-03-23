@@ -253,6 +253,9 @@ class FormulaPanelController extends ChangeNotifier {
         overrides: updatedOverrides,
         outputs: updatedOutputs,
         status: PanelStatus.solved,
+        lastSolvedFor: solveFor,
+        lastStepLatex: result.stepsLatex?.workingLines ?? const [],
+        lastSolvedAt: DateTime.now(),
       );
     }).toList();
     await appState.updateCurrentWorkspace(workspace.copyWith(panels: updatedPanels));

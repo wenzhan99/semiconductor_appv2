@@ -127,6 +127,9 @@ class WorkspacePanel extends Equatable {
   final Map<String, SymbolValue> outputs;
   final PanelStatus status;
   final int orderIndex;
+  final String? lastSolvedFor;
+  final List<String> lastStepLatex;
+  final DateTime? lastSolvedAt;
 
   const WorkspacePanel({
     required this.id,
@@ -135,6 +138,9 @@ class WorkspacePanel extends Equatable {
     required this.outputs,
     required this.status,
     required this.orderIndex,
+    this.lastSolvedFor,
+    this.lastStepLatex = const [],
+    this.lastSolvedAt,
   });
 
   factory WorkspacePanel.create(String formulaId, int orderIndex) {
@@ -145,6 +151,9 @@ class WorkspacePanel extends Equatable {
       outputs: const {},
       status: PanelStatus.needsInputs,
       orderIndex: orderIndex,
+      lastSolvedFor: null,
+      lastStepLatex: const [],
+      lastSolvedAt: null,
     );
   }
 
@@ -156,6 +165,13 @@ class WorkspacePanel extends Equatable {
       outputs: _safeSymbolMap(json['outputs']),
       status: PanelStatus.fromJson(json['status'] as String? ?? 'needsInputs'),
       orderIndex: json['order_index'] as int,
+      lastSolvedFor: json['last_solved_for'] as String?,
+      lastStepLatex: (json['last_step_latex'] as List<dynamic>? ?? const [])
+          .map((e) => e.toString())
+          .toList(),
+      lastSolvedAt: json['last_solved_at'] != null
+          ? DateTime.tryParse(json['last_solved_at'] as String)
+          : null,
     );
   }
 
@@ -167,6 +183,9 @@ class WorkspacePanel extends Equatable {
       'outputs': outputs.map((k, v) => MapEntry(k, v.toJson())),
       'status': status.toJson(),
       'order_index': orderIndex,
+      'last_solved_for': lastSolvedFor,
+      'last_step_latex': lastStepLatex,
+      'last_solved_at': lastSolvedAt?.toIso8601String(),
     };
   }
 
@@ -177,6 +196,9 @@ class WorkspacePanel extends Equatable {
     Map<String, SymbolValue>? outputs,
     PanelStatus? status,
     int? orderIndex,
+    String? lastSolvedFor,
+    List<String>? lastStepLatex,
+    DateTime? lastSolvedAt,
   }) {
     return WorkspacePanel(
       id: id ?? this.id,
@@ -185,11 +207,24 @@ class WorkspacePanel extends Equatable {
       outputs: outputs ?? this.outputs,
       status: status ?? this.status,
       orderIndex: orderIndex ?? this.orderIndex,
+      lastSolvedFor: lastSolvedFor ?? this.lastSolvedFor,
+      lastStepLatex: lastStepLatex ?? this.lastStepLatex,
+      lastSolvedAt: lastSolvedAt ?? this.lastSolvedAt,
     );
   }
 
   @override
-  List<Object?> get props => [id, formulaId, overrides, outputs, status, orderIndex];
+  List<Object?> get props => [
+        id,
+        formulaId,
+        overrides,
+        outputs,
+        status,
+        orderIndex,
+        lastSolvedFor,
+        lastStepLatex,
+        lastSolvedAt,
+      ];
 }
 
 /// Main workspace model storing user inputs, panels, and preferences.

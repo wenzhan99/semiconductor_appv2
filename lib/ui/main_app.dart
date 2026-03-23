@@ -3,9 +3,10 @@ import 'package:provider/provider.dart';
 import '../services/app_state.dart';
 import '../core/models/workspace.dart';
 import 'pages/topics_page.dart';
-import 'pages/workspace_page.dart';
 import 'pages/constants_units_page.dart';
 import 'pages/settings_page.dart';
+import 'pages/graphs_page.dart';
+import 'pages/history_page.dart';
 
 /// Main app screen with tab navigation.
 class MainApp extends StatefulWidget {
@@ -68,8 +69,8 @@ class _MainAppState extends State<MainApp> with SingleTickerProviderStateMixin {
             controller: _tabController,
             children: const [
               TopicsPage(),
-              _PlaceholderPage(title: 'Graphs', message: 'Graph visualization coming soon'),
-              _PlaceholderPage(title: 'History', message: 'Calculation history coming soon'),
+              GraphsPage(),
+              HistoryPage(),
               ConstantsUnitsPage(),
               SettingsPage(),
             ],
@@ -115,38 +116,3 @@ class _MainAppState extends State<MainApp> with SingleTickerProviderStateMixin {
   }
 }
 
-/// Placeholder page for tabs not yet implemented.
-class _PlaceholderPage extends StatelessWidget {
-  final String title;
-  final String message;
-
-  const _PlaceholderPage({required this.title, required this.message});
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.construction,
-            size: 64,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            title,
-            style: Theme.of(context).textTheme.headlineSmall,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            message,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-          ),
-        ],
-      ),
-    );
-  }
-}

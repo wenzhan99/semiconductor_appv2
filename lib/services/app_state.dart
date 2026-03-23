@@ -10,7 +10,7 @@ class AppState extends ChangeNotifier {
 
   List<Workspace> _workspaces = [];
   Workspace? _currentWorkspace;
-  ThemeMode _themeMode = ThemeMode.system; // Default to system
+  ThemeMode _themeMode = ThemeMode.light; // Default to light
 
   AppState(this._storageService, this._authService);
 
@@ -41,7 +41,7 @@ class AppState extends ChangeNotifier {
       }
       notifyListeners();
     }
-    // If no saved preference, keep default (ThemeMode.system)
+    // If no saved preference, keep default (ThemeMode.light)
   }
 
   /// Load all workspaces from storage.

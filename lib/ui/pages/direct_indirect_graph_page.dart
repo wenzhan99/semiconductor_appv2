@@ -1,0 +1,1811 @@
+import 'dart:async';
+import 'dart:math' as math;
+
+import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import '../theme/chart_style.dart';
+import '../widgets/latex_text.dart';
+import '../graphs/common/graph_controller.dart';
+import '../graphs/common/chart_toolbar.dart';
+import '../graphs/common/parameters_card.dart';
+import '../graphs/common/viewport_state.dart';
+import '../graphs/core/graph_config.dart';
+import '../graphs/core/standard_graph_page_scaffold.dart';
+
+class DirectIndirectGraphPage extends StatefulWidget {
+  const DirectIndirectGraphPage({super.key});
+
+  @override
+  State<DirectIndirectGraphPage> createState() =>
+      _DirectIndirectGraphPageState();
+}
+
+enum GapType { direct, indirect }
+
+enum EnergyReference { midgap, evZero, ecZero }
+
+enum AnimateParam { k0, eg, mnStar, mpStar }
+
+class _SelectedPoint {
+  final String band;
+  final double k;
+  final double kScaled;
+  final double energy;
+
+  _SelectedPoint({
+    required this.band,
+    required this.k,
+    required this.kScaled,
+    required this.energy,
+  });
+}
+
+class _HoverInfo {
+  final double k; // in m^-1
+  final double kScaled; // in 1e10 m^-1
+  final double ec;
+  final double ev;
+  final double deltaE;
+  final String activeBand; // 'Conduction' or 'Valence'
+  final Offset localPosition;
+
+  const _HoverInfo({
+    required this.k,
+    required this.kScaled,
+    required this.ec,
+    required this.ev,
+    required this.deltaE,
+    required this.activeBand,
+    required this.localPosition,
+  });
+}
+
+class _DirectIndirectGraphPageState extends State<DirectIndirectGraphPage>
+    with GraphController {
+  static const int _maxPins = 2;
+  static const Color _conductionCurveColor = Color(0xFF4F56A6);
+  static const Color _valenceCurveColor = Color(0xFFB23A48);
+  static const Color _hoverConductionColor = Color(0xFF1E88E5);
+  static const Color _hoverValenceColor = Color(0xFFE53935);
+  static const Duration _hoverCommitMinInterval = Duration(milliseconds: 16);
+  static const double _hoverMinKStep = 0.0001;
+  static const double _hoverMinPixelStep = 1.0;
+
+  GapType _gapType = GapType.direct;
+  String _preset = 'GaAs (Direct)';
+
+  double _eg = 1.42;
+  double _mnEff = 0.067;
+  double _mpEff = 0.50;
+  double _k0Scaled = 0.0;
+  double _kMaxScaled = 1.2;
+  double _points = 420;
+
+  bool _showTransitions = true;
+  bool _showBandEdges = true;
+  EnergyReference _energyReference = EnergyReference.midgap;
+
+  late ViewportState _viewport;
+  bool _scaleLineWidthWithZoom = false;
+
+  // Enhanced animation controls
+  bool _isAnimating = false;
+  Timer? _animationTimer;
+  double _animationProgress = 0.0;
+  AnimateParam _animateParam = AnimateParam.mnStar;
+  double _animateSpeed = 1.0;
+  bool _loopEnabled = true;
+  bool _reverseDirection = false;
+  bool _holdSelectedK = false;
+
+  // Animation range controls (customizable min/max)
+  double _animateRangeMin = 0.05;
+  double _animateRangeMax = 1.0;
+
+  // Plot controls for animation
+  bool _lockYAxis = false;
+  bool _overlayPreviousCurve = true;
+  double? _lockedMinY;
+  double? _lockedMaxY;
+  List<FlSpot>? _baselineCurveConduction;
+  List<FlSpot>? _baselineCurveValence;
+
+  final List<_SelectedPoint> _pinnedPoints = [];
+  _HoverInfo? _hoverInfo;
+  DateTime? _lastHoverCommitAt;
+
+  static const double _kDisplayScale = 1e10;
+  static const double _hbar = 1.054571817e-34;
+  static const double _m0 = 9.1093837015e-31;
+  static const double _q = 1.602176634e-19;
+
+  static final Map<String, _Preset> _presets = {
+    'GaAs (Direct)': _Preset(
+      eg: 1.42,
+      mnEff: 0.067,
+      mpEff: 0.50,
+      k0Scaled: 0.0,
+      kMaxScaled: 1.2,
+      gapType: GapType.direct,
+    ),
+    'Si (Indirect)': _Preset(
+      eg: 1.12,
+      mnEff: 0.26,
+      mpEff: 0.39,
+      k0Scaled: 0.85,
+      kMaxScaled: 1.2,
+      gapType: GapType.indirect,
+    ),
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    _initViewport();
+    _updateAnimationRangeDefaults();
+  }
+
+  void _initViewport() {
+    _viewport = ViewportState(
+      defaultMinX: -_kMaxScaled,
+      defaultMaxX: _kMaxScaled,
+      defaultMinY: -1.0,
+      defaultMaxY: 1.0,
+    );
+  }
+
+  void _updateAnimationRangeDefaults() {
+    final ranges = _getDefaultAnimationRange(_animateParam);
+    _animateRangeMin = ranges.min;
+    _animateRangeMax = ranges.max;
+  }
+
+  @override
+  void dispose() {
+    _animationTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    _clampK0();
+    final edges = _bandEdges();
+    final ec = edges.ec;
+    final ev = edges.ev;
+
+    final kVbm = 0.0;
+    final kCbmScaled = _gapType == GapType.direct ? 0.0 : _k0Scaled;
+    final kCbm = kCbmScaled * _kDisplayScale;
+    final evAtVbm = ev;
+    final ecAtK0 = _conductionEnergy(k: kCbm);
+    final ecAtGamma = _conductionEnergy(k: 0);
+
+    final egDirect = (ecAtGamma - evAtVbm).clamp(-100.0, 100.0);
+    final egIndirect = (ecAtK0 - evAtVbm).clamp(-100.0, 100.0);
+    final panelConfig =
+        _buildPanelConfig(egDirect, egIndirect, kCbmScaled, ec, ev);
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Direct vs Indirect Bandgap')),
+      body: StandardGraphPageScaffold(
+        config: panelConfig.copyWith(
+          title: 'Direct vs Indirect Bandgap (Schematic E-k)',
+          subtitle: 'Energy & Band Structure',
+          mainEquation:
+              r'E_c(k) = E_c + \frac{\hbar^2 (k-k_0)^2}{2 m_e^*}, \quad E_v(k) = E_v - \frac{\hbar^2 k^2}{2 m_h^*}',
+        ),
+        aboutSection: _buildAboutCard(context),
+        observeSection: _buildObserveCard(context),
+        placeSectionsInWideLeftColumn: true,
+        useTwoColumnRightPanelInWide: true,
+        wideLeftColumnSectionIds: const ['point_inspector', 'animation'],
+        wideRightColumnSectionIds: const ['notes', 'controls'],
+        chartBuilder: (context) => _buildChartCard(
+          context,
+          ec,
+          ev,
+          kVbm,
+          kCbm,
+          kCbmScaled,
+          evAtVbm,
+          ecAtGamma,
+          egDirect,
+          egIndirect,
+        ),
+      ),
+    );
+  }
+
+  // ignore: unused_element
+  Widget _buildHeader(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Direct vs Indirect Bandgap (Schematic E-k)',
+          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Energy & Band Structure',
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+        ),
+        const SizedBox(height: 12),
+        Center(
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color:
+                  Theme.of(context).colorScheme.primary.withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: Theme.of(context)
+                    .colorScheme
+                    .primary
+                    .withValues(alpha: 0.2),
+              ),
+            ),
+            child: const Column(
+              children: [
+                LatexText(
+                  r'E_c(k) = E_c + \frac{\hbar^2 (k-k_0)^2}{2 m_e^*}, \quad '
+                  r'E_v(k) = E_v - \frac{\hbar^2 k^2}{2 m_h^*}',
+                  displayMode: true,
+                  scale: 1.1,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAboutCard(BuildContext context) {
+    return Card(
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('About',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleSmall
+                    ?.copyWith(fontWeight: FontWeight.w700)),
+            const SizedBox(height: 6),
+            Text(
+              'Shows parabolic conduction and valence bands. Effective mass (m*) controls curvature: smaller m* -> steeper parabola. Band edges (Ec, Ev) remain fixed at band extrema; only curvature changes with m*.',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildObserveCard(BuildContext context) {
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: ExpansionTile(
+        initiallyExpanded: false,
+        title: Text(
+          'What you should observe',
+          style: Theme.of(context)
+              .textTheme
+              .titleSmall
+              ?.copyWith(fontWeight: FontWeight.w700),
+        ),
+        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        children: [
+          _bullet(
+              'Direct bandgap: CBM and VBM at same k -> vertical photon transition.'),
+          _bullet(
+              r'Indirect: CBM shifted to $k_0 \neq 0$ -> phonon needed for momentum.'),
+          _bullet(
+              r'Animating $m^{*}$: Band edges stay fixed, only curvature changes.'),
+          _bullet(
+              r'Smaller $m^{*}$ -> steeper parabola (energy grows faster with k).'),
+          const SizedBox(height: 8),
+          Text('Try this:',
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(fontWeight: FontWeight.w700)),
+          _bullet(
+              r'Animate $m_n^{*}$ with overlay ON to see curvature change clearly.'),
+          _bullet('Use PingPong mode to see effect in both directions.'),
+          _bullet('Lock y-axis to prevent apparent vertical shifting.'),
+          _bullet(r'Set custom range to focus on specific $m^{*}$ values.'),
+        ],
+      ),
+    );
+  }
+
+  Widget _bullet(String text) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('- '),
+          Expanded(child: _parseLatex(text)),
+        ],
+      ),
+    );
+  }
+
+  Widget _parseLatex(String text) {
+    final parts = <Widget>[];
+    final buffer = StringBuffer();
+    var inLatex = false;
+
+    for (var i = 0; i < text.length; i++) {
+      final char = text[i];
+      if (char == r'$') {
+        if (buffer.isNotEmpty) {
+          parts.add(inLatex
+              ? LatexText(buffer.toString(), scale: 1.0)
+              : Text(buffer.toString(),
+                  style: Theme.of(context).textTheme.bodyMedium));
+          buffer.clear();
+        }
+        inLatex = !inLatex;
+      } else {
+        buffer.write(char);
+      }
+    }
+    if (buffer.isNotEmpty) {
+      parts.add(inLatex
+          ? LatexText(buffer.toString(), scale: 1.0)
+          : Text(buffer.toString(),
+              style: Theme.of(context).textTheme.bodyMedium));
+    }
+    return Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: parts);
+  }
+
+  GraphConfig _buildPanelConfig(
+    double egDirect,
+    double egIndirect,
+    double kCbmScaled,
+    double ec,
+    double ev,
+  ) {
+    final controls = <Widget>[
+      ..._buildParameterControls(),
+      const SizedBox(height: 8),
+      ParameterSwitch(
+        label: 'Hold selected k',
+        value: _holdSelectedK,
+        onChanged: (v) => setState(() => _holdSelectedK = v),
+      ),
+      ParameterSwitch(
+        label: 'Lock y-axis (no auto-scale)',
+        value: _lockYAxis,
+        onChanged: (v) => setState(() => _lockYAxis = v),
+      ),
+      ParameterSwitch(
+        label: 'Overlay previous curve',
+        value: _overlayPreviousCurve,
+        onChanged: (v) => setState(() => _overlayPreviousCurve = v),
+      ),
+    ];
+
+    return GraphConfig(
+      pointInspector: _buildInspectorConfig(),
+      animation: _buildAnimationConfig(),
+      insights: _buildInsightsConfig(egDirect, egIndirect, kCbmScaled),
+      controls: ControlsConfig(
+        children: controls,
+        collapsible: true,
+        initiallyExpanded: true,
+      ),
+    );
+  }
+
+  // ignore: unused_element
+  List<ReadoutItem> _buildReadouts(
+    double egDirect,
+    double egIndirect,
+    double kCbmScaled,
+    double ec,
+    double ev,
+  ) {
+    return [
+      ReadoutItem(
+        label: r'E_{g,\mathrm{direct}}',
+        value: '${egDirect.toStringAsFixed(3)}\\ \\mathrm{eV}',
+        boldValue: true,
+      ),
+      ReadoutItem(
+        label: r'E_{g,\mathrm{indirect}}',
+        value: '${egIndirect.toStringAsFixed(3)}\\ \\mathrm{eV}',
+        boldValue: true,
+      ),
+      ReadoutItem(
+        label: r'k_0',
+        value:
+            '${kCbmScaled.toStringAsFixed(3)}\\times 10^{10}\\ \\mathrm{m^{-1}}',
+      ),
+      ReadoutItem(
+        label: r'E_c',
+        value: '${_formatEnergy(ec)}\\ \\mathrm{eV}',
+      ),
+      ReadoutItem(
+        label: r'E_v',
+        value: '${_formatEnergy(ev)}\\ \\mathrm{eV}',
+      ),
+      ReadoutItem(
+        label: 'Gap type',
+        value: _gapType == GapType.direct ? 'Direct' : 'Indirect',
+      ),
+    ];
+  }
+
+  PointInspectorConfig _buildInspectorConfig() {
+    final pinned = _pinnedPoints.isNotEmpty ? _pinnedPoints.last : null;
+    final hover = _hoverInfo;
+
+    return PointInspectorConfig(
+      enabled: true,
+      emptyMessage: 'Hover over a curve to inspect. Tap curve to pin points.',
+      onClear: () => updateChart(() {
+        _pinnedPoints.clear();
+      }),
+      interactionHint: 'Tap curve to pin/unpin (max $_maxPins).',
+      isPinned: pinned != null,
+      builder: () {
+        final lines = <String>[];
+
+        if (pinned != null) {
+          lines.add('Pinned: ${pinned.band}');
+          lines.add(
+              'k = ${pinned.kScaled.toStringAsFixed(3)}\\times 10^{10}\\,\\mathrm{m^{-1}}');
+          lines.add('E = ${_formatEnergy(pinned.energy)}\\,\\mathrm{eV}');
+        }
+
+        if (hover != null) {
+          final activeEnergy =
+              hover.activeBand == 'Conduction' ? hover.ec : hover.ev;
+          final otherEnergy =
+              hover.activeBand == 'Conduction' ? hover.ev : hover.ec;
+          final otherLabel =
+              hover.activeBand == 'Conduction' ? r'E_v(k)' : r'E_c(k)';
+          lines.add('Hover: ${hover.activeBand}');
+          lines.add(
+              'k = ${hover.kScaled.toStringAsFixed(3)}\\times 10^{10}\\,\\mathrm{m^{-1}}');
+          lines.add('E(k) = ${_formatEnergy(activeEnergy)}\\,\\mathrm{eV}');
+          lines.add(
+              '$otherLabel = ${_formatEnergy(otherEnergy)}\\,\\mathrm{eV}');
+          lines.add(
+              '\\Delta E_{\\mathrm{local}} = ${_formatEnergy(hover.deltaE)}\\,\\mathrm{eV}');
+        }
+
+        if (lines.isEmpty) {
+          lines.add('Hover or tap the chart to inspect points.');
+        }
+        return lines;
+      },
+    );
+  }
+
+  String _animateParamId(AnimateParam param) {
+    switch (param) {
+      case AnimateParam.k0:
+        return 'k0';
+      case AnimateParam.eg:
+        return 'eg';
+      case AnimateParam.mnStar:
+        return 'mn';
+      case AnimateParam.mpStar:
+        return 'mp';
+    }
+  }
+
+  AnimateParam _animateParamFromId(String id) {
+    switch (id) {
+      case 'k0':
+        return AnimateParam.k0;
+      case 'eg':
+        return AnimateParam.eg;
+      case 'mn':
+        return AnimateParam.mnStar;
+      case 'mp':
+      default:
+        return AnimateParam.mpStar;
+    }
+  }
+
+  AnimationConfig _buildAnimationConfig() {
+    final params = AnimateParam.values.map((param) {
+      final defaultRange = _getDefaultAnimationRange(param);
+      final isSelected = _animateParam == param;
+      final rangeMin = isSelected ? _animateRangeMin : defaultRange.min;
+      final rangeMax = isSelected ? _animateRangeMax : defaultRange.max;
+      return AnimatableParameter(
+        id: _animateParamId(param),
+        label: _getParamLabel(param),
+        symbol: _getParamSymbol(param),
+        unit: param == AnimateParam.k0
+            ? r'\times 10^{10}\,\mathrm{m^{-1}}'
+            : (param == AnimateParam.eg ? r'\mathrm{eV}' : r'm_0'),
+        currentValue: _getCurrentParamValue(param),
+        rangeMin: rangeMin,
+        rangeMax: rangeMax,
+        absoluteMin: _getAbsoluteMin(param),
+        absoluteMax: _getAbsoluteMax(param),
+        enabled: isSelected,
+        onEnabledChanged: (enabled) {
+          if (!enabled) return;
+          setState(() {
+            _animateParam = param;
+            _updateAnimationRangeDefaults();
+          });
+        },
+        onValueChanged: (value) {
+          if (_isAnimating) _stopAnimation();
+          _setCurrentParamValue(param, value);
+        },
+        onRangeChanged: (min, max) {
+          if (_animateParam != param) return;
+          setState(() {
+            _animateRangeMin = min;
+            _animateRangeMax = max;
+          });
+        },
+        physicsNote: param == AnimateParam.k0
+            ? 'Moves the CBM along k.'
+            : param == AnimateParam.eg
+                ? 'Band edges shift together; curvature unchanged.'
+                : 'Curvature changes while edge energies stay fixed.',
+      );
+    }).toList();
+
+    return AnimationConfig(
+      parameters: params,
+      selectedParameterId: _animateParamId(_animateParam),
+      onParameterSelected: (id) {
+        final param = _animateParamFromId(id);
+        setState(() {
+          _animateParam = param;
+          _updateAnimationRangeDefaults();
+        });
+      },
+      state: AnimationState(
+        isPlaying: _isAnimating,
+        speed: _animateSpeed,
+        reverse: _reverseDirection,
+        loop: _loopEnabled,
+        progress: _isAnimating ? _animationProgress : null,
+      ),
+      callbacks: AnimationCallbacks(
+        onPlay: _startAnimation,
+        onPause: _stopAnimation,
+        onRestart: _restartAnimation,
+        onSpeedChanged: (speed) => setState(() => _animateSpeed = speed),
+        onReverseChanged: (reverse) =>
+            setState(() => _reverseDirection = reverse),
+        onLoopChanged: (loop) => setState(() => _loopEnabled = loop),
+      ),
+    );
+  }
+
+  String _getParamSymbol(AnimateParam param) {
+    switch (param) {
+      case AnimateParam.k0:
+        return r'k_0';
+      case AnimateParam.eg:
+        return r'E_g';
+      case AnimateParam.mnStar:
+        return r'm_n^{*}';
+      case AnimateParam.mpStar:
+        return r'm_p^{*}';
+    }
+  }
+
+  String _getParamLabel(AnimateParam param) {
+    switch (param) {
+      case AnimateParam.k0:
+        return r'k_0 (k-offset)';
+      case AnimateParam.eg:
+        return r'E_g (bandgap)';
+      case AnimateParam.mnStar:
+        return r'm_n^{*} (electron mass)';
+      case AnimateParam.mpStar:
+        return r'm_p^{*} (hole mass)';
+    }
+  }
+
+  double _getCurrentParamValue(AnimateParam param) {
+    switch (param) {
+      case AnimateParam.k0:
+        return _k0Scaled;
+      case AnimateParam.eg:
+        return _eg;
+      case AnimateParam.mnStar:
+        return _mnEff;
+      case AnimateParam.mpStar:
+        return _mpEff;
+    }
+  }
+
+  void _setCurrentParamValue(AnimateParam param, double value) {
+    setState(() {
+      switch (param) {
+        case AnimateParam.k0:
+          _k0Scaled = value;
+          break;
+        case AnimateParam.eg:
+          _eg = value;
+          break;
+        case AnimateParam.mnStar:
+          _mnEff = value;
+          break;
+        case AnimateParam.mpStar:
+          _mpEff = value;
+          break;
+      }
+      if (_preset != 'Custom') _preset = 'Custom';
+      bumpChart();
+    });
+  }
+
+  double _getAbsoluteMin(AnimateParam param) {
+    switch (param) {
+      case AnimateParam.k0:
+        return 0.0;
+      case AnimateParam.eg:
+        return 0.2;
+      case AnimateParam.mnStar:
+      case AnimateParam.mpStar:
+        return 0.05;
+    }
+  }
+
+  double _getAbsoluteMax(AnimateParam param) {
+    switch (param) {
+      case AnimateParam.k0:
+        return 1.5;
+      case AnimateParam.eg:
+        return 2.5;
+      case AnimateParam.mnStar:
+      case AnimateParam.mpStar:
+        return 2.0;
+    }
+  }
+
+  List<Widget> _buildParameterControls() {
+    return [
+      ParameterSegmented<GapType>(
+        label: 'Gap type',
+        selected: {_gapType},
+        segments: const [
+          ButtonSegment(value: GapType.direct, label: Text('Direct')),
+          ButtonSegment(value: GapType.indirect, label: Text('Indirect')),
+        ],
+        onSelectionChanged: (s) => updateChart(() {
+          _gapType = s.first;
+          if (_gapType == GapType.direct) _k0Scaled = 0.0;
+          _pinnedPoints.clear();
+        }),
+      ),
+      ParameterDropdown<String>(
+        label: 'Material preset',
+        value: _preset,
+        items: const [
+          DropdownMenuItem(
+              value: 'GaAs (Direct)', child: Text('GaAs (Direct)')),
+          DropdownMenuItem(
+              value: 'Si (Indirect)', child: Text('Si (Indirect)')),
+          DropdownMenuItem(value: 'Custom', child: Text('Custom')),
+        ],
+        onChanged: (v) => updateChart(() {
+          _preset = v!;
+          _applyPreset(v);
+        }),
+      ),
+      ParameterDropdown<EnergyReference>(
+        label: 'Energy reference',
+        value: _energyReference,
+        items: const <DropdownMenuItem<EnergyReference>>[
+          DropdownMenuItem(
+              value: EnergyReference.midgap, child: Text('Midgap = 0')),
+          DropdownMenuItem(
+              value: EnergyReference.evZero,
+              child: LatexText(r'E_v = 0', scale: 0.95)),
+          DropdownMenuItem(
+              value: EnergyReference.ecZero,
+              child: LatexText(r'E_c = 0', scale: 0.95)),
+        ],
+        onChanged: (v) => updateChart(() {
+          _energyReference = v!;
+          _pinnedPoints.clear();
+        }),
+      ),
+      ParameterSlider(
+        label: r'E_g\ (\mathrm{eV})',
+        value: _eg,
+        min: 0.2,
+        max: 2.5,
+        divisions: 230,
+        onChanged: (v) =>
+            _updateCustom(() => _eg = double.parse(v.toStringAsFixed(3))),
+      ),
+      ParameterSlider(
+        label: r'\frac{m_n^{*}}{m_0}',
+        plainSuffix: '(electron mass ratio)',
+        value: _mnEff,
+        min: 0.05,
+        max: 2.0,
+        divisions: 195,
+        onChanged: (v) =>
+            _updateCustom(() => _mnEff = double.parse(v.toStringAsFixed(3))),
+        subtitle: 'Affects conduction band curvature only',
+      ),
+      ParameterSlider(
+        label: r'\frac{m_p^{*}}{m_0}',
+        plainSuffix: '(hole mass ratio)',
+        value: _mpEff,
+        min: 0.05,
+        max: 2.0,
+        divisions: 195,
+        onChanged: (v) =>
+            _updateCustom(() => _mpEff = double.parse(v.toStringAsFixed(3))),
+        subtitle: 'Affects valence band curvature only',
+      ),
+      ParameterSlider(
+        label: r'k_0\ (\times 10^{10}\,\mathrm{m^{-1}})',
+        value: _k0Scaled,
+        min: 0.0,
+        max: 1.5,
+        divisions: 150,
+        onChanged: _gapType == GapType.indirect
+            ? (v) => _updateCustom(
+                () => _k0Scaled = double.parse(v.toStringAsFixed(3)))
+            : null,
+      ),
+      ParameterSlider(
+        label: r'k_{\max}\ (\times 10^{10}\,\mathrm{m^{-1}})',
+        value: _kMaxScaled,
+        min: 0.5,
+        max: 2.0,
+        divisions: 150,
+        onChanged: (v) => _updateCustom(
+            () => _kMaxScaled = double.parse(v.toStringAsFixed(2))),
+      ),
+      ParameterSwitch(
+        label: 'Show transitions',
+        value: _showTransitions,
+        onChanged: (v) => updateChart(() => _showTransitions = v),
+      ),
+      ParameterSwitch(
+        label: 'Show band edges',
+        value: _showBandEdges,
+        onChanged: (v) => updateChart(() => _showBandEdges = v),
+      ),
+      const SizedBox(height: 8),
+      ElevatedButton.icon(
+        onPressed: _resetDemo,
+        icon: const Icon(Icons.restart_alt, size: 18),
+        label: const Text('Reset Demo'),
+        style: ElevatedButton.styleFrom(
+            minimumSize: const Size(double.infinity, 36)),
+      ),
+    ];
+  }
+
+  InsightsConfig _buildInsightsConfig(
+      double egDirect, double egIndirect, double kCbmScaled) {
+    final dynamicObs =
+        _buildDynamicObservations(egDirect, egIndirect, kCbmScaled);
+    final staticObs = _buildStaticObservations();
+
+    return InsightsConfig(
+      dynamicObservations: dynamicObs.isNotEmpty ? dynamicObs : null,
+      staticObservations: staticObs,
+      dynamicTitle:
+          _pinnedPoints.isNotEmpty ? 'From Your Pins' : 'Current Configuration',
+      pinnedCount: _pinnedPoints.length,
+      maxPins: _maxPins,
+      onClearPins: _pinnedPoints.isEmpty
+          ? null
+          : () => updateChart(() {
+                _pinnedPoints.clear();
+              }),
+    );
+  }
+
+  List<String> _buildDynamicObservations(
+      double egDirect, double egIndirect, double kCbmScaled) {
+    final obs = <String>[];
+
+    if (_gapType == GapType.direct) {
+      obs.add(
+          'Direct gap: CBM and VBM at \$k \\approx 0\$ -> vertical photon transition. '
+          '\$E_{g,\\mathrm{dir}} = ${egDirect.toStringAsFixed(3)}\\,\\mathrm{eV}\$.');
+    } else {
+      obs.add(
+          'Indirect gap: CBM at \$k_0 = ${kCbmScaled.toStringAsFixed(3)}\\times 10^{10}\\,\\mathrm{m^{-1}}\$ -> phonon needed. '
+          '\$E_{g,\\mathrm{ind}} = ${egIndirect.toStringAsFixed(3)}\\,\\mathrm{eV}\$.');
+      final deltaK = kCbmScaled.abs();
+      obs.add(
+          'CBM shift: \$\\Delta k = ${deltaK.toStringAsFixed(3)}\\times 10^{10}\\,\\mathrm{m^{-1}}\$ from \$\\Gamma\$.');
+    }
+
+    // Curvature analysis
+    obs.add(r'Curvature: $m_n^{*} = ' +
+        _mnEff.toStringAsFixed(3) +
+        r'$, $m_p^{*} = ' +
+        _mpEff.toStringAsFixed(3) +
+        r'$. Smaller $m^{*}$ -> steeper bands.');
+
+    for (var i = 0; i < _pinnedPoints.length; i++) {
+      final pin = _pinnedPoints[i];
+      obs.add(
+          'Pin ${i + 1} (${pin.band}): \$k = ${pin.kScaled.toStringAsFixed(3)}\\times 10^{10}\\,\\mathrm{m^{-1}}\$'
+          ', \$E = ${_formatEnergy(pin.energy)}\\,\\mathrm{eV}\$.');
+    }
+
+    return obs;
+  }
+
+  List<String> _buildStaticObservations() {
+    return [
+      r'Parabolic bands: $E \propto k^{2}$; smaller $m^{*}$ -> steeper curvature.',
+      r'Band edges ($E_c$, $E_v$) stay fixed at extrema; $m^{*}$ only affects curvature.',
+      r'Direct materials (GaAs): efficient light emission (LEDs, lasers).',
+      r'Indirect materials (Si): phonon required -> less efficient light emission.',
+    ];
+  }
+
+  Widget _buildChartCard(
+      BuildContext context,
+      double ec,
+      double ev,
+      double kVbm,
+      double kCbm,
+      double kCbmScaled,
+      double evAtVbm,
+      double ecAtGamma,
+      double egDirect,
+      double egIndirect) {
+    final bandColors = (
+      conduction: _conductionCurveColor,
+      valence: _valenceCurveColor,
+    );
+    final transitionColors = (
+      photon: Theme.of(context).colorScheme.secondary,
+      phonon: Theme.of(context).colorScheme.error.withValues(alpha: 0.7),
+    );
+
+    return Card(
+      elevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+              decoration: BoxDecoration(
+                color: Theme.of(context)
+                    .colorScheme
+                    .primary
+                    .withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                _gapType == GapType.direct
+                    ? 'Direct: CBM and VBM at same k (vertical transition)'
+                    : 'Indirect: CBM shifted to k0 != 0 (phonon needed)',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w600),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: Wrap(
+                    spacing: 12,
+                    runSpacing: 6,
+                    children: [
+                      _legendSwatch(bandColors.conduction, 'Conduction'),
+                      _legendSwatch(bandColors.valence, 'Valence'),
+                      if (_overlayPreviousCurve &&
+                          (_baselineCurveConduction != null ||
+                              _baselineCurveValence != null))
+                        _legendSwatch(
+                            Colors.grey.withValues(alpha: 0.4), 'Baseline'),
+                      if (_showTransitions)
+                        _legendDash(transitionColors.photon, 'Photon'),
+                      if (_showTransitions && _gapType == GapType.indirect)
+                        _legendDash(transitionColors.phonon, 'Phonon'),
+                    ],
+                  ),
+                ),
+                ChartToolbar(
+                  onZoomIn: () => updateChart(() => _viewport.zoom(0.2)),
+                  onZoomOut: () => updateChart(() => _viewport.zoom(-0.2)),
+                  onReset: () => updateChart(() => _viewport.reset()),
+                  compact: true,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: Listener(
+                onPointerSignal: (event) {
+                  if (event is PointerScrollEvent &&
+                      HardwareKeyboard.instance.isControlPressed) {
+                    final delta = event.scrollDelta.dy;
+                    updateChart(() => _viewport.zoom(delta > 0 ? -0.1 : 0.1));
+                  }
+                },
+                child: _buildChart(context, bandColors, transitionColors, kVbm,
+                    kCbm, kCbmScaled, evAtVbm, ecAtGamma),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildChart(
+      BuildContext context,
+      ({Color conduction, Color valence}) bandColors,
+      ({Color photon, Color phonon}) transitionColors,
+      double kVbm,
+      double kCbm,
+      double kCbmScaled,
+      double evAtVbm,
+      double ecAtGamma) {
+    final viewRange = _currentViewXRange();
+    final data = _buildData(viewRange.$1, viewRange.$2);
+
+    double minY, maxY;
+
+    if (_lockYAxis && _lockedMinY != null && _lockedMaxY != null) {
+      // Use locked values during animation
+      minY = _lockedMinY!;
+      maxY = _lockedMaxY!;
+    } else {
+      // Compute from data
+      final yValues = [
+        ...data.conduction.map((p) => p.energy),
+        ...data.valence.map((p) => p.energy),
+      ];
+      minY = yValues.reduce(math.min);
+      maxY = yValues.reduce(math.max);
+      final pad = (maxY - minY).abs() * 0.15 + 0.1;
+      minY -= pad;
+      maxY += pad;
+
+      // If animation just started and lock is enabled, capture these values
+      if (_lockYAxis && _isAnimating && _lockedMinY == null) {
+        _lockedMinY = minY;
+        _lockedMaxY = maxY;
+      }
+    }
+
+    final centerY = (minY + maxY) / 2;
+    final rangeY = (maxY - minY) / _viewport.zoomScale;
+    final zoomedMinY = centerY - rangeY / 2;
+    final zoomedMaxY = centerY + rangeY / 2;
+
+    final lineWidth = _scaleLineWidthWithZoom
+        ? 2 * math.sqrt(_viewport.zoomScale.clamp(0.5, 5.0))
+        : 2.0;
+
+    final lineBars = <LineChartBarData>[];
+
+    // Baseline (previous) curves (if overlay enabled)
+    if (_overlayPreviousCurve &&
+        _baselineCurveConduction != null &&
+        _baselineCurveValence != null) {
+      lineBars.add(LineChartBarData(
+        spots: _baselineCurveConduction!,
+        isCurved: false,
+        color: Colors.grey.withValues(alpha: 0.35),
+        barWidth: lineWidth * 0.8,
+        dotData: const FlDotData(show: false),
+      ));
+      lineBars.add(LineChartBarData(
+        spots: _baselineCurveValence!,
+        isCurved: false,
+        color: Colors.grey.withValues(alpha: 0.35),
+        barWidth: lineWidth * 0.8,
+        dotData: const FlDotData(show: false),
+      ));
+    }
+
+    // Active curves
+    lineBars.add(LineChartBarData(
+      spots: data.conduction.map((p) => FlSpot(p.kScaled, p.energy)).toList(),
+      isCurved: false,
+      color: bandColors.conduction,
+      barWidth: lineWidth,
+      dotData: const FlDotData(show: false),
+    ));
+    lineBars.add(LineChartBarData(
+      spots: data.valence.map((p) => FlSpot(p.kScaled, p.energy)).toList(),
+      isCurved: false,
+      color: bandColors.valence,
+      barWidth: math.max(lineWidth, 2.4),
+      dotData: const FlDotData(show: false),
+    ));
+
+    if (_showTransitions) {
+      lineBars.add(LineChartBarData(
+        spots: [
+          FlSpot(kVbm / _kDisplayScale, evAtVbm),
+          FlSpot(kVbm / _kDisplayScale, ecAtGamma)
+        ],
+        isCurved: false,
+        color: transitionColors.photon,
+        barWidth: 2,
+        dashArray: [6, 3],
+        dotData: FlDotData(
+          show: true,
+          getDotPainter: (_, __, ___, ____) => FlDotCirclePainter(
+            radius: 3,
+            color: transitionColors.photon,
+            strokeWidth: 1,
+            strokeColor: Colors.white,
+          ),
+        ),
+      ));
+
+      if (_gapType == GapType.indirect) {
+        lineBars.add(LineChartBarData(
+          spots: [
+            FlSpot(kVbm / _kDisplayScale, evAtVbm),
+            FlSpot(kCbmScaled, _conductionEnergy(k: kCbm))
+          ],
+          isCurved: false,
+          color: transitionColors.phonon,
+          barWidth: 2,
+          dashArray: [4, 4],
+          dotData: FlDotData(
+            show: true,
+            getDotPainter: (_, __, ___, ____) => FlDotCirclePainter(
+              radius: 3,
+              color: transitionColors.phonon,
+              strokeWidth: 1,
+              strokeColor: Colors.white,
+            ),
+          ),
+        ));
+      }
+    }
+
+    final transitionCount =
+        _showTransitions ? (_gapType == GapType.indirect ? 2 : 1) : 0;
+    final conductionIndex = lineBars.length - (2 + transitionCount);
+    final valenceIndex = conductionIndex + 1;
+    for (final entry in _pinnedPoints.asMap().entries) {
+      final pin = entry.value;
+      final markerColor =
+          pin.band == 'Conduction' ? _hoverConductionColor : _hoverValenceColor;
+      lineBars.add(
+        LineChartBarData(
+          spots: [FlSpot(pin.kScaled, pin.energy)],
+          isCurved: false,
+          color: markerColor.withValues(alpha: 0.0),
+          barWidth: 1,
+          dotData: FlDotData(
+            show: true,
+            getDotPainter: (_, __, ___, ____) => FlDotCirclePainter(
+              radius: 6,
+              color: markerColor,
+              strokeWidth: 2.2,
+              strokeColor: Colors.white,
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (_hoverInfo != null) {
+      final hoverIsConduction = _hoverInfo!.activeBand == 'Conduction';
+      final hoverY = hoverIsConduction ? _hoverInfo!.ec : _hoverInfo!.ev;
+      final hoverColor =
+          hoverIsConduction ? _hoverConductionColor : _hoverValenceColor;
+      lineBars.add(
+        LineChartBarData(
+          spots: [FlSpot(_hoverInfo!.kScaled, hoverY)],
+          isCurved: false,
+          color: Colors.transparent,
+          barWidth: 1,
+          dotData: FlDotData(
+            show: true,
+            getDotPainter: (_, __, ___, ____) => FlDotCirclePainter(
+              radius: 5.2,
+              color: hoverColor,
+              strokeWidth: 1.6,
+              strokeColor: Colors.white,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            LineChart(
+              key: ValueKey('direct-$chartVersion'),
+              LineChartData(
+                clipData: const FlClipData.all(),
+                minX: _viewport.minX,
+                maxX: _viewport.maxX,
+                minY: zoomedMinY,
+                maxY: zoomedMaxY,
+                extraLinesData: _showBandEdges
+                    ? ExtraLinesData(
+                        horizontalLines: [
+                          HorizontalLine(
+                              y: _bandEdges().ec,
+                              color:
+                                  bandColors.conduction.withValues(alpha: 0.35),
+                              strokeWidth: 1,
+                              dashArray: [4, 4]),
+                          HorizontalLine(
+                              y: _bandEdges().ev,
+                              color: bandColors.valence.withValues(alpha: 0.35),
+                              strokeWidth: 1,
+                              dashArray: [4, 4]),
+                        ],
+                      )
+                    : null,
+                lineTouchData: LineTouchData(
+                  enabled: true,
+                  handleBuiltInTouches: false,
+                  touchSpotThreshold: 44,
+                  distanceCalculator: (touchPoint, spotPixelCoordinates) {
+                    final delta = touchPoint - spotPixelCoordinates;
+                    return delta.distance;
+                  },
+                  touchCallback: (event, response) {
+                    final isHoverIntent = event is FlPointerHoverEvent ||
+                        event is FlPanUpdateEvent;
+                    final isPinIntent =
+                        event is FlTapDownEvent || event is FlLongPressStart;
+
+                    if (event is FlPointerExitEvent) {
+                      if (_hoverInfo != null) {
+                        setState(() => _hoverInfo = null);
+                      }
+                      return;
+                    }
+
+                    if (_isAnimating && isHoverIntent) {
+                      return;
+                    }
+
+                    final hoverable = (response?.lineBarSpots ?? [])
+                        .where((s) =>
+                            s.barIndex == conductionIndex ||
+                            s.barIndex == valenceIndex)
+                        .toList();
+                    if (hoverable.isEmpty) {
+                      if (!isHoverIntent || _hoverInfo == null) {
+                        return;
+                      }
+                      setState(() => _hoverInfo = null);
+                      return;
+                    }
+
+                    final chosen = hoverable
+                        .reduce((a, b) => a.distance <= b.distance ? a : b);
+                    final kScaled = chosen.x;
+                    final k = kScaled * _kDisplayScale;
+                    final ecHover = _conductionEnergy(k: k);
+                    final evHover = _valenceEnergy(k: k);
+                    final delta = ecHover - evHover;
+                    final band = chosen.barIndex == conductionIndex
+                        ? 'Conduction'
+                        : 'Valence';
+                    final nextHover = _HoverInfo(
+                      k: k,
+                      kScaled: kScaled,
+                      ec: ecHover,
+                      ev: evHover,
+                      deltaE: delta,
+                      activeBand: band,
+                      localPosition: event.localPosition ?? Offset.zero,
+                    );
+
+                    if (!isPinIntent &&
+                        isHoverIntent &&
+                        !_shouldCommitHoverUpdate(nextHover)) {
+                      return;
+                    }
+
+                    setState(() {
+                      _hoverInfo = nextHover;
+                      if (isPinIntent) {
+                        _togglePinnedPoint(_SelectedPoint(
+                          band: band,
+                          k: k,
+                          kScaled: kScaled,
+                          energy: band == 'Conduction' ? ecHover : evHover,
+                        ));
+                      }
+                    });
+                  },
+                  touchTooltipData: LineTouchTooltipData(
+                    getTooltipItems: (spots) =>
+                        List<LineTooltipItem?>.filled(spots.length, null),
+                  ),
+                ),
+                gridData: FlGridData(show: true),
+                titlesData: FlTitlesData(
+                  leftTitles: AxisTitles(
+                    axisNameWidget:
+                        const LatexText(r'E\ (\mathrm{eV})', scale: 0.95),
+                    axisNameSize: 44,
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: context.chartStyle.leftReservedSize,
+                      getTitlesWidget: (v, _) => Padding(
+                        padding: context.chartStyle.tickPadding,
+                        child: Text(v.toStringAsFixed(1),
+                            style: context.chartStyle.tickTextStyle),
+                      ),
+                    ),
+                  ),
+                  bottomTitles: AxisTitles(
+                    axisNameWidget: const LatexText(
+                        r'k\ (\times 10^{10}\ \mathrm{m^{-1}})',
+                        scale: 0.95),
+                    axisNameSize: 40,
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: context.chartStyle.bottomReservedSize,
+                      getTitlesWidget: (v, _) => Padding(
+                        padding: context.chartStyle.tickPadding,
+                        child: Text(v.toStringAsFixed(1),
+                            style: context.chartStyle.tickTextStyle),
+                      ),
+                    ),
+                  ),
+                  rightTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false)),
+                  topTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false)),
+                ),
+                borderData: FlBorderData(show: true),
+                lineBarsData: lineBars,
+              ),
+            ),
+            if (_hoverInfo != null)
+              _HoverTooltip(
+                info: _hoverInfo!,
+                maxWidth: constraints.maxWidth,
+                isIndirect: _gapType == GapType.indirect,
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  // === Physics methods ===
+  ({double ec, double ev}) _bandEdges() {
+    switch (_energyReference) {
+      case EnergyReference.midgap:
+        return (ec: _eg / 2, ev: -_eg / 2);
+      case EnergyReference.evZero:
+        return (ec: _eg, ev: 0.0);
+      case EnergyReference.ecZero:
+        return (ec: 0.0, ev: -_eg);
+    }
+  }
+
+  _GraphData _buildData(double kMinScaled, double kMaxScaled) {
+    final pts = _points.toInt().clamp(2, 2000);
+    final kMin = kMinScaled * _kDisplayScale;
+    final kMax = kMaxScaled * _kDisplayScale;
+    final k0 = (_gapType == GapType.direct ? 0.0 : _k0Scaled) * _kDisplayScale;
+    final edges = _bandEdges();
+
+    final conduction = <_GraphPoint>[];
+    final valence = <_GraphPoint>[];
+
+    for (var i = 0; i < pts; i++) {
+      final t = pts == 1 ? 0.0 : i / (pts - 1);
+      final k = kMin + (kMax - kMin) * t;
+      final kScaled = k / _kDisplayScale;
+
+      // CRITICAL: Valence band edge is at k=0 by definition
+      // E_v(k) = E_v - (hbar^2 k^2)/(2m_h*) where E_v is the valence band maximum
+      final eValence = edges.ev - _bandEnergyTerm(k, _mpEff);
+      valence.add(_GraphPoint(k: k, kScaled: kScaled, energy: eValence));
+
+      // CRITICAL: Conduction band edge is at k=k0
+      // E_c(k) = E_c + (hbar^2 (k-k0)^2)/(2m_e*) where E_c is the conduction band minimum
+      final eConduction = edges.ec + _bandEnergyTerm(k - k0, _mnEff);
+      conduction.add(_GraphPoint(k: k, kScaled: kScaled, energy: eConduction));
+    }
+
+    return _GraphData(conduction: conduction, valence: valence);
+  }
+
+  double _bandEnergyTerm(double k, double mEff) {
+    // DeltaE = (hbar^2 k^2)/(2m*) - parabolic dispersion term
+    // This is the energy INCREASE away from the band extremum
+    return (_hbar * _hbar * k * k) / (2 * (mEff * _m0)) / _q;
+  }
+
+  double _conductionEnergy({required double k}) {
+    final ec = _bandEdges().ec;
+    final k0 = (_gapType == GapType.direct ? 0.0 : _k0Scaled) * _kDisplayScale;
+    // E_c(k) = E_c + (hbar^2 (k-k0)^2)/(2m_e*)
+    return ec + _bandEnergyTerm(k - k0, _mnEff);
+  }
+
+  double _valenceEnergy({required double k}) {
+    // E_v(k) = E_v - (hbar^2 k^2)/(2m_h*)
+    final ev = _bandEdges().ev;
+    return ev - _bandEnergyTerm(k, _mpEff);
+  }
+
+  void _clampK0() {
+    final max = _kMaxScaled.abs();
+    if (_k0Scaled > max) _k0Scaled = max;
+    if (_k0Scaled < -max) _k0Scaled = -max;
+  }
+
+  (double, double) _currentViewXRange() {
+    final baseRange = _kMaxScaled * 2;
+    final range = baseRange / _viewport.zoomScale;
+    var min = -range / 2;
+    var max = range / 2;
+    const double cap = 3.0;
+    min = min.clamp(-cap * _kMaxScaled.abs(), cap * _kMaxScaled.abs());
+    max = max.clamp(-cap * _kMaxScaled.abs(), cap * _kMaxScaled.abs());
+    if (min == max) {
+      min -= 0.1;
+      max += 0.1;
+    }
+    return (min, max);
+  }
+
+  void _applyPreset(String preset) {
+    final p = _presets[preset];
+    if (p != null) {
+      _eg = p.eg;
+      _mnEff = p.mnEff;
+      _mpEff = p.mpEff;
+      _k0Scaled = p.k0Scaled;
+      _kMaxScaled = p.kMaxScaled;
+      _gapType = p.gapType;
+      _pinnedPoints.clear();
+    }
+  }
+
+  void _resetDemo() {
+    _stopAnimation();
+    updateChart(() {
+      _preset = 'GaAs (Direct)';
+      _applyPreset(_preset);
+      _points = 420;
+      _showTransitions = true;
+      _showBandEdges = true;
+      _energyReference = EnergyReference.midgap;
+      _pinnedPoints.clear();
+      _viewport.reset();
+      _lockYAxis = false;
+      _overlayPreviousCurve = true;
+      _lockedMinY = null;
+      _lockedMaxY = null;
+      _baselineCurveConduction = null;
+      _baselineCurveValence = null;
+    });
+  }
+
+  void _updateCustom(VoidCallback update) {
+    setState(() {
+      update();
+      if (_preset != 'Custom') _preset = 'Custom';
+      if (_gapType == GapType.direct) _k0Scaled = 0.0;
+      _pinnedPoints.clear();
+      bumpChart();
+    });
+  }
+
+  bool _shouldCommitHoverUpdate(_HoverInfo next) {
+    final now = DateTime.now();
+    final previous = _hoverInfo;
+    if (previous == null) {
+      _lastHoverCommitAt = now;
+      return true;
+    }
+
+    if ((next.kScaled - previous.kScaled).abs() < 1e-6 &&
+        (next.ec - previous.ec).abs() < 1e-6 &&
+        (next.ev - previous.ev).abs() < 1e-6 &&
+        next.activeBand == previous.activeBand) {
+      return false;
+    }
+
+    final kDelta = (next.kScaled - previous.kScaled).abs();
+    final dx = (next.localPosition.dx - previous.localPosition.dx).abs();
+    final dy = (next.localPosition.dy - previous.localPosition.dy).abs();
+    final movedEnough = kDelta >= _hoverMinKStep ||
+        dx >= _hoverMinPixelStep ||
+        dy >= _hoverMinPixelStep ||
+        next.activeBand != previous.activeBand;
+    if (!movedEnough) return false;
+
+    if (_lastHoverCommitAt != null &&
+        now.difference(_lastHoverCommitAt!) < _hoverCommitMinInterval) {
+      return false;
+    }
+
+    _lastHoverCommitAt = now;
+    return true;
+  }
+
+  bool _samePinnedPoint(_SelectedPoint a, _SelectedPoint b) {
+    return a.band == b.band && (a.kScaled - b.kScaled).abs() < 1e-4;
+  }
+
+  void _togglePinnedPoint(_SelectedPoint point) {
+    final existing =
+        _pinnedPoints.indexWhere((p) => _samePinnedPoint(p, point));
+    if (existing >= 0) {
+      _pinnedPoints.removeAt(existing);
+    } else {
+      _pinnedPoints.add(point);
+      if (_pinnedPoints.length > _maxPins) {
+        _pinnedPoints.removeAt(0);
+      }
+    }
+  }
+
+  String _formatEnergy(double value) {
+    final adjusted = value.abs() < 0.0005 ? 0.0 : value;
+    final sign = adjusted >= 0 ? '+' : '';
+    return '$sign${adjusted.toStringAsFixed(3)}';
+  }
+
+  Widget _legendSwatch(Color color, String label) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+            height: 10,
+            width: 18,
+            decoration: BoxDecoration(
+                color: color, borderRadius: BorderRadius.circular(6))),
+        const SizedBox(width: 6),
+        Text(label, style: const TextStyle(fontSize: 12)),
+      ],
+    );
+  }
+
+  Widget _legendDash(Color color, String label) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: List.generate(
+              3,
+              (_) => Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 1.5),
+                    child: Container(width: 6, height: 2, color: color),
+                  )),
+        ),
+        const SizedBox(width: 6),
+        Text(label, style: const TextStyle(fontSize: 12)),
+      ],
+    );
+  }
+
+  // === Enhanced Animation Methods ===
+
+  void _startAnimation() {
+    if (_isAnimating) return;
+
+    // Capture baseline curves for overlay
+    if (_overlayPreviousCurve) {
+      final viewRange = _currentViewXRange();
+      final baselineData = _buildData(viewRange.$1, viewRange.$2);
+      _baselineCurveConduction = baselineData.conduction
+          .map((p) => FlSpot(p.kScaled, p.energy))
+          .toList();
+      _baselineCurveValence =
+          baselineData.valence.map((p) => FlSpot(p.kScaled, p.energy)).toList();
+    }
+
+    // Lock y-axis if enabled
+    if (_lockYAxis) {
+      final viewRange = _currentViewXRange();
+      final data = _buildData(viewRange.$1, viewRange.$2);
+      final yValues = [
+        ...data.conduction.map((p) => p.energy),
+        ...data.valence.map((p) => p.energy),
+      ];
+      final minY = yValues.reduce(math.min);
+      final maxY = yValues.reduce(math.max);
+      final pad = (maxY - minY).abs() * 0.15 + 0.1;
+      _lockedMinY = minY - pad;
+      _lockedMaxY = maxY + pad;
+    }
+
+    setState(() {
+      _isAnimating = true;
+      _animationProgress = 0.0;
+    });
+
+    final duration = Duration(milliseconds: (2500 / _animateSpeed).round());
+    const steps = 60;
+    final stepDuration =
+        Duration(milliseconds: duration.inMilliseconds ~/ steps);
+
+    _animationTimer = Timer.periodic(stepDuration, (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+
+      setState(() {
+        _animationProgress += (1.0 / steps) * (_reverseDirection ? -1 : 1);
+
+        if (_animationProgress >= 1.0) {
+          if (_loopEnabled) {
+            _animationProgress = 0.0;
+          } else {
+            _animationProgress = 1.0;
+            _isAnimating = false;
+            timer.cancel();
+            _clearAnimationState();
+          }
+        } else if (_animationProgress <= 0.0) {
+          if (_loopEnabled) {
+            _animationProgress = 1.0;
+          } else {
+            _animationProgress = 0.0;
+            _isAnimating = false;
+            timer.cancel();
+            _clearAnimationState();
+          }
+        }
+
+        // Update parameter value
+        final t = _animationProgress.clamp(0.0, 1.0);
+        final value =
+            _animateRangeMin + (_animateRangeMax - _animateRangeMin) * t;
+
+        switch (_animateParam) {
+          case AnimateParam.k0:
+            _k0Scaled = value;
+            break;
+          case AnimateParam.eg:
+            _eg = value;
+            break;
+          case AnimateParam.mnStar:
+            _mnEff = value;
+            break;
+          case AnimateParam.mpStar:
+            _mpEff = value;
+            break;
+        }
+
+        bumpChart();
+      });
+    });
+  }
+
+  void _stopAnimation() {
+    _animationTimer?.cancel();
+    setState(() {
+      _isAnimating = false;
+      _clearAnimationState();
+    });
+  }
+
+  void _clearAnimationState() {
+    _lockedMinY = null;
+    _lockedMaxY = null;
+    if (!_overlayPreviousCurve || !_isAnimating) {
+      _baselineCurveConduction = null;
+      _baselineCurveValence = null;
+    }
+  }
+
+  void _restartAnimation() {
+    _stopAnimation();
+    setState(() {
+      _animationProgress = _reverseDirection ? 1.0 : 0.0;
+      _baselineCurveConduction = null;
+      _baselineCurveValence = null;
+    });
+    _startAnimation();
+  }
+
+  ({double min, double max}) _getDefaultAnimationRange(AnimateParam param) {
+    switch (param) {
+      case AnimateParam.k0:
+        return (min: 0.0, max: 1.2);
+      case AnimateParam.eg:
+        return (min: 0.5, max: 2.0);
+      case AnimateParam.mnStar:
+        return (min: 0.05, max: 1.0);
+      case AnimateParam.mpStar:
+        return (min: 0.05, max: 1.0);
+    }
+  }
+}
+
+class _GraphData {
+  final List<_GraphPoint> conduction;
+  final List<_GraphPoint> valence;
+  _GraphData({required this.conduction, required this.valence});
+}
+
+class _GraphPoint {
+  final double k, kScaled, energy;
+  _GraphPoint({required this.k, required this.kScaled, required this.energy});
+}
+
+class _Preset {
+  final double eg, mnEff, mpEff, k0Scaled, kMaxScaled;
+  final GapType gapType;
+  _Preset({
+    required this.eg,
+    required this.mnEff,
+    required this.mpEff,
+    required this.k0Scaled,
+    required this.kMaxScaled,
+    required this.gapType,
+  });
+}
+
+class _HoverTooltip extends StatelessWidget {
+  final _HoverInfo info;
+  final double maxWidth;
+  final bool isIndirect;
+
+  const _HoverTooltip({
+    required this.info,
+    required this.maxWidth,
+    this.isIndirect = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const maxTooltipWidth = 300.0;
+    final width = math.min(maxTooltipWidth, maxWidth - 8);
+    const estimatedHeight = 150.0;
+    final left = (info.localPosition.dx + 12)
+        .clamp(4.0, math.max(4.0, maxWidth - width - 4))
+        .toDouble();
+    final top = (info.localPosition.dy - estimatedHeight - 12)
+        .clamp(4.0, 240.0)
+        .toDouble();
+    final deltaLabel = isIndirect
+        ? r'\Delta E_{\mathrm{local}}'
+        : r'\Delta E_{\mathrm{hover}}';
+    final activeEnergy = info.activeBand == 'Conduction' ? info.ec : info.ev;
+    final otherEnergy = info.activeBand == 'Conduction' ? info.ev : info.ec;
+    final otherLabel = info.activeBand == 'Conduction' ? r'E_v' : r'E_c';
+
+    return Positioned(
+      left: left,
+      top: top,
+      child: Material(
+        elevation: 4,
+        borderRadius: BorderRadius.circular(8),
+        color: Theme.of(context).colorScheme.surface,
+        child: Container(
+          width: width,
+          padding: const EdgeInsets.all(10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Text('Hover',
+                      style: Theme.of(context)
+                          .textTheme
+                          .labelLarge
+                          ?.copyWith(fontWeight: FontWeight.w700)),
+                  const Spacer(),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .primary
+                          .withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(info.activeBand,
+                        style: const TextStyle(fontSize: 11)),
+                  )
+                ],
+              ),
+              const SizedBox(height: 8),
+              _metricRow(
+                context,
+                label: r'k',
+                valueLatex:
+                    '${info.kScaled.toStringAsFixed(3)}\\times 10^{10}\\ \\mathrm{m^{-1}}',
+              ),
+              _metricRow(
+                context,
+                label: r'E',
+                valueLatex: '${activeEnergy.toStringAsFixed(3)}\\ \\mathrm{eV}',
+              ),
+              _metricRow(
+                context,
+                label: otherLabel,
+                valueLatex: '${otherEnergy.toStringAsFixed(3)}\\ \\mathrm{eV}',
+              ),
+              _metricRow(
+                context,
+                label: deltaLabel,
+                valueLatex: '${info.deltaE.toStringAsFixed(3)}\\ \\mathrm{eV}',
+              ),
+              if (isIndirect)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                      'Local vertical gap at cursor (not Eg for indirect).',
+                      style: Theme.of(context).textTheme.bodySmall),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _metricRow(
+    BuildContext context, {
+    required String label,
+    required String valueLatex,
+  }) {
+    final textStyle = Theme.of(context).textTheme.bodySmall?.copyWith(
+              fontSize: 12,
+              height: 1.25,
+            ) ??
+        const TextStyle(fontSize: 12, height: 1.25);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 58,
+            child: LatexText('$label =', style: textStyle),
+          ),
+          Expanded(
+            child: LatexText(valueLatex, style: textStyle),
+          ),
+        ],
+      ),
+    );
+  }
+}

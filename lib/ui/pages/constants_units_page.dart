@@ -97,12 +97,12 @@ class _ConstantsUnitsPageState extends State<ConstantsUnitsPage> {
                 return [
                   symbol,
                   c.name,
-                  _formatValue(c.value),
-                  c.unit,
-                  c.note ?? '—',
+                  _formatValueLatex(c.value),
+                  _formatUnitLatex(c.unit),
+                  _formatNote(c.note ?? '—'),
                 ];
               }).toList(),
-              latexColumns: const {0},
+              latexColumns: const {0, 2, 3},
             ),
           ],
         ),
@@ -115,12 +115,12 @@ class _ConstantsUnitsPageState extends State<ConstantsUnitsPage> {
     final k = constantsRepo.getConstantValue('k');
     final q = constantsRepo.getConstantValue('q');
     
-    String expression = 'V_T = kT / q';
-    String defaultValue = '—';
+    const expression = r'V_T = \frac{kT}{q}';
+    String defaultValueLatex = r'\text{—}';
     
     if (k != null && q != null) {
       final vt300K = (k * 300) / q;
-      defaultValue = '${_formatValue(vt300K)} V';
+      defaultValueLatex = _formatter.formatLatexWithUnit(vt300K, 'V');
     }
 
     return Card(
@@ -134,13 +134,13 @@ class _ConstantsUnitsPageState extends State<ConstantsUnitsPage> {
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
-            Text(
-              'Expression: $expression',
+            LatexText(
+              expression,
               style: Theme.of(context).textTheme.bodyMedium,
             ),
             const SizedBox(height: 4),
-            Text(
-              'Default temperature: 300 K → V_T ≈ $defaultValue',
+            LatexText(
+              r'T = 300\,\mathrm{K} \;\Rightarrow\; V_T \approx ' + defaultValueLatex,
               style: Theme.of(context).textTheme.bodyMedium,
             ),
           ],
@@ -161,10 +161,10 @@ class _ConstantsUnitsPageState extends State<ConstantsUnitsPage> {
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
-            for (final helper in _unitHelpers)
+            for (final helper in _unitHelpersLatex)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 2),
-                child: Text(
+                child: LatexText(
                   helper,
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
@@ -275,6 +275,24 @@ class _ConstantsUnitsPageState extends State<ConstantsUnitsPage> {
     // Use NumberFormatter for consistent LaTeX-style formatting
     return _formatter.formatPlainText(value);
   }
+
+  String _formatValueLatex(double value) {
+    return _formatter.formatLatex(value);
+  }
+
+  String _formatUnitLatex(String unit) {
+    final withDummyValue = _formatter.formatLatexWithUnit(1, unit);
+    return withDummyValue.replaceFirst(RegExp(r'^1\\,'), '');
+  }
+
+  String _formatNote(String note) {
+    return note
+        .replaceAll('N_A', 'Nₐ')
+        .replaceAll('mu0', 'μ₀')
+        .replaceAll('*', ' × ')
+        .replaceAll('c^2', 'c²')
+        .replaceAll('10^-7', '10⁻⁷');
+  }
 }
 
 class _MaterialEntry {
@@ -291,10 +309,10 @@ class _DielectricEntry {
   const _DielectricEntry(this.name, this.epsR);
 }
 
-const _unitHelpers = [
-  '1 cm⁻³ = 1×10⁶ m⁻³',
-  '1 eV = 1.602×10⁻¹⁹ J',
-  '1 Å = 1×10⁻¹⁰ m',
+const _unitHelpersLatex = [
+  r'1\,\mathrm{cm}^{-3} = 1 \times 10^{6}\,\mathrm{m}^{-3}',
+  r'1\,\mathrm{eV} = 1.602 \times 10^{-19}\,\mathrm{J}',
+  r'1\,\mathrm{\AA} = 1 \times 10^{-10}\,\mathrm{m}',
 ];
 
 const _materials = [
