@@ -35,6 +35,7 @@ class FormulaPanelController extends ChangeNotifier {
   StepLatex? lastSteps;
   Map<String, SymbolValue>? lastOutputs;
   String? lastError;
+  String? lastErrorLatex;
   bool isComputing = false;
   String? densityDisplayUnitMeta;
   String? energyDisplayUnitMeta;
@@ -164,7 +165,18 @@ class FormulaPanelController extends ChangeNotifier {
     } else if (missing.isEmpty) {
       solveFor = formula.solvableFor?.first ?? (formula.variablesResolved.isNotEmpty ? formula.variablesResolved.first.key : '');
     } else {
-      _finishWithError('Missing required inputs: ${missing.join(", ")}');
+      final plainMissing = missing.join(', ');
+      final latexMissing = missing
+          .map((key) {
+            final mapped = latexMap.latexOf(key);
+            if (mapped.isNotEmpty) return mapped;
+            return _fallbackSymbolLatex(key);
+          })
+          .join(r',\;');
+      _finishWithError(
+        'Missing required inputs: $plainMissing',
+        latexMessage: r'\text{Missing required inputs: } ' + latexMissing,
+      );
       return;
     }
 
@@ -273,6 +285,7 @@ class FormulaPanelController extends ChangeNotifier {
     lastOutputs = null;
     lastSteps = null;
     lastError = null;
+    lastErrorLatex = null;
     notifyListeners();
   }
 
@@ -367,14 +380,24 @@ class FormulaPanelController extends ChangeNotifier {
   void _startComputing() {
     isComputing = true;
     lastError = null;
+    lastErrorLatex = null;
     lastSteps = null;
     lastOutputs = null;
     notifyListeners();
   }
 
-  void _finishWithError(String message) {
+  void _finishWithError(String message, {String? latexMessage}) {
     isComputing = false;
     lastError = message;
+    lastErrorLatex = latexMessage;
     notifyListeners();
+  }
+
+  String _fallbackSymbolLatex(String key) {
+    final match = RegExp(r'^([A-Za-z]+)_(.+)$').firstMatch(key);
+    if (match == null) return key;
+    final base = match.group(1)!;
+    final sub = match.group(2)!;
+    return '${base}_{${sub}}';
   }
 }

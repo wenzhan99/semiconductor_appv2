@@ -22,7 +22,8 @@ class PnLatex {
   static const String unitUm = r'\mu\mathrm{m}';
 
   static String withUnit(String symbolTex, String unitTex) {
-    return '\$$symbolTex\\,($unitTex)\$';
+    // LatexText/Math.tex expects a pure math expression (no surrounding $...$).
+    return '$symbolTex\\,($unitTex)';
   }
 
   static String depletionPlotTex(String plotId) {

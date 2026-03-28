@@ -110,6 +110,7 @@ class _FormulaPanelState extends State<FormulaPanel> {
         if (_controller.lastError != null)
           StatusBanner.error(
             message: _controller.lastError ?? '',
+            latexMessage: _controller.lastErrorLatex,
             background: Theme.of(context).colorScheme.errorContainer,
             foreground: Theme.of(context).colorScheme.onErrorContainer,
           ),

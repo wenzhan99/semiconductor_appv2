@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../formula_ui_theme.dart';
+import '../latex_text.dart';
 
 class StatusBanner extends StatelessWidget {
   const StatusBanner({
@@ -9,11 +10,13 @@ class StatusBanner extends StatelessWidget {
     required this.backgroundColor,
     required this.foregroundColor,
     required this.message,
+    this.latexMessage,
   });
 
   const StatusBanner.error({
     super.key,
     required this.message,
+    this.latexMessage,
     required Color background,
     required Color foreground,
   })  : icon = Icons.error_outline,
@@ -23,6 +26,7 @@ class StatusBanner extends StatelessWidget {
   const StatusBanner.notice({
     super.key,
     required this.message,
+    this.latexMessage,
     required Color background,
     required Color foreground,
   })  : icon = Icons.info_outline,
@@ -33,6 +37,7 @@ class StatusBanner extends StatelessWidget {
   final Color backgroundColor;
   final Color foregroundColor;
   final String message;
+  final String? latexMessage;
 
   @override
   Widget build(BuildContext context) {
@@ -47,10 +52,21 @@ class StatusBanner extends StatelessWidget {
           Icon(icon, color: foregroundColor),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(
-              message,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: foregroundColor),
-            ),
+            child: latexMessage != null && latexMessage!.trim().isNotEmpty
+                ? LatexText(
+                    latexMessage!,
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(color: foregroundColor),
+                  )
+                : Text(
+                    message,
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(color: foregroundColor),
+                  ),
           ),
         ],
       ),
